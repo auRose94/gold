@@ -12,6 +12,7 @@
 #include "game/world.hpp"
 #include "game/graphics.hpp"
 #include "game/mesh.hpp"
+#include "game/meshRenderer.hpp"
 #include "image.hpp"
 #include "goldtest.hpp"
 
@@ -269,6 +270,19 @@ TEST(headless_graphics_lifecycle) {
 	EXPECT_FALSE(gfx.destroy().isError());
 	EXPECT_FALSE(gfx.destroy().isError());
 	win.destroy();
+}
+
+TEST(public_game_entrypoints_report_invalid_calls) {
+	window win;
+	EXPECT_TRUE(win.handleEvent(list()).isError());
+	EXPECT_TRUE(win.handleEvent({obj()}).isError());
+	mesh model;
+	EXPECT_TRUE(model.getMaterial(list()).isError());
+	EXPECT_TRUE(model.getMaterialFromPrimitive(list()).isError());
+	sprite spr;
+	EXPECT_TRUE(spr.draw(list()).isError());
+	meshRenderer renderer;
+	EXPECT_TRUE(renderer.draw(list()).isError());
 }
 
 int main() {

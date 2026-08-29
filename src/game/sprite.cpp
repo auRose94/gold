@@ -160,6 +160,7 @@ namespace gold {
 	}
 
 	var sprite::draw(list args) {
+		if (args.size() == 0) return genericError("Sprite draw requires a view");
 		auto view = args[0].getUInt16();
 		updateVertexBuffer();
 		auto vbh = getObject<vertexBuffer>("vbh");

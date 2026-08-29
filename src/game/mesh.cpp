@@ -645,6 +645,8 @@ namespace gold {
 	}
 
 	var mesh::getMaterial(list args) {
+		if (args.size() == 0)
+			return genericError("Material lookup requires a name or index");
 		auto fArg = args.getVar(0);
 		if (fArg.isString()) {
 			auto name = fArg.getString();
@@ -665,6 +667,8 @@ namespace gold {
 	}
 
 	var mesh::getMaterialFromPrimitive(list args) {
+		if (args.size() < 2)
+			return genericError("Material lookup requires node and primitive");
 		auto name = args.getString(0);
 		auto pri = args.getUInt64(1);
 		auto materials = getList("materials");

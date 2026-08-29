@@ -217,6 +217,8 @@ namespace gold {
 	}
 
 	var meshRenderer::draw(list args) {
+		if (args.size() < 5)
+			return genericError("Mesh draw requires view, camera, lights, environment, and occlusion query");
 		auto view = args[0].getUInt16();
 		auto cam = args[1].getObject<camera>();
 		auto lights = args[2].getList();

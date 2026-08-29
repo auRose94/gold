@@ -213,9 +213,11 @@ namespace gold {
 	// ---- event dispatch ------------------------------------------------
 
 	var window::handleEvent(list args) {
-		if (args.size() == 0 || args[0].getType() != typeObject) return var();
+		if (args.size() == 0 || args[0].getType() != typeObject)
+			return genericError("Event must be an object");
 		auto ev = args[0].getObject();
 		auto type = ev.getString("type");
+		if (type.empty()) return genericError("Event is missing type");
 
 		// Map event type to a handler slot name in camel case:
 		// "key_down" -> "onKeyDown".
