@@ -110,7 +110,7 @@ namespace gold {
 
 		static bool setUniform(
 			string name, const void* value,
-			uint16_t num = UINT16_MAX);
+			uint16_t num = 1U);
 
 		static void bindTexture(
 			string sampler, uint8_t stage, gpuTexture tex);

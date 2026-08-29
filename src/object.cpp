@@ -267,6 +267,15 @@ namespace gold {
 				varVal = it->second;
 			else if (data->parent.data)
 				varVal = data->parent.getExpression(name);
+			else {
+				// Data-driven prototype: a "proto" key pointing at an
+				// object behaves as a fallback scope even when it has not
+				// been promoted into data->parent by findParent().
+				auto proto = data->items.find("proto");
+				if (proto != data->items.end() &&
+					proto->second.isObject())
+					varVal = proto->second.getObject().getExpression(name);
+			}
 		}
 		return varVal;
 	}

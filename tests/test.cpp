@@ -556,6 +556,18 @@ TEST(js_sugar) {
 	EXPECT_EQ(parsed["meta"]["joined"].getInt64(), 2020);
 }
 
+TEST(object_proto_key_fallback) {
+	// A "proto" key pointing at an object behaves as a data-driven
+	// prototype scope on the read path (object::getExpression), even when
+	// it has not been promoted into data->parent by findParent().
+	auto base = jo("aliveColor", vec4f(0, 1, 0, 1));
+	auto wrapper = jo("proto", base);
+	EXPECT_EQ(wrapper.getVar("aliveColor").getType(), typeVec4Float);
+	auto nested = jo("proto", wrapper);
+	EXPECT_EQ(nested.getVar("aliveColor").getType(), typeVec4Float);
+	EXPECT_EQ(nested.getVar("missing").getType(), typeNull);
+}
+
 int main() {
 	return goldtest::runAll();
 }
