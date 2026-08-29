@@ -101,6 +101,24 @@ namespace gold {
 		auto matId = primitive.getUInt64("material", UINT64_MAX);
 		auto mat = materials.getObject(matId);
 		if (!mat) return;
+		auto program = primitive.getObject<shaderProgram>("program");
+		auto bindTexture = [&](object info, string sampler, uint8_t stage) {
+			if (!info || !program) return;
+			auto resolved = info.getObject("resolvedTexture");
+			auto image = resolved.getObject("image");
+			if (!image) return;
+			auto data = image.getBinary("data");
+			if (data.empty()) return;
+			auto tex = info.getObject<gpuTexture>("gpuTexture");
+			if (!tex) {
+				tex = gpuTexture(obj({
+					{"data", data},
+					{"name", sampler + ":" + mat.getString("name")},
+				}));
+				info.setObject("gpuTexture", tex);
+			}
+			shaderProgram::bindTexture(sampler, stage, tex);
+		};
 		auto set = pbrUniformSet();
 		memset(&set, 0, sizeof(pbrUniformSet));
 		auto clCoTex = mat.getObject("clearcoatTexture");
@@ -126,11 +144,12 @@ namespace gold {
 			auto base = pbrMetRo.getObject("baseColorTexture");
 			auto metTex =
 				pbrMetRo.getObject("metallicRoughnessTexture");
-			if (base) {
-			}
-			if (metTex) {
-			}
+			bindTexture(base, "u_BaseColorSampler", 0);
+			bindTexture(metTex, "u_MetallicRoughnessSampler", 1);
 		}
+		bindTexture(normTex, "u_NormalSampler", 2);
+		bindTexture(occTex, "u_OcclusionSampler", 3);
+		bindTexture(emTex, "u_EmissiveSampler", 4);
 	}
 
 	meshRenderer::meshRenderer() : renderable() {}
@@ -385,25 +404,25 @@ namespace gold {
 		auto specTex = mat.getObject("specularGlossinessTexture");
 		if (specTex) {
 			defines += "HAS_SPECULAR_GLOSSINESS_MAP=1;";
-			parseTextureInfo(difTex, "SPECULARGLOSSINESS");
+			parseTextureInfo(specTex, "SPECULARGLOSSINESS");
 		}
 
 		auto occTex = mat.getObject("occlusionTexture");
 		if (occTex) {
 			defines += "HAS_OCCLUSION_MAP=1;";
-			parseTextureInfo(difTex, "OCCLUSION");
+			parseTextureInfo(occTex, "OCCLUSION");
 		}
 
 		auto normTex = mat.getObject("normalTexture");
 		if (normTex) {
 			defines += "HAS_NORMAL_MAP=1;";
-			parseTextureInfo(difTex, "NORMAL");
+			parseTextureInfo(normTex, "NORMAL");
 		}
 
 		auto emTex = mat.getObject("emissiveTexture");
 		if (emTex) {
 			defines += "HAS_EMISSIVE_MAP=1;";
-			parseTextureInfo(difTex, "EMISSIVE");
+			parseTextureInfo(emTex, "EMISSIVE");
 		}
 
 		auto pbrMetRo = mat.getObject("pbrMetallicRoughness");
