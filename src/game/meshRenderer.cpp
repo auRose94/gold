@@ -121,6 +121,30 @@ namespace gold {
 		};
 		auto set = pbrUniformSet();
 		memset(&set, 0, sizeof(pbrUniformSet));
+		set.u_BaseColorFactor[0] = 1.0f;
+		set.u_BaseColorFactor[1] = 1.0f;
+		set.u_BaseColorFactor[2] = 1.0f;
+		set.u_BaseColorFactor[3] = 1.0f;
+		set.u_MetallicFactor = 1.0f;
+		set.u_RoughnessFactor = 1.0f;
+		set.u_NormalScale = 1.0f;
+		set.u_OcclusionStrength = 1.0f;
+		auto uploadFactor = [&](object owner, string key, float* target,
+				uint8_t count) {
+			auto value = owner.getVar(key);
+			if (value.isList()) {
+				auto values = value.getList();
+				for (uint8_t i = 0; i < count && i < values.size(); ++i)
+					target[i] = values.getFloat(i);
+			} else if (value.isVec2() || value.isVec3() || value.isVec4()) {
+				for (uint8_t i = 0; i < count; ++i)
+					target[i] = value.getFloat(i);
+			}
+		};
+		auto uploadScalar = [&](object owner, string key, float& target) {
+			auto value = owner.getVar(key);
+			if (value.isNumber()) target = value.getFloat();
+		};
 		auto clCoTex = mat.getObject("clearcoatTexture");
 		auto subCoTex = mat.getObject("subsurfaceColorTexture");
 		auto subThTex = mat.getObject("subsurfaceThicknessTexture");
@@ -141,11 +165,25 @@ namespace gold {
 		auto emTex = mat.getObject("emissiveTexture");
 		auto pbrMetRo = mat.getObject("pbrMetallicRoughness");
 		if (pbrMetRo) {
+			uploadFactor(pbrMetRo, "baseColorFactor", set.u_BaseColorFactor, 4);
+			uploadScalar(pbrMetRo, "metallicFactor", set.u_MetallicFactor);
+			uploadScalar(pbrMetRo, "roughnessFactor", set.u_RoughnessFactor);
 			auto base = pbrMetRo.getObject("baseColorTexture");
 			auto metTex =
 				pbrMetRo.getObject("metallicRoughnessTexture");
 			bindTexture(base, "u_BaseColorSampler", 0);
 			bindTexture(metTex, "u_MetallicRoughnessSampler", 1);
+		}
+		uploadFactor(mat, "emissiveFactor", set.u_EmissiveFactor, 3);
+		if (normTex) uploadScalar(normTex, "scale", set.u_NormalScale);
+		if (occTex) uploadScalar(occTex, "strength", set.u_OcclusionStrength);
+		if (program) {
+			shaderProgram::setUniform("u_BaseColorFactor", set.u_BaseColorFactor);
+			shaderProgram::setUniform("u_MetallicFactor", &set.u_MetallicFactor);
+			shaderProgram::setUniform("u_RoughnessFactor", &set.u_RoughnessFactor);
+			shaderProgram::setUniform("u_NormalScale", &set.u_NormalScale);
+			shaderProgram::setUniform("u_OcclusionStrength", &set.u_OcclusionStrength);
+			shaderProgram::setUniform("u_EmissiveFactor", set.u_EmissiveFactor);
 		}
 		bindTexture(normTex, "u_NormalSampler", 2);
 		bindTexture(occTex, "u_OcclusionSampler", 3);
@@ -244,7 +282,6 @@ namespace gold {
 		auto ret = object();
 		auto defines = string();
 
-		auto defineTexTrans = false;
 		auto parseTextureInfo = [&](object tex, string key) {
 			auto extensions = tex.getObject("extensions");
 			if (extensions) {
