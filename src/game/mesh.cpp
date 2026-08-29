@@ -50,6 +50,16 @@ namespace gold {
 			return true;
 		}
 	}
+
+	uint64_t cacheSize() {
+		lock_guard<mutex> guard(assetCacheMutex);
+		return assetCache.size();
+	}
+
+	void clearCache() {
+		lock_guard<mutex> guard(assetCacheMutex);
+		assetCache.clear();
+	}
 	object& mesh::getPrototype() {
 		static auto proto = obj{
 			{"getVertexLayoutHandle",
@@ -274,6 +284,10 @@ namespace gold {
 			}
 		}
 	}
+
+	uint64_t mesh::assetCacheSize() { return cacheSize(); }
+
+	void mesh::clearAssetCache() { clearCache(); }
 
 	var mesh::getNode(list args) {
 		auto name = args.getString(0);

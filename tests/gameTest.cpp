@@ -198,6 +198,7 @@ TEST(gltf_external_buffers_and_normalized_accessors) {
 	gltf.close();
 
 	mesh loaded(root / "scene.gltf");
+	EXPECT_TRUE(mesh::assetCacheSize() >= (uint64_t)1);
 	EXPECT_EQ(loaded.getString("error"), "");
 	auto accessors = loaded.getList("accessors");
 	EXPECT_EQ(accessors.getObject(0).getList("parsed").getUInt32(0), 0x12345678u);
@@ -241,6 +242,11 @@ TEST(gltf_external_buffers_and_normalized_accessors) {
 	mesh bad(root / "bad_refs.gltf");
 	EXPECT_TRUE(bad.getString("error").find("image reference") != string::npos);
 	std::filesystem::remove_all(root, ec);
+}
+
+TEST(gltf_asset_cache_can_be_cleared) {
+	mesh::clearAssetCache();
+	EXPECT_EQ(mesh::assetCacheSize(), (uint64_t)0);
 }
 
 TEST(gpu_texture_cleanup_is_idempotent) {

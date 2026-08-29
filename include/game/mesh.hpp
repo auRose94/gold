@@ -20,6 +20,8 @@ namespace gold {
 		mesh();
 		mesh(path meshFilePath);
 		mesh(file meshFile);
+		static uint64_t assetCacheSize();
+		static void clearAssetCache();
 
 		var getNode(list);            // string name
 		var getPrimitiveCount(list);  // string nName
