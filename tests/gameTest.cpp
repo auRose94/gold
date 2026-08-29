@@ -10,6 +10,7 @@
 #include "game/camera.hpp"
 #include "game/transform.hpp"
 #include "game/world.hpp"
+#include "game/graphics.hpp"
 #include "game/mesh.hpp"
 #include "image.hpp"
 #include "goldtest.hpp"
@@ -222,6 +223,13 @@ TEST(gltf_external_buffers_and_normalized_accessors) {
 	mesh bad(root / "bad_refs.gltf");
 	EXPECT_TRUE(bad.getString("error").find("image reference") != string::npos);
 	std::filesystem::remove_all(root, ec);
+}
+
+TEST(gpu_texture_cleanup_is_idempotent) {
+	gpuTexture texture;
+	texture.destroy();
+	texture.destroy();
+	EXPECT_EQ(texture.getUInt16("idx"), bgfx::kInvalidHandle);
 }
 
 int main() {

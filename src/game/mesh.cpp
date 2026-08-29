@@ -38,6 +38,14 @@ namespace gold {
 			out = loaded.getObject<file>().getBinary("data");
 			if (out.empty()) return false;
 			lock_guard<mutex> guard(assetCacheMutex);
+			auto separator = key.find_last_of(':');
+			auto baseKey = key.substr(0, separator);
+			for (auto it = assetCache.begin(); it != assetCache.end();) {
+				if (it->first.compare(0, baseKey.size(), baseKey) == 0)
+					it = assetCache.erase(it);
+				else
+					++it;
+			}
 			assetCache.emplace(std::move(key), out);
 			return true;
 		}

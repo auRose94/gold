@@ -1208,7 +1208,7 @@ namespace gold {
 		return handle;
 	}
 
-	gpuTexture::gpuTexture() : obj() {}
+	gpuTexture::gpuTexture() : obj() { setParent(getPrototype()); }
 	gpuTexture::gpuTexture(object config) : obj(config) {
 		setParent(getPrototype());
 		auto flagsStr = getString("flags");
@@ -1429,6 +1429,7 @@ namespace gold {
 		auto handle = bgfx::TextureHandle{
 			getUInt16("idx", bgfx::kInvalidHandle)};
 		if (bgfx::isValid(handle)) bgfx::destroy(handle);
+		setUInt16("idx", bgfx::kInvalidHandle);
 	}
 
 	object& vertexLayout::getPrototype() {
