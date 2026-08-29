@@ -38,6 +38,7 @@ namespace gold {
 			auto o = object(asJSON());
 			if (o) copy(o);
 			auto buffers = getList("buffers");
+			auto images = getList("images");
 			auto accessors = getList("accessors");
 			auto bufferViews = getList("bufferViews");
 			auto nodes = getList("nodes");
@@ -73,6 +74,52 @@ namespace gold {
 						bufferObj.setBinary("data", bin);
 						bufferObj.erase("uri");
 				}
+			}
+			for (auto it = images.begin(); it != images.end(); ++it) {
+				auto imageObj = it->getObject();
+				if (!imageObj || imageObj.getType("data") == typeBinary)
+					continue;
+				binary imageData;
+				if (imageObj.getType("uri") == typeString) {
+					auto uri = imageObj.getString("uri");
+					if (uri.rfind("data:", 0) == 0) {
+						auto mime = string();
+						imageData = file::decodeDataURL(uri, mime);
+					} else {
+						auto base = filesystem::path(getString("path"))
+							.parent_path();
+						auto external = file::readFile(base / uri);
+						if (!external.isObject()) {
+							setString("error", "Failed to load external glTF image: " + uri);
+							return;
+						}
+						imageData = external.getObject<file>().getBinary("data");
+						if (imageData.empty()) {
+							setString("error", "Failed to load external glTF image: " + uri);
+							return;
+						}
+					}
+					if (imageData.empty()) {
+						setString("error", "Invalid glTF image data: " + uri);
+						return;
+					}
+					imageObj.erase("uri");
+				} else if (imageObj.getType("bufferView") == typeUInt64 ||
+					imageObj.getType("bufferView") == typeInt64) {
+					auto view = bufferViews.getObject(imageObj.getUInt64("bufferView"));
+					auto buffer = buffers.getObject(view.getUInt64("buffer"));
+					auto source = buffer.getBinary("data");
+					auto start = view.getUInt64("byteOffset");
+					auto length = view.getUInt64("byteLength");
+					if (length == 0 || start > source.size() ||
+						length > source.size() - start) {
+						setString("error", "Invalid glTF image bufferView");
+						return;
+					}
+					imageData.assign(source.begin() + start,
+						source.begin() + start + length);
+				}
+				if (!imageData.empty()) imageObj.setBinary("data", imageData);
 			}
 			auto bufferLists = list();
 			for (auto it = accessors.begin(); it != accessors.end();

@@ -186,11 +186,11 @@ TEST(gltf_external_buffers_and_normalized_accessors) {
 	std::filesystem::create_directories(root);
 	{
 		std::ofstream bin(root / "data.bin", std::ios::binary);
-		const unsigned char bytes[] = {0x78, 0x56, 0x34, 0x12, 0, 128, 255};
+		const unsigned char bytes[] = {0x78, 0x56, 0x34, 0x12, 0, 128, 255, 9, 8, 7};
 		bin.write(reinterpret_cast<const char*>(bytes), sizeof(bytes));
 	}
 	std::ofstream gltf(root / "scene.gltf");
-	gltf << R"({"buffers":[{"uri":"data.bin","byteLength":7}],"bufferViews":[{"buffer":0,"byteOffset":0}],"accessors":[{"bufferView":0,"componentType":5125,"count":1,"type":"SCALAR"},{"bufferView":0,"byteOffset":4,"componentType":5121,"count":1,"type":"VEC3","normalized":true}]})";
+	gltf << R"({"buffers":[{"uri":"data.bin","byteLength":10}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":7},{"buffer":0,"byteOffset":7,"byteLength":3}],"images":[{"uri":"data.bin"},{"uri":"data:application/octet-stream;base64,AAECAw=="},{"bufferView":1,"mimeType":"application/octet-stream"}],"accessors":[{"bufferView":0,"componentType":5125,"count":1,"type":"SCALAR"},{"bufferView":0,"byteOffset":4,"componentType":5121,"count":1,"type":"VEC3","normalized":true}]})";
 	gltf.close();
 
 	mesh loaded(root / "scene.gltf");
@@ -201,6 +201,9 @@ TEST(gltf_external_buffers_and_normalized_accessors) {
 	EXPECT_NEAR(color.getFloat(0), 0.0f, 1e-6);
 	EXPECT_NEAR(color.getFloat(1), 128.0f / 255.0f, 1e-6);
 	EXPECT_NEAR(color.getFloat(2), 1.0f, 1e-6);
+	EXPECT_EQ(loaded.getList("images").getObject(0).getBinary("data").size(), (size_t)10);
+	EXPECT_EQ(loaded.getList("images").getObject(1).getBinary("data").size(), (size_t)4);
+	EXPECT_EQ(loaded.getList("images").getObject(2).getBinary("data").size(), (size_t)3);
 
 	std::ofstream missing(root / "missing.gltf");
 	missing << R"({"buffers":[{"uri":"no.bin","byteLength":1}]})";
