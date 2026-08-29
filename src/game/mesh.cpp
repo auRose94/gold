@@ -189,7 +189,16 @@ namespace gold {
 			};
 			for (auto it = materials.begin(); it != materials.end(); ++it) {
 				auto material = it->getObject();
-				resolveTextureInfo(material, "baseColorTexture");
+				for (auto key : {"baseColorTexture", "diffuseTexture",
+					"specularGlossinessTexture", "normalTexture",
+					"occlusionTexture", "emissiveTexture", "clearcoatTexture",
+					"clearcoatRoughnessTexture", "clearcoatNormalTexture",
+					"colorIntensityTexture", "metallicRoughnessSpecularTexture",
+					"subsurfaceColorTexture", "subsurfaceThicknessTexture",
+					"anisotropyTexture", "anisotropyDirectionTexture",
+					"thinfilmTexture", "thinfilmThicknessTexture",
+					"thicknessTexture"})
+					resolveTextureInfo(material, key);
 				auto pbr = material.getObject("pbrMetallicRoughness");
 				resolveTextureInfo(pbr, "baseColorTexture");
 				resolveTextureInfo(pbr, "metallicRoughnessTexture");

@@ -194,7 +194,7 @@ TEST(gltf_external_buffers_and_normalized_accessors) {
 		bin.write(reinterpret_cast<const char*>(bytes), sizeof(bytes));
 	}
 	std::ofstream gltf(root / "scene.gltf");
-	gltf << R"({"buffers":[{"uri":"data.bin","byteLength":38}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":7},{"buffer":0,"byteOffset":7,"byteLength":3},{"buffer":0,"byteOffset":10,"byteLength":28,"byteStride":16}],"images":[{"uri":"data.bin"},{"uri":"data:application/octet-stream;base64,AAECAw=="},{"bufferView":1,"mimeType":"application/octet-stream"}],"samplers":[{"wrapS":33071,"wrapT":33648}],"textures":[{"source":0,"sampler":0}],"materials":[{"pbrMetallicRoughness":{"baseColorTexture":{"index":0}}}],"accessors":[{"bufferView":0,"componentType":5125,"count":1,"type":"SCALAR"},{"bufferView":0,"byteOffset":4,"componentType":5121,"count":1,"type":"VEC3","normalized":true},{"bufferView":2,"componentType":5120,"count":2,"type":"VEC3","normalized":true}]})";
+	gltf << R"({"buffers":[{"uri":"data.bin","byteLength":38}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":7},{"buffer":0,"byteOffset":7,"byteLength":3},{"buffer":0,"byteOffset":10,"byteLength":28,"byteStride":16}],"images":[{"uri":"data.bin"},{"uri":"data:application/octet-stream;base64,AAECAw=="},{"bufferView":1,"mimeType":"application/octet-stream"}],"samplers":[{"wrapS":33071,"wrapT":33648}],"textures":[{"source":0,"sampler":0}],"materials":[{"normalTexture":{"index":0},"pbrMetallicRoughness":{"baseColorTexture":{"index":0}}}],"accessors":[{"bufferView":0,"componentType":5125,"count":1,"type":"SCALAR"},{"bufferView":0,"byteOffset":4,"componentType":5121,"count":1,"type":"VEC3","normalized":true},{"bufferView":2,"componentType":5120,"count":2,"type":"VEC3","normalized":true}]})";
 	gltf.close();
 
 	mesh loaded(root / "scene.gltf");
@@ -215,6 +215,8 @@ TEST(gltf_external_buffers_and_normalized_accessors) {
 	EXPECT_TRUE(loaded.getList("materials").getObject(0)
 		.getObject("pbrMetallicRoughness").getObject("baseColorTexture")
 		.getObject("resolvedTexture"));
+	EXPECT_TRUE(loaded.getList("materials").getObject(0)
+		.getObject("normalTexture").getObject("resolvedTexture"));
 	auto interleaved = accessors.getObject(2).getList("parsed");
 	EXPECT_EQ(interleaved.size(), (uint64_t)2);
 	EXPECT_NEAR(interleaved.getVar(0).getFloat(0), -1.0f, 1e-6);

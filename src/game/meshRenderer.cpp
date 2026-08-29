@@ -188,6 +188,25 @@ namespace gold {
 		bindTexture(normTex, "u_NormalSampler", 2);
 		bindTexture(occTex, "u_OcclusionSampler", 3);
 		bindTexture(emTex, "u_EmissiveSampler", 4);
+		if (pbrMetRo) {
+			bindTexture(pbrMetRo.getObject("diffuseTexture"), "u_DiffuseSampler", 5);
+			bindTexture(pbrMetRo.getObject("specularGlossinessTexture"),
+				"u_SpecularGlossinessSampler", 6);
+		}
+		bindTexture(difTex, "u_DiffuseSampler", 5);
+		bindTexture(specTex, "u_SpecularGlossinessSampler", 6);
+		bindTexture(metRoSpecTex, "u_MetallicRoughnessSpecularSampler", 7);
+		bindTexture(clCoTex, "u_ClearcoatSampler", 8);
+		bindTexture(clRoTex, "u_ClearcoatRoughnessSampler", 9);
+		bindTexture(clNoTex, "u_ClearcoatNormalSampler", 10);
+		bindTexture(coInTex, "u_SheenColorIntensitySampler", 11);
+		bindTexture(subCoTex, "u_SubsurfaceColorSampler", 12);
+		bindTexture(subThTex, "u_SubsurfaceThicknessSampler", 13);
+		bindTexture(anisTex, "u_AnisotropySampler", 14);
+		bindTexture(dirTex, "u_AnisotropyDirectionSampler", 15);
+		bindTexture(filmThinTex, "u_ThinFilmSampler", 16);
+		bindTexture(filmThickTex, "u_ThinFilmThicknessSampler", 17);
+		bindTexture(thickTex, "u_ThicknessSampler", 18);
 	}
 
 	meshRenderer::meshRenderer() : renderable() {}
