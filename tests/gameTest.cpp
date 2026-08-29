@@ -187,11 +187,14 @@ TEST(gltf_external_buffers_and_normalized_accessors) {
 	std::filesystem::create_directories(root);
 	{
 		std::ofstream bin(root / "data.bin", std::ios::binary);
-		const unsigned char bytes[] = {0x78, 0x56, 0x34, 0x12, 0, 128, 255, 9, 8, 7};
+		const unsigned char bytes[] = {
+			0x78, 0x56, 0x34, 0x12, 0, 128, 255, 9, 8, 7,
+			128, 0, 127, 9, 9, 9, 9, 127, 128, 0, 8, 8, 8, 8,
+			128, 0, 127, 7, 7, 7, 7, 127, 128, 0, 6, 6, 6, 6};
 		bin.write(reinterpret_cast<const char*>(bytes), sizeof(bytes));
 	}
 	std::ofstream gltf(root / "scene.gltf");
-	gltf << R"({"buffers":[{"uri":"data.bin","byteLength":10}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":7},{"buffer":0,"byteOffset":7,"byteLength":3}],"images":[{"uri":"data.bin"},{"uri":"data:application/octet-stream;base64,AAECAw=="},{"bufferView":1,"mimeType":"application/octet-stream"}],"samplers":[{"wrapS":33071,"wrapT":33648}],"textures":[{"source":0,"sampler":0}],"materials":[{"pbrMetallicRoughness":{"baseColorTexture":{"index":0}}}],"accessors":[{"bufferView":0,"componentType":5125,"count":1,"type":"SCALAR"},{"bufferView":0,"byteOffset":4,"componentType":5121,"count":1,"type":"VEC3","normalized":true}]})";
+	gltf << R"({"buffers":[{"uri":"data.bin","byteLength":38}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":7},{"buffer":0,"byteOffset":7,"byteLength":3},{"buffer":0,"byteOffset":10,"byteLength":28,"byteStride":16}],"images":[{"uri":"data.bin"},{"uri":"data:application/octet-stream;base64,AAECAw=="},{"bufferView":1,"mimeType":"application/octet-stream"}],"samplers":[{"wrapS":33071,"wrapT":33648}],"textures":[{"source":0,"sampler":0}],"materials":[{"pbrMetallicRoughness":{"baseColorTexture":{"index":0}}}],"accessors":[{"bufferView":0,"componentType":5125,"count":1,"type":"SCALAR"},{"bufferView":0,"byteOffset":4,"componentType":5121,"count":1,"type":"VEC3","normalized":true},{"bufferView":2,"componentType":5120,"count":2,"type":"VEC3","normalized":true}]})";
 	gltf.close();
 
 	mesh loaded(root / "scene.gltf");
@@ -202,15 +205,19 @@ TEST(gltf_external_buffers_and_normalized_accessors) {
 	EXPECT_NEAR(color.getFloat(0), 0.0f, 1e-6);
 	EXPECT_NEAR(color.getFloat(1), 128.0f / 255.0f, 1e-6);
 	EXPECT_NEAR(color.getFloat(2), 1.0f, 1e-6);
-	EXPECT_EQ(loaded.getList("images").getObject(0).getBinary("data").size(), (size_t)10);
+	EXPECT_EQ(loaded.getList("images").getObject(0).getBinary("data").size(), (size_t)38);
 	EXPECT_EQ(loaded.getList("images").getObject(1).getBinary("data").size(), (size_t)4);
 	EXPECT_EQ(loaded.getList("images").getObject(2).getBinary("data").size(), (size_t)3);
 	auto texture = loaded.getList("textures").getObject(0);
-	EXPECT_EQ(texture.getObject("image").getBinary("data").size(), (size_t)10);
+	EXPECT_EQ(texture.getObject("image").getBinary("data").size(), (size_t)38);
 	EXPECT_EQ(texture.getObject("sampler").getUInt32("wrapS"), 33071u);
 	EXPECT_TRUE(loaded.getList("materials").getObject(0)
 		.getObject("pbrMetallicRoughness").getObject("baseColorTexture")
 		.getObject("resolvedTexture"));
+	auto interleaved = accessors.getObject(2).getList("parsed");
+	EXPECT_EQ(interleaved.size(), (uint64_t)2);
+	EXPECT_NEAR(interleaved.getVar(0).getFloat(0), -1.0f, 1e-6);
+	EXPECT_NEAR(interleaved.getVar(0).getFloat(2), 1.0f, 1e-6);
 
 	std::ofstream missing(root / "missing.gltf");
 	missing << R"({"buffers":[{"uri":"no.bin","byteLength":1}]})";

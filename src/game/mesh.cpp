@@ -202,29 +202,57 @@ namespace gold {
 				auto type = section.getString("type");
 				auto normalized = section.getBool("normalized", false);
 				auto data = bufferObj.getBinary("data");
+				size_t components = type == "SCALAR" ? 1 :
+					type == "VEC2" ? 2 : type == "VEC3" ? 3 :
+					type == "VEC4" ? 4 : 0;
+				size_t componentSize = scalarType == 5120 || scalarType == 5121
+					? 1 : scalarType == 5122 || scalarType == 5123 ? 2
+					: scalarType == 5125 || scalarType == 5126 ? 4 : 0;
+				size_t tightSize = components * componentSize;
+				auto stride = view.getUInt64("byteStride", tightSize);
+				if (components == 0 || componentSize == 0 || stride < tightSize ||
+					(count > 0 && (offset > data.size() ||
+						tightSize > data.size() - offset ||
+						(count - 1) > (data.size() - offset - tightSize) / stride))) {
+					setString("error", "Invalid glTF accessor bounds");
+					return;
+				}
 				auto parsed = list();
-				parseGLTFBuffer(
-					type, scalarType, offset, count, data.data(), parsed);
+				if (stride == tightSize && offset == 0) {
+					parseGLTFBuffer(type, scalarType, 0, count, data.data(), parsed);
+				} else {
+					binary packed(size_t(count) * tightSize);
+					for (uint64_t i = 0; i < count; ++i)
+						memcpy(packed.data() + size_t(i) * tightSize,
+							data.data() + offset + size_t(i) * stride, tightSize);
+					parseGLTFBuffer(type, scalarType, 0, count, packed.data(), parsed);
+				}
 				if (normalized) {
 					auto scale = scalarType == 5121 ? 255.0
 						: scalarType == 5123 ? 65535.0
 						: scalarType == 5125 ? 4294967295.0
 						: scalarType == 5120 ? 127.0
 						: scalarType == 5122 ? 32767.0 : 1.0;
+					auto normalizeComponent = [&](double value) {
+						auto result = value / scale;
+						if ((scalarType == 5120 || scalarType == 5122) && result < -1.0)
+							result = -1.0;
+						return result;
+					};
 					auto normalize = [&](var value) -> var {
 						if (value.isVec2())
-							return vec2f(float(value.getDouble(0) / scale),
-								float(value.getDouble(1) / scale));
+							return vec2f(float(normalizeComponent(value.getDouble(0))),
+								float(normalizeComponent(value.getDouble(1))));
 						if (value.isVec3())
-							return vec3f(float(value.getDouble(0) / scale),
-								float(value.getDouble(1) / scale),
-								float(value.getDouble(2) / scale));
+							return vec3f(float(normalizeComponent(value.getDouble(0))),
+								float(normalizeComponent(value.getDouble(1))),
+								float(normalizeComponent(value.getDouble(2))));
 						if (value.isVec4())
-							return vec4f(float(value.getDouble(0) / scale),
-								float(value.getDouble(1) / scale),
-								float(value.getDouble(2) / scale),
-								float(value.getDouble(3) / scale));
-						return float(value.getDouble() / scale);
+							return vec4f(float(normalizeComponent(value.getDouble(0))),
+								float(normalizeComponent(value.getDouble(1))),
+								float(normalizeComponent(value.getDouble(2))),
+								float(normalizeComponent(value.getDouble(3))));
+						return float(normalizeComponent(value.getDouble()));
 				};
 					auto normalizedValues = list();
 					for (auto value : parsed) normalizedValues.pushVar(normalize(value));
