@@ -328,18 +328,34 @@ namespace gold {
 
 				using attrib = vertexLayout::attrib;
 				using attribT = vertexLayout::attribType;
+				auto layoutAttributes = list();
 				auto addAttribute = [&](string name, attrib e) {
 					auto index = var();
 					if ((index = attributes.getVar(name)).isNumber()) {
 						auto accessor = accessors[index].getObject();
+						if (!accessor) return;
 						auto type = accessor.getString("type");
 						auto count = accessor.getUInt64("count");
 						uint8_t fc = 0;
 						if (type == "VEC2") fc = 2;
 						if (type == "VEC3") fc = 3;
 						if (type == "VEC4") fc = 4;
-						if (fc != 0 && count > 0)
-							layout.add(e, attribT::Float, fc, false, false);
+						if (fc != 0 && count > 0) {
+							auto component = accessor.getUInt32("componentType");
+							auto normalized = accessor.getBool("normalized", false);
+							auto isInteger = component != 5126;
+							auto layoutType = component == 5121
+								? attribT::Uint8 : component == 5122 || component == 5123 ||
+								component == 5120 ? attribT::Int16 : attribT::Float;
+							layout.add(e, layoutType, fc, normalized, isInteger);
+							layoutAttributes.pushObject(obj({
+								{"name", name},
+								{"components", fc},
+								{"componentType", component},
+								{"normalized", normalized},
+								{"integer", isInteger},
+							}));
+						}
 					}
 				};
 
@@ -347,8 +363,15 @@ namespace gold {
 				addAttribute("NORMAL", attrib::Normal);
 				addAttribute("TANGENT", attrib::Tangent);
 				addAttribute("TEXCOORD_0", attrib::TexCoord0);
+				addAttribute("TEXCOORD_1", attrib::TexCoord1);
+				addAttribute("COLOR_0", attrib::Color0);
+				addAttribute("JOINTS_0", attrib::Indices);
+				addAttribute("JOINTS_1", attrib::Indices);
+				addAttribute("WEIGHTS_0", attrib::Weight);
+				addAttribute("WEIGHTS_1", attrib::Weight);
 
 				layout.end();
+				layout.setList("attributes", layoutAttributes);
 
 				return layout;
 			}

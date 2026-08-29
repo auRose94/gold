@@ -218,6 +218,17 @@ TEST(gltf_external_buffers_and_normalized_accessors) {
 	EXPECT_EQ(interleaved.size(), (uint64_t)2);
 	EXPECT_NEAR(interleaved.getVar(0).getFloat(0), -1.0f, 1e-6);
 	EXPECT_NEAR(interleaved.getVar(0).getFloat(2), 1.0f, 1e-6);
+	mesh layoutFixture;
+	layoutFixture.setList("accessors", accessors);
+	layoutFixture.setList("nodes", list({obj({{"name", "node"}, {"mesh", uint64_t(0)}})}));
+	layoutFixture.setList("meshes", list({obj({{"primitives", list({obj({
+		{"attributes", obj({{"POSITION", uint64_t(2)}, {"COLOR_0", uint64_t(1)}})}})})}})}));
+	auto layout = layoutFixture.getVertexLayoutHandle({"node", uint64_t(0)})
+		.getObject<vertexLayout>();
+	EXPECT_TRUE(layout);
+	EXPECT_EQ(layout.getType("attributes"), typeList);
+	EXPECT_TRUE(layout.getList("attributes").size() == (uint64_t)2);
+	EXPECT_TRUE(layout.getList("attributes").getObject(1).getBool("normalized"));
 
 	std::ofstream missing(root / "missing.gltf");
 	missing << R"({"buffers":[{"uri":"no.bin","byteLength":1}]})";
