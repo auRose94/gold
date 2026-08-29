@@ -162,8 +162,13 @@ namespace gold {
 	}
 
 	genericError::operator string() const {
+		// Object accessors are non-const; the object data is shared so a
+		// const_cast read is safe.
+		auto self = const_cast<genericError*>(this);
 		auto ss = stringstream();
-		ss.operator<<(*this);
+		ss << self->getString("file") << ":" << self->getInt32("line")
+			 << " (" << self->getString("func") << "):"
+			 << self->getString("msg");
 		return ss.str();
 	}
 

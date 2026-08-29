@@ -53,8 +53,17 @@ Events, handler slots, and results cross subsystem boundaries as gold
 `object`/`var` data, not platform structs. The engine loop is a plain
 pump + dispatch with no platform switch.
 
+## The scripting language (`gold::lang`)
+
+`gold::lang` is a TypeScript-like interpreter whose runtime IS gold: values
+are `var`/`object`/`list`, the AST is built from gold objects, and scopes use
+gold's prototype chain. Type annotations are optional (parsed and stored; a
+config flag enables runtime enforcement). Scripts share gold data with the
+host via the `script` facade (`setGlobal`/`getGlobal`/`eval`/`call`).
+
 ## Build & verify
 
 - Core: `./build.sh --core` then `ctest --test-dir build --output-on-failure`.
 - Full: `./build.sh` (modules, tests, examples).
-- New behavior ships with tests in `tests/test.cpp` / `tests/gameTest.cpp`.
+- New behavior ships with tests in `tests/test.cpp` / `tests/gameTest.cpp` /
+  `tests/langTest.cpp`.

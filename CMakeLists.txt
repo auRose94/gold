@@ -40,6 +40,7 @@ set(LIBUV_BUILD_BENCH OFF CACHE INTERNAL "")
 # --------------------------------------------------------------------------
 option(GOLD_BUILD_GAME "Build the gold game engine module" ON)
 option(GOLD_BUILD_WEB "Build the gold web server module" ON)
+option(GOLD_BUILD_LANG "Build the gold scripting-language module" ON)
 option(GOLD_BUILD_TESTS "Build the gold test suite" ON)
 option(GOLD_BUILD_EXAMPLES "Build the gold example projects" OFF)
 
@@ -81,6 +82,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD 26)
 
 include(cmake/shared.cmake)
+if(GOLD_BUILD_LANG)
+	include(cmake/lang.cmake)
+endif()
 if(GOLD_BUILD_GAME)
 	include(cmake/shaders.cmake)
 	include(cmake/game.cmake)

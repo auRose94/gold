@@ -16,6 +16,9 @@ What's in the box?
 * JSON/BSON/CBOR/MsgPack/UBJSON/URLForm serialization
 * JavaScript-style ergonomics (`v["key"]` read/write, `jo`/`ja` literals,
   template strings, array helpers — `goldjs.hpp`)
+* A TypeScript-like scripting language (`gold::lang`): optional type
+  annotations, classes, arrows, template literals — values and scopes are
+  gold objects, and scripts share gold data/backends with the host
 * Express.JS "like" HTTP(S)/WebSocket server
 * HTML5 rendering (with form handling/pragmatic templating)
 * Embedded document store ("file" backend: JSON files on disk; pluggable
@@ -149,6 +152,24 @@ cmake --build build --target ConwaysGameOfLife MyWebProject
 Because the game/web modules are shared libraries, example executables link
 dynamically instead of statically baking in the entire framework (the game
 example dropped from ~240MB to under 1MB).
+
+### Scripting language (`gold::lang`)
+
+A TypeScript-like interpreter whose runtime IS gold: values are `var`/`object`/
+`list`, the AST is built from gold objects, and scopes reuse gold's prototype
+chain. Type annotations are optional and can be enforced at runtime.
+
+```cpp
+auto r = gold::langRun(
+  "class Point { constructor(x, y) { this.x = x; this.y = y; } "
+  "  len() { return this.x * this.x + this.y * this.y; } } "
+  "const p = new Point(3, 4); p.len();", gold::object(), false);
+// r == 25
+```
+
+The `script` object embeds a script in a host app: `setGlobal`/`getGlobal`
+share gold objects with the host, `eval` evaluates expressions, and `call`
+invokes functions — so scripts can use gold backends directly.
 
 ### Data store
 

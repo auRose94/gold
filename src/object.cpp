@@ -403,6 +403,12 @@ namespace gold {
 		data->items.erase(name);
 	}
 
+	bool object::owns(string name) {
+		if (!data) return false;
+		unique_lock<mutex> guard(data->omutex);
+		return data->items.find(name) != data->items.end();
+	}
+
 	string object::getString(string name, string def) {
 		try {
 			initMemory();
@@ -618,6 +624,7 @@ namespace gold {
 	}
 
 	varRef object::operator[](string_view name) {
+		initMemory();
 		return varRef(var(*this), string(name));
 	}
 

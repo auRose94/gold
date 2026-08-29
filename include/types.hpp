@@ -158,6 +158,7 @@ namespace gold {
 		typedef shared_ptr<varContainer> varPtr;
 		static varPtr autoNull;
 		varPtr sPtr;
+		friend class varRef;
 
 	 public:
 		var();
@@ -550,6 +551,9 @@ namespace gold {
 		void setNull(string name);
 		void erase(string name);
 
+		/** True if this object declares `name` in its own data (not the
+		 * parent chain). */
+		bool owns(string name);
 		string getString(string name, string def = "");
 		string_view getStringView(
 			string name, string_view def = string_view());
@@ -687,13 +691,12 @@ namespace gold {
 			return var();
 		}
 		void assign(const var& v) {
+			auto con = parent.sPtr.get();
+			if (!con) return;
 			if (byIndex) {
-				if (parent.isList()) {
-					auto l = parent.getList();
-					l.setVar(idx, v);
-				}
-			} else if (parent.isObject()) {
-				parent.getObject().setVar(key, v);
+				if (con->type == typeList) con->li->setVar(idx, v);
+			} else if (con->type == typeObject) {
+				con->obj->setVar(key, v);
 			}
 		}
 
@@ -828,6 +831,7 @@ namespace gold {
 	template <typename I,
 		typename std::enable_if<std::is_integral<I>::value, int>::type>
 	inline varRef list::operator[](I i) {
+		initMemory();
 		return varRef(var(*this), (uint64_t)i);
 	}
 
