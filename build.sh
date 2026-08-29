@@ -37,16 +37,22 @@ fi
 
 # Everything (game + web + examples) needs OpenSSL and the bundled 3rdParty.
 # The core-only build is the fast path with the smallest dependency surface.
+# Every option is set explicitly so a build directory configured with
+# different flags (e.g. a previous full build) is reused safely.
 if [[ "$BUILD_CORE" -eq 1 ]]; then
 	echo "== Configuring core-only build =="
 	cmake -S . -B "$BUILD_DIR" \
 		-DGOLD_BUILD_GAME=OFF \
-		-DGOLD_BUILD_WEB=OFF
+		-DGOLD_BUILD_WEB=OFF \
+		-DGOLD_BUILD_LANG=OFF \
+		-DGOLD_BUILD_TESTS=ON \
+		-DGOLD_BUILD_EXAMPLES=OFF
 else
 	echo "== Configuring full build (modules + tests + examples) =="
 	cmake -S . -B "$BUILD_DIR" \
 		-DGOLD_BUILD_GAME=ON \
 		-DGOLD_BUILD_WEB=ON \
+		-DGOLD_BUILD_LANG=ON \
 		-DGOLD_BUILD_TESTS=ON \
 		-DGOLD_BUILD_EXAMPLES=ON
 fi
