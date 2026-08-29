@@ -92,6 +92,9 @@ cmake --build build --target goldTests
 ctest --test-dir build --output-on-failure
 ```
 
+With the game module enabled the suite also builds `goldGameTests` for
+window/input backend and gold-event dispatch coverage; `ctest` runs both.
+
 To build the example projects in-tree:
 
 ```sh

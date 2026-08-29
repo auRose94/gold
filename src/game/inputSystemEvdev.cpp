@@ -13,28 +13,28 @@ namespace gold {
 
 	namespace {
 
-		windowEvent::eventType evType(uint16_t type, uint16_t code,
-			int32_t value) {
+		// Maps an evdev event to its gold event type string. REL_X/REL_Y are
+		// relative mouse motion, not scroll; wheel deltas are REL_WHEEL/HWHEEL.
+		const char* evType(uint16_t type, uint16_t code, int32_t value) {
 			switch (type) {
 				case EV_KEY:
-					return value ? windowEvent::eventType::KeyDown
-											 : windowEvent::eventType::KeyUp;
+					return value ? "key_down" : "key_up";
 				case EV_REL:
 					if (code == REL_WHEEL || code == REL_HWHEEL)
-						return windowEvent::eventType::MouseWheel;
-					return windowEvent::eventType::MouseMove;
+						return "mouse_wheel";
+					return "mouse_move";
 				case EV_ABS:
-					return windowEvent::eventType::MouseMove;
+					return "mouse_move";
 				case EV_SYN:
 				default:
-					return windowEvent::eventType::NoneEvent;
+					return nullptr;
 			}
 		}
 
 		class evdevInputSystem : public inputSystem {
 			std::vector<int> fds;
 			std::vector<libevdev*> devs;
-			std::vector<windowEvent> pending;
+			std::vector<object> pending;
 			int32_t absX = 0, absY = 0;
 
 			bool drain(libevdev* dev, int fd) {
@@ -43,32 +43,31 @@ namespace gold {
 				while (libevdev_next_event(dev, LIBEVDEV_READ_FLAG_NORMAL,
 							 &ev) == LIBEVDEV_READ_STATUS_SUCCESS) {
 					any = true;
-					windowEvent out;
-					out.type = evType(ev.type, ev.code, ev.value);
-					switch (out.type) {
-						case windowEvent::eventType::KeyDown:
-						case windowEvent::eventType::KeyUp:
-							out.keyCode = ev.code;
+					const char* type = evType(ev.type, ev.code, ev.value);
+					if (!type) continue;
+					object out;
+					out.setString("type", type);
+					if (type == "key_down" || type == "key_up") {
+						out.setInt32("keyCode", ev.code);
+						pending.push_back(out);
+					} else if (type == "mouse_move") {
+						if (ev.type == EV_REL) {
+							if (ev.code == REL_X) absX += ev.value;
+							else if (ev.code == REL_Y) absY += ev.value;
+							out.setInt32("x", absX);
+							out.setInt32("y", absY);
 							pending.push_back(out);
-							break;
-						case windowEvent::eventType::MouseMove:
-							if (ev.type == EV_REL) {
-								if (ev.code == REL_X) out.scrollX = ev.value;
-								else if (ev.code == REL_Y) out.scrollY = ev.value;
-							} else if (ev.type == EV_ABS) {
-								if (ev.code == ABS_X) absX = ev.value;
-								else if (ev.code == ABS_Y) absY = ev.value;
-								out.x = absX;
-								out.y = absY;
-							}
-							if (ev.type == EV_ABS) pending.push_back(out);
-							break;
-						case windowEvent::eventType::MouseWheel:
-							out.scrollY = ev.value;
+						} else if (ev.type == EV_ABS) {
+							if (ev.code == ABS_X) absX = ev.value;
+							else if (ev.code == ABS_Y) absY = ev.value;
+							out.setInt32("x", absX);
+							out.setInt32("y", absY);
 							pending.push_back(out);
-							break;
-						default:
-							break;
+						}
+					} else if (type == "mouse_wheel") {
+						out.setInt32("scrollX", ev.code == REL_HWHEEL ? ev.value : 0);
+						out.setInt32("scrollY", ev.code == REL_WHEEL ? ev.value : 0);
+						pending.push_back(out);
 					}
 				}
 				(void)fd;
@@ -105,7 +104,7 @@ namespace gold {
 				pending.clear();
 			}
 
-			bool poll(windowEvent& out) override {
+			bool poll(object& out) override {
 				for (size_t i = 0; i < devs.size(); ++i)
 					drain(devs[i], fds[i]);
 				if (pending.empty()) return false;

@@ -39,3 +39,33 @@ target_compile_features(
 )
 
 add_test(NAME goldTests COMMAND goldTests)
+
+if(GOLD_BUILD_GAME)
+	add_executable(
+		goldGameTests
+		tests/gameTest.cpp
+	)
+	if(MSVC)
+		target_compile_options(goldGameTests PRIVATE /W4)
+	else()
+		target_compile_options(goldGameTests PRIVATE -Wall -Wextra -pedantic)
+	endif()
+	target_include_directories(
+		goldGameTests
+		PUBLIC
+			"include"
+			"include/game"
+			"tests"
+	)
+	target_link_libraries(
+		goldGameTests
+		PRIVATE
+			gold::game
+	)
+	target_compile_features(
+		goldGameTests
+		PRIVATE
+			cxx_std_20
+	)
+	add_test(NAME goldGameTests COMMAND goldGameTests)
+endif()

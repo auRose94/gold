@@ -217,11 +217,20 @@ namespace gold {
 		auto ev = args[0].getObject();
 		auto type = ev.getString("type");
 
-		// Map event type to a handler slot name: "resized" -> "onResized".
+		// Map event type to a handler slot name in camel case:
+		// "key_down" -> "onKeyDown".
 		string handlerName = "on";
 		if (!type.empty()) {
-			handlerName += char(std::toupper((unsigned char)type[0]));
-			handlerName += type.substr(1);
+			bool cap = true;
+			for (char c : type) {
+				if (c == '_') {
+					cap = true;
+				} else {
+					handlerName += cap ? char(std::toupper((unsigned char)c))
+													 : c;
+					cap = false;
+				}
+			}
 		}
 
 		// Dispatch to the registered handler (method or func). Defaults live
