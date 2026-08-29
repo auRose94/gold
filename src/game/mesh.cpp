@@ -6,11 +6,42 @@
 
 #include <fstream>
 #include <filesystem>
+#include <map>
+#include <mutex>
 
 #include "graphics.hpp"
 
 namespace gold {
 	using namespace std;
+	namespace {
+		map<string, binary> assetCache;
+		mutex assetCacheMutex;
+
+		bool loadCachedAsset(const filesystem::path& path, binary& out) {
+			std::error_code ec;
+			auto absolute = filesystem::absolute(path, ec);
+			if (ec || !filesystem::is_regular_file(absolute, ec)) return false;
+			auto stamp = filesystem::last_write_time(absolute, ec);
+			if (ec) return false;
+			auto key = absolute.lexically_normal().string() + ":" +
+				to_string(stamp.time_since_epoch().count());
+			{
+				lock_guard<mutex> guard(assetCacheMutex);
+				auto cached = assetCache.find(key);
+				if (cached != assetCache.end()) {
+					out = cached->second;
+					return true;
+				}
+			}
+			auto loaded = file::readFile(path);
+			if (!loaded.isObject()) return false;
+			out = loaded.getObject<file>().getBinary("data");
+			if (out.empty()) return false;
+			lock_guard<mutex> guard(assetCacheMutex);
+			assetCache.emplace(std::move(key), out);
+			return true;
+		}
+	}
 	object& mesh::getPrototype() {
 		static auto proto = obj{
 			{"getVertexLayoutHandle",
@@ -56,13 +87,7 @@ namespace gold {
 						} else {
 							auto base = filesystem::path(getString("path"))
 								.parent_path();
-							auto external = file::readFile(base / uri);
-							if (external.isError()) {
-								setString("error", "Failed to load external glTF buffer: " + uri);
-								return;
-							}
-							bin = external.getObject<file>().getBinary("data");
-							if (bin.empty() && byteLength != 0) {
+							if (!loadCachedAsset(base / uri, bin)) {
 								setString("error", "Failed to load external glTF buffer: " + uri);
 								return;
 							}
@@ -88,13 +113,7 @@ namespace gold {
 					} else {
 						auto base = filesystem::path(getString("path"))
 							.parent_path();
-						auto external = file::readFile(base / uri);
-						if (!external.isObject()) {
-							setString("error", "Failed to load external glTF image: " + uri);
-							return;
-						}
-						imageData = external.getObject<file>().getBinary("data");
-						if (imageData.empty()) {
+						if (!loadCachedAsset(base / uri, imageData)) {
 							setString("error", "Failed to load external glTF image: " + uri);
 							return;
 						}
