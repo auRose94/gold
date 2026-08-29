@@ -259,10 +259,24 @@ namespace gold {
 							type = "lines";
 						else if (mode == 3)
 							type = "linestrip";
-						program.setState({
+						auto state = obj({
 							{"type", type},
 							{"MSAA", true},
 						});
+						auto materials = meshD.getList("materials");
+						auto material = materials.getObject(
+							prim.getUInt64("material", UINT64_MAX));
+						auto alphaMode = material.getString("alphaMode", "OPAQUE");
+						if (alphaMode == "BLEND") {
+							state.setString("blendSrc", "src_alpha");
+							state.setString("blendDst", "inv_src_alpha");
+						} else if (alphaMode == "MASK") {
+							state.setUInt8("alphaRef", uint8_t(
+								material.getFloat("alphaCutoff", 0.5f) * 255.0f));
+						}
+						if (material.getBool("doubleSided", false))
+							state.setString("cull", "none");
+						program.setState(state);
 						program.submit(view);
 					}
 				}

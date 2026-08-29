@@ -816,7 +816,7 @@ namespace gold {
 			auto blendRGBDst = state.getString("blendRGBDst");
 			if (blend != "") {
 				toLower(blend);
-				if (exists(blend, "indiependent"))
+				if (exists(blend, "independent"))
 					flags |= BGFX_STATE_BLEND_INDEPENDENT;
 				else if (exists(blend, "alpha_to_coverage"))
 					flags |= BGFX_STATE_BLEND_ALPHA_TO_COVERAGE;
