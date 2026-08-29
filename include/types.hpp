@@ -13,6 +13,7 @@
 #include <ostream>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 namespace gold {
@@ -28,6 +29,7 @@ namespace gold {
 	using std::vector;
 	/* <Types> */
 	struct object;
+	class varRef;
 	struct list;
 	struct var;
 	using method = var (object::*)(list);
@@ -211,6 +213,18 @@ namespace gold {
 		var operator/(const var& b) const;
 		var operator%(const var& b) const;
 
+		// JS-style property access: v["key"] / v[i] read-and-write through
+		// the underlying object/list (returns a varRef proxy). The
+		// overloads avoid C++'s "0 is a null pointer" and the built-in
+		// array-subscript ambiguities.
+		varRef operator[](string_view name);
+		template <size_t N>
+		varRef operator[](const char (&name)[N]);
+		template <typename I,
+			typename std::enable_if<std::is_integral<I>::value,
+				int>::type = 0>
+		varRef operator[](I i);
+
 		types getType() const;
 		const char* getTypeString() const;
 
@@ -380,6 +394,11 @@ namespace gold {
 		list operator-=(var item);
 		operator bool() const;
 		var operator[](uint64_t index) const;
+		// Non-const read/write access: li[i] = value; (returns a proxy).
+		template <typename I,
+			typename std::enable_if<std::is_integral<I>::value,
+				int>::type = 0>
+		varRef operator[](I i);
 
 		void pushString(char* value);
 		void pushString(const char* value);
@@ -566,7 +585,13 @@ namespace gold {
 			return def;
 		}
 
-		var operator[](string name);
+		varRef operator[](string_view name);
+		template <size_t N>
+		varRef operator[](const char (&name)[N]);
+		template <typename I,
+			typename std::enable_if<std::is_integral<I>::value,
+				int>::type = 0>
+		varRef operator[](I i);
 		var operator->*(string name);
 		var operator()(string name, list);
 		var operator()(string name);
@@ -638,6 +663,173 @@ namespace gold {
 	const char* getTypeString(types type);
 
 	/* </Types> */
+
+	// ----------------------------------------------------------------------
+	// JS-style property access. varRef is a thin read/write proxy over a
+	// key (object) or index (list) of a var, so `v["a"]["b"] = 1` reads and
+	// writes through the shared object/list data. It converts to `var` (and
+	// the common scalar types) for reads, and assigns for writes.
+	// ----------------------------------------------------------------------
+	class varRef {
+		var parent;
+		string key;
+		bool byIndex = false;
+		uint64_t idx = 0;
+
+		var value() const {
+			if (byIndex) {
+				if (parent.isList())
+					return parent.getList().getVar(idx);
+				return var();
+			}
+			if (parent.isObject())
+				return parent.getObject().getVar(key);
+			return var();
+		}
+		void assign(const var& v) {
+			if (byIndex) {
+				if (parent.isList()) {
+					auto l = parent.getList();
+					l.setVar(idx, v);
+				}
+			} else if (parent.isObject()) {
+				parent.getObject().setVar(key, v);
+			}
+		}
+
+	 public:
+		varRef(var p, string k) : parent(std::move(p)), key(std::move(k)) {}
+		varRef(var p, string_view k) : parent(std::move(p)), key(string(k)) {}
+		varRef(var p, uint64_t i) : parent(std::move(p)), byIndex(true), idx(i) {}
+
+		// Nested access: v["a"]["b"] / v["a"][0]
+		varRef operator[](string_view k) const {
+			return varRef(value(), k);
+		}
+		template <size_t N>
+		varRef operator[](const char (&k)[N]) const {
+			return varRef(value(), string_view(k, N - 1));
+		}
+		template <typename I,
+			typename std::enable_if<std::is_integral<I>::value,
+				int>::type = 0>
+		varRef operator[](I i) const {
+			return varRef(value(), (uint64_t)i);
+		}
+
+		// Writes. Numeric types are widened (int->int64, uint->uint64,
+		// float->double) so values read back flexibly regardless of the
+		// literal's type.
+		varRef& operator=(const var& v) { assign(v); return *this; }
+		varRef& operator=(const string& v) { assign(var(v)); return *this; }
+		varRef& operator=(const char* v) { assign(var(v)); return *this; }
+		varRef& operator=(string_view v) { assign(var(v)); return *this; }
+		varRef& operator=(int64_t v) { assign(var(v)); return *this; }
+		varRef& operator=(int32_t v) { assign(var(int64_t(v))); return *this; }
+		varRef& operator=(int16_t v) { assign(var(int64_t(v))); return *this; }
+		varRef& operator=(int8_t v) { assign(var(int64_t(v))); return *this; }
+		varRef& operator=(uint64_t v) { assign(var(v)); return *this; }
+		varRef& operator=(uint32_t v) { assign(var(uint64_t(v))); return *this; }
+		varRef& operator=(uint16_t v) { assign(var(uint64_t(v))); return *this; }
+		varRef& operator=(uint8_t v) { assign(var(uint64_t(v))); return *this; }
+		varRef& operator=(double v) { assign(var(v)); return *this; }
+		varRef& operator=(float v) { assign(var(double(v))); return *this; }
+		varRef& operator=(bool v) { assign(var(v)); return *this; }
+		varRef& operator=(const list& v) { assign(var(v)); return *this; }
+		varRef& operator=(const object& v) { assign(var(v)); return *this; }
+		varRef& operator=(const binary& v) { assign(var(v)); return *this; }
+
+		// Reads. One user-defined conversion to var, plus direct conversions
+		// for the common scalar types.
+		operator var() const { return value(); }
+		operator string() const { return value().getString(); }
+		operator int64_t() const { return value().getInt64(); }
+		operator double() const { return value().getDouble(); }
+		operator bool() const { return value().getBool(); }
+
+		// Mirror the var read API so existing obj["x"].getX() patterns work.
+		types getType() const { return value().getType(); }
+		const char* getTypeString() const { return value().getTypeString(); }
+		bool isString() const { return value().isString(); }
+		bool isView() const { return value().isView(); }
+		bool isNumber() const { return value().isNumber(); }
+		bool isFloating() const { return value().isFloating(); }
+		bool isSigned() const { return value().isSigned(); }
+		bool isBool() const { return value().isBool(); }
+		bool isObject() const { return value().isObject(); }
+		bool isObject(object& proto) const { return value().isObject(proto); }
+		bool isList() const { return value().isList(); }
+		bool isVec2() const { return value().isVec2(); }
+		bool isVec3() const { return value().isVec3(); }
+		bool isVec4() const { return value().isVec4(); }
+		bool isQuat() const { return value().isQuat(); }
+		bool isMat3x3() const { return value().isMat3x3(); }
+		bool isMat4x4() const { return value().isMat4x4(); }
+		bool isEmpty() const { return value().isEmpty(); }
+		bool isError() const { return value().isError(); }
+		bool isFunction() const { return value().isFunction(); }
+		bool isMethod() const { return value().isMethod(); }
+		bool isBinary() const { return value().isBinary(); }
+		string getString() const { return value().getString(); }
+		string_view getStringView() const { return value().getStringView(); }
+		int64_t getInt64(size_t i = 0) const { return value().getInt64(i); }
+		int32_t getInt32(size_t i = 0) const { return value().getInt32(i); }
+		int16_t getInt16(size_t i = 0) const { return value().getInt16(i); }
+		int8_t getInt8(size_t i = 0) const { return value().getInt8(i); }
+		uint64_t getUInt64(size_t i = 0) const { return value().getUInt64(i); }
+		uint32_t getUInt32(size_t i = 0) const { return value().getUInt32(i); }
+		uint16_t getUInt16(size_t i = 0) const { return value().getUInt16(i); }
+		uint8_t getUInt8(size_t i = 0) const { return value().getUInt8(i); }
+		double getDouble(size_t i = 0) const { return value().getDouble(i); }
+		float getFloat(size_t i = 0) const { return value().getFloat(i); }
+		bool getBool(size_t i = 0) const { return value().getBool(i); }
+		list getList() const { return value().getList(); }
+		object getObject() const { return value().getObject(); }
+		template <typename OT = object>
+		OT getObject() const { return value().getObject<OT>(); }
+		template <typename OT = object>
+		OT getObject(object def) const { return value().getObject<OT>(def); }
+		binary getBinary() const { return value().getBinary(); }
+		void assignList(list& result) const { value().assignList(result); }
+		void assignObject(object& result) const { value().assignObject(result); }
+		void assignBinary(binary& result) const { value().assignBinary(result); }
+		func getFunction() const { return value().getFunction(); }
+		void* getPtr() const { return value().getPtr(); }
+		genericError* getError() const { return value().getError(); }
+
+		// Chainable write on an object: o["a"].set("b", 1) == o["a"]["b"] = 1
+		template <typename T>
+		varRef& set(string name, T v) {
+			operator[](std::move(name)) = var(v);
+			return *this;
+		}
+	};
+
+	// Member-template definitions for JS-style operator[] (placed after
+	// varRef is complete so varRef can be returned by value).
+	template <size_t N>
+	inline varRef var::operator[](const char (&name)[N]) {
+		return operator[](string_view(name, N - 1));
+	}
+	template <size_t N>
+	inline varRef object::operator[](const char (&name)[N]) {
+		return operator[](string_view(name, N - 1));
+	}
+	template <typename I,
+		typename std::enable_if<std::is_integral<I>::value, int>::type>
+	inline varRef var::operator[](I i) {
+		return varRef(*this, (uint64_t)i);
+	}
+	template <typename I,
+		typename std::enable_if<std::is_integral<I>::value, int>::type>
+	inline varRef object::operator[](I i) {
+		return varRef(var(*this), (uint64_t)i);
+	}
+	template <typename I,
+		typename std::enable_if<std::is_integral<I>::value, int>::type>
+	inline varRef list::operator[](I i) {
+		return varRef(var(*this), (uint64_t)i);
+	}
 
 	var vec2i64(int64_t x, int64_t y);
 	var vec3i64(int64_t x, int64_t y, int64_t z);

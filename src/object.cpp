@@ -617,10 +617,8 @@ namespace gold {
 		return getExpression(name);
 	}
 
-	var object::operator[](string name) {
-		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
-		return getExpression(name);
+	varRef object::operator[](string_view name) {
+		return varRef(var(*this), string(name));
 	}
 
 	var object::operator->*(string name) {

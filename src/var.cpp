@@ -154,6 +154,10 @@ namespace gold {
 
 	var::var(const obj& v) { initVar(v, typeObject, obj); }
 
+	varRef var::operator[](string_view name) {
+		return varRef(*this, string(name));
+	}
+
 	var::var(method v) { initVar(v, typeMethod, method); }
 
 	var::var(func v) { initVar(v, typeFunction, func); }

@@ -1,6 +1,7 @@
 #include <iostream>
 
 #include "file.hpp"
+#include "goldjs.hpp"
 #include "module.hpp"
 #include "types.hpp"
 #include "goldtest.hpp"
@@ -482,6 +483,77 @@ TEST(list_functions) {
 	list li;
 	li.pushFunc(fn);
 	EXPECT_EQ(li.getFunction(0)({}).getInt64(), 99);
+}
+
+TEST(js_sugar) {
+	// Object/array literals, JS-style.
+	auto user = o(
+		"name", "bob",
+		"age", 30,
+		"score", 9.5,
+		"admin", true,
+		"tags", a("admin", "dev"),
+		"meta", o("joined", 2020, "active", true));
+
+	EXPECT_EQ(user.getString("name"), "bob");
+	EXPECT_EQ(user.getInt64("age"), 30);
+
+	// Property get/set through the varRef proxy (writes through).
+	user["age"] = 31;
+	user["score"] = 10.0;
+	user["nickname"] = "bobby";
+	user["meta"]["active"] = false;
+	user["tags"][0] = "staff";
+	EXPECT_EQ(user.getInt64("age"), 31);
+	EXPECT_NEAR(user.getDouble("score"), 10.0, 1e-9);
+	EXPECT_EQ(user.getString("nickname"), "bobby");
+	EXPECT_FALSE(user.getObject("meta").getBool("active"));
+	EXPECT_EQ(user.getList("tags").getString(0), "staff");
+
+	// Implicit conversions read the value.
+	string name = user["name"];
+	int64_t age = user["age"];
+	EXPECT_EQ(name, "bob");
+	EXPECT_EQ(age, 31);
+	EXPECT_TRUE((bool)user["admin"]);
+	EXPECT_FALSE((bool)user["meta"]["active"]);
+
+	// var indexing (object wrapped in a var).
+	var v = o("a", 1, "b", "x");
+	v["b"] = "y";
+	EXPECT_EQ(v["b"].getString(), "y");
+	EXPECT_EQ(v["a"].getInt64(), 1);
+
+	// list element write-through.
+	auto li = a(1, 2, 3);
+	li[1] = 99;
+	EXPECT_EQ(li.getInt64(1), 99);
+
+	// Template strings.
+	EXPECT_EQ(t("Hello $0, $1", "bob", 31), "Hello bob, 31");
+	EXPECT_EQ(t("no placeholders"), "no placeholders");
+
+	// Array helpers.
+	auto nums = a(1, 2, 3, 4, 5);
+	auto doubled = mapArr(nums, func([](list a) -> var {
+		return var(a[0].getInt64() * 2);
+	}));
+	EXPECT_EQ(join(doubled), "2,4,6,8,10");
+	auto evens = filter(nums, func([](list a) -> var {
+		return var(a[0].getInt64() % 2 == 0);
+	}));
+	EXPECT_EQ(join(evens), "2,4");
+	auto first = findArr(nums, func([](list a) -> var {
+		return var(a[0].getInt64() > 3);
+	}));
+	EXPECT_EQ(first.getInt64(), 4);
+	EXPECT_EQ(join(a("x", "y", "z"), "-"), "x-y-z");
+
+	// JSON shorthand round-trip.
+	auto js = toJSON(user);
+	auto parsed = fromJSON(js);
+	EXPECT_EQ(parsed["name"].getString(), "bob");
+	EXPECT_EQ(parsed["meta"]["joined"].getInt64(), 2020);
 }
 
 int main() {
