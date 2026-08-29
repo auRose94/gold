@@ -6,6 +6,7 @@
 #include "entity.hpp"
 
 namespace gold {
+	using namespace std;
 	object& transform::getPrototype() {
 		static auto proto = obj(initList{
 			{"priority", priorityEnum::dataPriority},

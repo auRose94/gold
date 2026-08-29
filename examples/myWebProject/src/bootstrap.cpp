@@ -3,6 +3,7 @@
 #include <iostream>
 
 namespace gg {
+	using namespace std;
 	namespace bs {
 		using namespace gold;
 		using namespace gold::HTML;

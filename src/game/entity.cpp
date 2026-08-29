@@ -5,6 +5,7 @@
 #include "transform.hpp"
 
 namespace gold {
+	using namespace std;
 	object& entity::getPrototype() {
 		static auto proto = object({
 			{"name", "New Object"},

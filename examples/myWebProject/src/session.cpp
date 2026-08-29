@@ -7,6 +7,7 @@
 #include "utility.hpp"
 
 namespace gg {
+	using namespace std;
 
 	collection session::col;
 	const auto expireOffset = 86400000;

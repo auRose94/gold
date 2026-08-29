@@ -11,6 +11,7 @@
 #include "world.hpp"
 
 namespace gold {
+	using namespace std;
 	object& physicsBody::getPrototype() {
 		static auto proto = obj{
 			{"priority", priorityEnum::physicsPriority},

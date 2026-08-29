@@ -6,6 +6,7 @@
 #include "user.hpp"
 
 namespace gg {
+	using namespace std;
 	using namespace gold;
 	using namespace gg::bs;
 	using div = HTML::div;

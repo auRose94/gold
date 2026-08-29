@@ -1,7 +1,6 @@
 #include "file.hpp"
 
-#include <cryptopp/base64.h>
-#include <cryptopp/filters.h>
+#include <openssl/evp.h>
 
 #include <chrono>
 #include <fstream>
@@ -9,6 +8,7 @@
 #include <iostream>
 
 namespace gold {
+	using namespace std;
 	using value_t = nlohmann::detail::value_t;
 	namespace fs = std::filesystem;
 	const auto preferred_separator =
@@ -120,7 +120,7 @@ namespace gold {
 				}
 			}
 			return gold::var();
-		} catch (exception e) {
+		} catch (const exception& e) {
 			return genericError(e.what());
 		}
 	}
@@ -252,7 +252,7 @@ namespace gold {
 				results.setString("error", e);
 			}
 			return results;
-		} catch (exception e) {
+		} catch (const exception& e) {
 			return results;
 		}
 	}
@@ -433,47 +433,67 @@ namespace gold {
 	}
 
 	var file::parseJSON(string_view data) {
-		json j = json::parse(data);
-		if (j.is_object())
-			return json2Object(j);
-		else if (j.is_array())
-			return json2List(j);
+		try {
+			json j = json::parse(data);
+			if (j.is_object())
+				return json2Object(j);
+			else if (j.is_array())
+				return json2List(j);
+		} catch (const exception& e) {
+			return genericError(e.what());
+		}
 		return var();
 	}
 
 	var file::parseBSON(string_view data) {
-		json j = json::from_bson(data);
-		if (j.is_object())
-			return json2Object(j);
-		else if (j.is_array())
-			return json2List(j);
+		try {
+			json j = json::from_bson(data);
+			if (j.is_object())
+				return json2Object(j);
+			else if (j.is_array())
+				return json2List(j);
+		} catch (const exception& e) {
+			return genericError(e.what());
+		}
 		return var();
 	}
 
 	var file::parseCBOR(string_view data) {
-		json j = json::from_bson(data);
-		if (j.is_object())
-			return json2Object(j);
-		else if (j.is_array())
-			return json2List(j);
+		try {
+			json j = json::from_cbor(data);
+			if (j.is_object())
+				return json2Object(j);
+			else if (j.is_array())
+				return json2List(j);
+		} catch (const exception& e) {
+			return genericError(e.what());
+		}
 		return var();
 	}
 
 	var file::parseMsgPack(string_view data) {
-		json j = json::from_bson(data);
-		if (j.is_object())
-			return json2Object(j);
-		else if (j.is_array())
-			return json2List(j);
+		try {
+			json j = json::from_msgpack(data);
+			if (j.is_object())
+				return json2Object(j);
+			else if (j.is_array())
+				return json2List(j);
+		} catch (const exception& e) {
+			return genericError(e.what());
+		}
 		return var();
 	}
 
 	var file::parseUBJSON(string_view data) {
-		json j = json::from_bson(data);
-		if (j.is_object())
-			return json2Object(j);
-		else if (j.is_array())
-			return json2List(j);
+		try {
+			json j = json::from_ubjson(data);
+			if (j.is_object())
+				return json2Object(j);
+			else if (j.is_array())
+				return json2List(j);
+		} catch (const exception& e) {
+			return genericError(e.what());
+		}
 		return var();
 	}
 
@@ -890,27 +910,53 @@ namespace gold {
 	}
 
 	binary file::decodeBase64(string_view v) {
-		using namespace CryptoPP;
-		string out;
+		if (v.empty()) return binary();
 
-		StringSource ss(
-			(CryptoPP::byte*)v.data(), v.size(), true,
-			new Base64URLDecoder(
-				new StringSink(out))  // Base64URLDecoder
-		);                            // StringSource
+		// Accept both the standard (+ /) and URL-safe (- _) alphabets.
+		auto b64 = string(v);
+		for (auto& c : b64) {
+			if (c == '-') c = '+';
+			else if (c == '_') c = '/';
+		}
 
-		return binary(out.begin(), out.end());
+		// EVP_DecodeBlock requires padding to a multiple of 4.
+		auto padded = b64;
+		while (padded.size() % 4 != 0) padded += '=';
+
+		size_t padCount = 0;
+		for (auto it = padded.rbegin(); it != padded.rend() && *it == '=';
+				 ++it)
+			padCount++;
+
+		binary out((padded.size() / 4) * 3);
+		if (out.empty()) return out;
+
+		auto n = EVP_DecodeBlock(
+			out.data(), (const unsigned char*)padded.data(),
+			int(padded.size()));
+		if (n < 0) return binary();
+		// Each '=' accounts for one zero byte in EVP_DecodeBlock's output.
+		size_t decoded = size_t(n) - padCount;
+		if (decoded > out.size()) decoded = out.size();
+		out.resize(decoded);
+		return out;
 	}
 
 	string file::encodeBase64(binary b) {
-		using namespace CryptoPP;
-		string out;
-		StringSource ss(
-			b.data(), b.size(), true,
-			new Base64URLEncoder(
-				new StringSink(out))  // Base64URLEncoder
-		);                        // StringSource
-		return out;
+		if (b.empty()) return "";
+		binary out((b.size() / 3 + 1) * 4);
+		auto n = EVP_EncodeBlock(out.data(), b.data(), int(b.size()));
+		if (n < 0) return "";
+		auto str = string((char*)out.data(), size_t(n));
+		// URL-safe alphabet and no padding.
+		for (auto& c : str) {
+			if (c == '+') c = '-';
+			else if (c == '/') c = '_';
+			else if (c == '=') c = '\0';
+		}
+		auto end = str.find('\0');
+		if (end != string::npos) str.resize(end);
+		return str;
 	}
 
 }  // namespace gold

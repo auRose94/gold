@@ -5,13 +5,21 @@ project(gold CXX)
 
 add_library(
 	goldWeb
-	STATIC
+	SHARED
 		src/web/database.cpp
 		src/web/html.cpp
 		src/web/server.cpp
 )
+
 add_library(
 	gold::web ALIAS goldWeb
+)
+
+set_target_properties(
+	goldWeb
+	PROPERTIES
+		VERSION 0.1.0
+		SOVERSION 0
 )
 
 if(MSVC)

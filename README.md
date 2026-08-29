@@ -66,3 +66,135 @@ What's planned?
 You can copy everything from the examples directory to get started with a basic web app or game. It's better to make this project a submodule in git instead of cloning/copying the project.
 
 All code not in 3rdParty or explicitly stated otherwise are Apache version 2.
+
+## Building
+
+The project uses CMake (3.16+). Submodules must be present:
+
+```sh
+git submodule update --init --recursive
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build
+```
+
+Build options (all default to `ON` except examples):
+
+* `GOLD_BUILD_GAME` – the game engine module (`gold::game`)
+* `GOLD_BUILD_WEB` – the web server module (`gold::web`)
+* `GOLD_BUILD_TESTS` – the test suite
+* `GOLD_BUILD_EXAMPLES` – build the example projects (default `OFF`; requires `GOLD_BUILD_GAME`)
+
+To build and test just the shared core (fast, no game/web deps):
+
+```sh
+cmake -S . -B build -DGOLD_BUILD_GAME=OFF -DGOLD_BUILD_WEB=OFF
+cmake --build build --target goldTests
+ctest --test-dir build --output-on-failure
+```
+
+To build the example projects in-tree:
+
+```sh
+cmake -S . -B build -DGOLD_BUILD_EXAMPLES=ON
+cmake --build build --target ConwaysGameOfLife MyWebProject
+```
+
+> Crypto (PBKDF2 password hashing, URL-safe base64) is provided by the system
+> OpenSSL library, which is also required by the web module. The bundled
+> Crypto++ submodule has been removed. Install it with your system package
+> manager if missing (e.g. `libssl-dev` on Debian/Ubuntu).
+
+## Security notes
+
+* `object::generateHash` uses PBKDF2-HMAC-SHA256 with 600,000 iterations
+  (OWASP-recommended) rather than the old 1,024. This is intentionally slow
+  for password hashing; existing stored hashes are unaffected but should be
+  re-derived on next login.
+
+## Module layout
+
+* `gold::shared` (`libgoldShared.a`) is the core: `var`/`list`/`object`,
+  serialization, files, crypto, and the `gold::module` runtime loader.
+* `gold::game` (`libgoldGame.so`) and `gold::web` (`libgoldWeb.so`) are
+  shared libraries built on top of the core. Linking them is optional:
+  * At **build time**, `GOLD_BUILD_GAME` / `GOLD_BUILD_WEB` control whether
+    they are built at all.
+  * At **run time**, `gold::module::load("game")` / `("web")` dlopen's the
+    module on demand, so an app that only needs the core never pulls in the
+    game engine or web stack. Point `module::setLibraryPath()` at the
+    directory containing the `.so` files when they aren't on the loader path.
+
+Because the game/web modules are shared libraries, example executables link
+dynamically instead of statically baking in the entire framework (the game
+example dropped from ~240MB to under 1MB).
+
+### Window system backends
+
+Window creation is abstracted behind `windowSystem` (a pure interface with no
+SDL/bgfx types in its headers). The `window` object is a facade over a
+backend chosen by name:
+
+* `"sdl"` (default) — SDL2 window + input events.
+* `"wayland"` — native Wayland (xdg-shell) window + wl_seat input.
+* `"headless"` — no real window; for tests, CI, and offscreen rendering.
+
+Backends are registered via `registerWindowSystem()`. The `"backend"` config
+accepts a string or a list of names tried in order (fallback chain);
+`"headless"` is always appended last so apps never hard-fail on a missing
+compositor:
+
+```json
+{ "backend": ["wayland", "sdl", "headless"] }
+```
+
+Input capture from real devices is abstracted behind `inputSystem` with an
+`"evdev"` backend (libevdev; uinput is write-only, so evdev is used for real
+capture). The render backend binds to the platform window through
+`windowSystem::native()`.
+
+### Events & handlers are gold data
+
+Backends emit window/input events as gold `object`s (`{"type","resized",
+"width",800,"height",600}`, `{"type","key_down","keyCode",...}`), so they are
+serializable, loggable, and dispatchable. The `window` prototype exposes
+handler slots — `onQuit`, `onResized`, `onMoved`, `onKeyDown`, `onMouseMove`,
+etc. — whose defaults update window state. Apps override them with
+`setFunc`/`setMethod`:
+
+```cpp
+win.setFunc("onResized", func([&](gold::list args) -> gold::var {
+    auto ev = args[0].getObject();   // or args[1] for self+event
+    return ev.getInt32("width");
+}));
+```
+
+The engine loop is then a plain pump+dispatch with no platform switch:
+
+```cpp
+gold::object ev;
+while (ws->poll(ev))
+    win.handleEvent({ev});
+```
+
+### Render backends
+
+Rendering is abstracted behind `renderBackend` (gold-native types — no bgfx
+or Vulkan types in headers). `gfxBackend` creates the backend through
+`createRenderBackend(renderBackendType)`:
+
+* `BGFX` (default) — the current implementation, wrapping bgfx.
+* `Vulkan` / `OpenGL` — reserved for future direct implementations.
+
+Handles are opaque `uint16` indices owned by the backend, so a Vulkan backend
+can replace bgfx without changing the engine's resource classes. This is the
+migration path to deprecate bgfx: implement the `renderBackend` interface
+against Vulkan and swap it in.
+
+## Submodule policy
+
+The `3rdParty` submodules track upstream branches. `nlohmann/json`, `zlib`
+and `libuv` are kept at their latest releases. The tightly-coupled graphics
+stack (`bgfx`/`bx`/`bimg`, `SDL`, `bullet3`) and the author's `brtshaderc`
+fork are pinned to the commits the framework was developed against; bumping
+them independently is likely to break the game module build. Crypto++ and
+snappy have been removed entirely (OpenSSL provides PBKDF2/base64).

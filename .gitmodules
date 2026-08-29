@@ -37,12 +37,6 @@
 [submodule "3rdParty/libuv"]
 	path = 3rdParty/libuv
 	url = https://github.com/libuv/libuv.git
-[submodule "3rdParty/snappy"]
-	path = 3rdParty/snappy
-	url = https://github.com/google/snappy.git
-[submodule "3rdParty/cryptopp"]
-	path = 3rdParty/cryptopp
-	url = https://github.com/weidai11/cryptopp.git
 [submodule "3rdParty/SDL"]
 	path = 3rdParty/SDL
 	url = https://github.com/SDL-mirror/SDL.git

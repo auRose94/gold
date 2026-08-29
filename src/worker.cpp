@@ -5,6 +5,7 @@
 #include <iostream>
 
 namespace gold {
+	using namespace std;
 	struct worker::job {
 	 public:
 		const method m;

@@ -11,6 +11,7 @@
 #include <vector>
 
 namespace gold {
+	using namespace std;
 
 	typedef struct {
 		union {

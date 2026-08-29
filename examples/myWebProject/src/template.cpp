@@ -5,8 +5,10 @@
 #include "user.hpp"
 
 namespace gg {
+	using namespace std;
 	using link = HTML::link;
 	using div = HTML::div;
+	using span = HTML::span;
 
 	html getTemplateEx(
 		user u, session s, string path, gold::list content,

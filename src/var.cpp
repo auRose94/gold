@@ -1,5 +1,6 @@
 #include <bx/math.h>
 
+#include <cmath>
 #include <string>
 
 #include "types.hpp"
@@ -92,17 +93,16 @@ namespace gold {
 		type = typeNull;
 	}
 
-	var::varContainer::varContainer(const varContainer& other) {
-		data = other.data;
-		type = other.type;
-	}
-
 	var::varPtr var::autoNull =
 		var::varPtr(nullptr, [](void*) {});
 
 	var::var() : sPtr(autoNull) {}
 
 	var::var(const var& copy) : sPtr(copy.sPtr) {}
+
+	var::var(var&& move) : sPtr(std::move(move.sPtr)) {
+		move.sPtr = autoNull;
+	}
 
 #define initVar(v, t, typeName)  \
 	auto ptr = new varContainer(); \
@@ -241,6 +241,12 @@ namespace gold {
 
 	var& var::operator=(const var& rhs) {
 		sPtr = rhs.sPtr;
+		return *this;
+	}
+
+	var& var::operator=(var&& rhs) {
+		sPtr = std::move(rhs.sPtr);
+		rhs.sPtr = autoNull;
 		return *this;
 	}
 
@@ -416,155 +422,155 @@ namespace gold {
 				case typeNull:
 					return isEmpty();
 				case typeObject:
-					return rCon->obj->data <= getObject().data;
+					return getObject().data <= rCon->obj->data;
 				case typeList:
-					return rCon->li->data <= getList().data;
+					return getList().data <= rCon->li->data;
 				case typeString:
-					return *rCon->str <= (string) * this;
+					return (string) *this <= *rCon->str;
 				case typeDouble:
-					return *rCon->d <= (double)*this;
+					return (double)*this <= *rCon->d;
 				case typeFloat:
-					return *rCon->f <= (float)*this;
+					return (float)*this <= *rCon->f;
 				case typeInt64:
-					return *rCon->i64 <= (int64_t) * this;
+					return (int64_t) *this <= *rCon->i64;
 				case typeInt32:
-					return *rCon->i32 <= (int32_t) * this;
+					return (int32_t) *this <= *rCon->i32;
 				case typeInt16:
-					return *rCon->i16 <= (int16_t) * this;
+					return (int16_t) *this <= *rCon->i16;
 				case typeInt8:
-					return *rCon->i8 <= (int8_t) * this;
+					return (int8_t) *this <= *rCon->i8;
 				case typeUInt64:
-					return *rCon->u64 <= (uint64_t) * this;
+					return (uint64_t) *this <= *rCon->u64;
 				case typeUInt32:
-					return *rCon->u32 <= (uint32_t) * this;
+					return (uint32_t) *this <= *rCon->u32;
 				case typeUInt16:
-					return *rCon->u16 <= (uint16_t) * this;
+					return (uint16_t) *this <= *rCon->u16;
 				case typeUInt8:
-					return *rCon->u8 <= (uint8_t) * this;
+					return (uint8_t) *this <= *rCon->u8;
 				case typeBool:
-					return *rCon->b <= (bool)*this;
+					return (bool)*this <= *rCon->b;
 				case typeVec2Float:
-					return rhs.getFloat(0) <= getFloat(0) &&
-								 rhs.getFloat(1) <= getFloat(1);
+					return getFloat(0) <= rhs.getFloat(0) &&
+								 getFloat(1) <= rhs.getFloat(1);
 				case typeVec2Double:
-					return rhs.getDouble(0) <= getDouble(0) &&
-								 rhs.getDouble(1) <= getDouble(1);
+					return getDouble(0) <= rhs.getDouble(0) &&
+								 getDouble(1) <= rhs.getDouble(1);
 				case typeVec2Int64:
-					return rhs.getInt64(0) <= getInt64(0) &&
-								 rhs.getInt64(1) <= getInt64(1);
+					return getInt64(0) <= rhs.getInt64(0) &&
+								 getInt64(1) <= rhs.getInt64(1);
 				case typeVec2Int32:
-					return rhs.getInt32(0) <= getInt32(0) &&
-								 rhs.getInt32(1) <= getInt32(1);
+					return getInt32(0) <= rhs.getInt32(0) &&
+								 getInt32(1) <= rhs.getInt32(1);
 				case typeVec2Int16:
-					return rhs.getInt16(0) <= getInt16(0) &&
-								 rhs.getInt16(1) <= getInt16(1);
+					return getInt16(0) <= rhs.getInt16(0) &&
+								 getInt16(1) <= rhs.getInt16(1);
 				case typeVec2Int8:
-					return rhs.getInt8(0) <= getInt8(0) &&
-								 rhs.getInt8(1) <= getInt8(1);
+					return getInt8(0) <= rhs.getInt8(0) &&
+								 getInt8(1) <= rhs.getInt8(1);
 				case typeVec2UInt64:
-					return rhs.getUInt64(0) <= getUInt64(0) &&
-								 rhs.getUInt64(1) <= getUInt64(1);
+					return getUInt64(0) <= rhs.getUInt64(0) &&
+								 getUInt64(1) <= rhs.getUInt64(1);
 				case typeVec2UInt32:
-					return rhs.getUInt32(0) <= getUInt32(0) &&
-								 rhs.getUInt32(1) <= getUInt32(1);
+					return getUInt32(0) <= rhs.getUInt32(0) &&
+								 getUInt32(1) <= rhs.getUInt32(1);
 				case typeVec2UInt16:
-					return rhs.getUInt16(0) <= getUInt16(0) &&
-								 rhs.getUInt16(1) <= getUInt16(1);
+					return getUInt16(0) <= rhs.getUInt16(0) &&
+								 getUInt16(1) <= rhs.getUInt16(1);
 				case typeVec2UInt8:
-					return rhs.getUInt8(0) <= getUInt8(0) &&
-								 rhs.getUInt8(1) <= getUInt8(1);
+					return getUInt8(0) <= rhs.getUInt8(0) &&
+								 getUInt8(1) <= rhs.getUInt8(1);
 				case typeVec3Float:
-					return rhs.getFloat(0) <= getFloat(0) &&
-								 rhs.getFloat(1) <= getFloat(1) &&
-								 rhs.getFloat(2) <= getFloat(2);
+					return getFloat(0) <= rhs.getFloat(0) &&
+								 getFloat(1) <= rhs.getFloat(1) &&
+								 getFloat(2) <= rhs.getFloat(2);
 				case typeVec3Double:
-					return rhs.getDouble(0) <= getDouble(0) &&
-								 rhs.getDouble(1) <= getDouble(1) &&
-								 rhs.getDouble(2) <= getDouble(2);
+					return getDouble(0) <= rhs.getDouble(0) &&
+								 getDouble(1) <= rhs.getDouble(1) &&
+								 getDouble(2) <= rhs.getDouble(2);
 				case typeVec3Int64:
-					return rhs.getInt64(0) <= getInt64(0) &&
-								 rhs.getInt64(1) <= getInt64(1) &&
-								 rhs.getInt64(2) <= getInt64(2);
+					return getInt64(0) <= rhs.getInt64(0) &&
+								 getInt64(1) <= rhs.getInt64(1) &&
+								 getInt64(2) <= rhs.getInt64(2);
 				case typeVec3Int32:
-					return rhs.getInt32(0) <= getInt32(0) &&
-								 rhs.getInt32(1) <= getInt32(1) &&
-								 rhs.getInt32(2) <= getInt32(2);
+					return getInt32(0) <= rhs.getInt32(0) &&
+								 getInt32(1) <= rhs.getInt32(1) &&
+								 getInt32(2) <= rhs.getInt32(2);
 				case typeVec3Int16:
-					return rhs.getInt16(0) <= getInt16(0) &&
-								 rhs.getInt16(1) <= getInt16(1) &&
-								 rhs.getInt16(2) <= getInt16(2);
+					return getInt16(0) <= rhs.getInt16(0) &&
+								 getInt16(1) <= rhs.getInt16(1) &&
+								 getInt16(2) <= rhs.getInt16(2);
 				case typeVec3Int8:
-					return rhs.getInt8(0) <= getInt8(0) &&
-								 rhs.getInt8(1) <= getInt8(1) &&
-								 rhs.getInt8(2) <= getInt8(2);
+					return getInt8(0) <= rhs.getInt8(0) &&
+								 getInt8(1) <= rhs.getInt8(1) &&
+								 getInt8(2) <= rhs.getInt8(2);
 				case typeVec3UInt64:
-					return rhs.getUInt64(0) <= getUInt64(0) &&
-								 rhs.getUInt64(1) <= getUInt64(1) &&
-								 rhs.getUInt64(2) <= getUInt64(2);
+					return getUInt64(0) <= rhs.getUInt64(0) &&
+								 getUInt64(1) <= rhs.getUInt64(1) &&
+								 getUInt64(2) <= rhs.getUInt64(2);
 				case typeVec3UInt32:
-					return rhs.getUInt32(0) <= getUInt32(0) &&
-								 rhs.getUInt32(1) <= getUInt32(1) &&
-								 rhs.getUInt32(2) <= getUInt32(2);
+					return getUInt32(0) <= rhs.getUInt32(0) &&
+								 getUInt32(1) <= rhs.getUInt32(1) &&
+								 getUInt32(2) <= rhs.getUInt32(2);
 				case typeVec3UInt16:
-					return rhs.getUInt16(0) <= getUInt16(0) &&
-								 rhs.getUInt16(1) <= getUInt16(1) &&
-								 rhs.getUInt16(2) <= getUInt16(2);
+					return getUInt16(0) <= rhs.getUInt16(0) &&
+								 getUInt16(1) <= rhs.getUInt16(1) &&
+								 getUInt16(2) <= rhs.getUInt16(2);
 				case typeVec3UInt8:
-					return rhs.getUInt8(0) <= getUInt8(0) &&
-								 rhs.getUInt8(1) <= getUInt8(1) &&
-								 rhs.getUInt8(2) <= getUInt8(2);
+					return getUInt8(0) <= rhs.getUInt8(0) &&
+								 getUInt8(1) <= rhs.getUInt8(1) &&
+								 getUInt8(2) <= rhs.getUInt8(2);
 				case typeVec4Float:
-					return rhs.getFloat(0) <= getFloat(0) &&
-								 rhs.getFloat(1) <= getFloat(1) &&
-								 rhs.getFloat(2) <= getFloat(2) &&
-								 rhs.getFloat(3) <= getFloat(3);
+					return getFloat(0) <= rhs.getFloat(0) &&
+								 getFloat(1) <= rhs.getFloat(1) &&
+								 getFloat(2) <= rhs.getFloat(2) &&
+								 getFloat(3) <= rhs.getFloat(3);
 				case typeVec4Double:
-					return rhs.getDouble(0) <= getDouble(0) &&
-								 rhs.getDouble(1) <= getDouble(1) &&
-								 rhs.getDouble(2) <= getDouble(2) &&
-								 rhs.getDouble(3) <= getDouble(3);
+					return getDouble(0) <= rhs.getDouble(0) &&
+								 getDouble(1) <= rhs.getDouble(1) &&
+								 getDouble(2) <= rhs.getDouble(2) &&
+								 getDouble(3) <= rhs.getDouble(3);
 				case typeVec4Int64:
-					return rhs.getInt64(0) <= getInt64(0) &&
-								 rhs.getInt64(1) <= getInt64(1) &&
-								 rhs.getInt64(2) <= getInt64(2) &&
-								 rhs.getInt64(3) <= getInt64(3);
+					return getInt64(0) <= rhs.getInt64(0) &&
+								 getInt64(1) <= rhs.getInt64(1) &&
+								 getInt64(2) <= rhs.getInt64(2) &&
+								 getInt64(3) <= rhs.getInt64(3);
 				case typeVec4Int32:
-					return rhs.getInt32(0) <= getInt32(0) &&
-								 rhs.getInt32(1) <= getInt32(1) &&
-								 rhs.getInt32(2) <= getInt32(2) &&
-								 rhs.getInt32(3) <= getInt32(3);
+					return getInt32(0) <= rhs.getInt32(0) &&
+								 getInt32(1) <= rhs.getInt32(1) &&
+								 getInt32(2) <= rhs.getInt32(2) &&
+								 getInt32(3) <= rhs.getInt32(3);
 				case typeVec4Int16:
-					return rhs.getInt16(0) <= getInt16(0) &&
-								 rhs.getInt16(1) <= getInt16(1) &&
-								 rhs.getInt16(2) <= getInt16(2) &&
-								 rhs.getInt16(3) <= getInt16(3);
+					return getInt16(0) <= rhs.getInt16(0) &&
+								 getInt16(1) <= rhs.getInt16(1) &&
+								 getInt16(2) <= rhs.getInt16(2) &&
+								 getInt16(3) <= rhs.getInt16(3);
 				case typeVec4Int8:
-					return rhs.getInt8(0) <= getInt8(0) &&
-								 rhs.getInt8(1) <= getInt8(1) &&
-								 rhs.getInt8(2) <= getInt8(2) &&
-								 rhs.getInt8(3) <= getInt8(3);
+					return getInt8(0) <= rhs.getInt8(0) &&
+								 getInt8(1) <= rhs.getInt8(1) &&
+								 getInt8(2) <= rhs.getInt8(2) &&
+								 getInt8(3) <= rhs.getInt8(3);
 				case typeVec4UInt64:
-					return rhs.getUInt64(0) <= getUInt64(0) &&
-								 rhs.getUInt64(1) <= getUInt64(1) &&
-								 rhs.getUInt64(2) <= getUInt64(2) &&
-								 rhs.getUInt64(3) <= getUInt64(3);
+					return getUInt64(0) <= rhs.getUInt64(0) &&
+								 getUInt64(1) <= rhs.getUInt64(1) &&
+								 getUInt64(2) <= rhs.getUInt64(2) &&
+								 getUInt64(3) <= rhs.getUInt64(3);
 				case typeVec4UInt32:
-					return rhs.getUInt32(0) <= getUInt32(0) &&
-								 rhs.getUInt32(1) <= getUInt32(1) &&
-								 rhs.getUInt32(2) <= getUInt32(2) &&
-								 rhs.getUInt32(3) <= getUInt32(3);
+					return getUInt32(0) <= rhs.getUInt32(0) &&
+								 getUInt32(1) <= rhs.getUInt32(1) &&
+								 getUInt32(2) <= rhs.getUInt32(2) &&
+								 getUInt32(3) <= rhs.getUInt32(3);
 				case typeVec4UInt16:
-					return rhs.getUInt16(0) <= getUInt16(0) &&
-								 rhs.getUInt16(1) <= getUInt16(1) &&
-								 rhs.getUInt16(2) <= getUInt16(2) &&
-								 rhs.getUInt16(3) <= getUInt16(3);
+					return getUInt16(0) <= rhs.getUInt16(0) &&
+								 getUInt16(1) <= rhs.getUInt16(1) &&
+								 getUInt16(2) <= rhs.getUInt16(2) &&
+								 getUInt16(3) <= rhs.getUInt16(3);
 				case typeVec4UInt8:
-					return rhs.getUInt8(0) <= getUInt8(0) &&
-								 rhs.getUInt8(1) <= getUInt8(1) &&
-								 rhs.getUInt8(2) <= getUInt8(2) &&
-								 rhs.getUInt8(3) <= getUInt8(3);
+					return getUInt8(0) <= rhs.getUInt8(0) &&
+								 getUInt8(1) <= rhs.getUInt8(1) &&
+								 getUInt8(2) <= rhs.getUInt8(2) &&
+								 getUInt8(3) <= rhs.getUInt8(3);
 				default:
-					return (void*)rCon->data <= (void*)*this;
+					return (void*)*this <= (void*)rCon->data;
 			}
 		}
 		return false;
@@ -577,155 +583,155 @@ namespace gold {
 				case typeNull:
 					return isEmpty();
 				case typeObject:
-					return rCon->obj->data >= getObject().data;
+					return getObject().data >= rCon->obj->data;
 				case typeList:
-					return rCon->li->data >= getList().data;
+					return getList().data >= rCon->li->data;
 				case typeString:
-					return *rCon->str >= (string) * this;
+					return (string) *this >= *rCon->str;
 				case typeDouble:
-					return *rCon->d >= (double)*this;
+					return (double)*this >= *rCon->d;
 				case typeFloat:
-					return *rCon->f >= (float)*this;
+					return (float)*this >= *rCon->f;
 				case typeInt64:
-					return *rCon->i64 >= (int64_t) * this;
+					return (int64_t) *this >= *rCon->i64;
 				case typeInt32:
-					return *rCon->i32 >= (int32_t) * this;
+					return (int32_t) *this >= *rCon->i32;
 				case typeInt16:
-					return *rCon->i16 >= (int16_t) * this;
+					return (int16_t) *this >= *rCon->i16;
 				case typeInt8:
-					return *rCon->i8 >= (int8_t) * this;
+					return (int8_t) *this >= *rCon->i8;
 				case typeUInt64:
-					return *rCon->u64 >= (uint64_t) * this;
+					return (uint64_t) *this >= *rCon->u64;
 				case typeUInt32:
-					return *rCon->u32 >= (uint32_t) * this;
+					return (uint32_t) *this >= *rCon->u32;
 				case typeUInt16:
-					return *rCon->u16 >= (uint16_t) * this;
+					return (uint16_t) *this >= *rCon->u16;
 				case typeUInt8:
-					return *rCon->u8 >= (uint8_t) * this;
+					return (uint8_t) *this >= *rCon->u8;
 				case typeBool:
-					return *rCon->b >= (bool)*this;
+					return (bool)*this >= *rCon->b;
 				case typeVec2Float:
-					return rhs.getFloat(0) >= getFloat(0) &&
-								 rhs.getFloat(1) >= getFloat(1);
+					return getFloat(0) >= rhs.getFloat(0) &&
+								 getFloat(1) >= rhs.getFloat(1);
 				case typeVec2Double:
-					return rhs.getDouble(0) >= getDouble(0) &&
-								 rhs.getDouble(1) >= getDouble(1);
+					return getDouble(0) >= rhs.getDouble(0) &&
+								 getDouble(1) >= rhs.getDouble(1);
 				case typeVec2Int64:
-					return rhs.getInt64(0) >= getInt64(0) &&
-								 rhs.getInt64(1) >= getInt64(1);
+					return getInt64(0) >= rhs.getInt64(0) &&
+								 getInt64(1) >= rhs.getInt64(1);
 				case typeVec2Int32:
-					return rhs.getInt32(0) >= getInt32(0) &&
-								 rhs.getInt32(1) >= getInt32(1);
+					return getInt32(0) >= rhs.getInt32(0) &&
+								 getInt32(1) >= rhs.getInt32(1);
 				case typeVec2Int16:
-					return rhs.getInt16(0) >= getInt16(0) &&
-								 rhs.getInt16(1) >= getInt16(1);
+					return getInt16(0) >= rhs.getInt16(0) &&
+								 getInt16(1) >= rhs.getInt16(1);
 				case typeVec2Int8:
-					return rhs.getInt8(0) >= getInt8(0) &&
-								 rhs.getInt8(1) >= getInt8(1);
+					return getInt8(0) >= rhs.getInt8(0) &&
+								 getInt8(1) >= rhs.getInt8(1);
 				case typeVec2UInt64:
-					return rhs.getUInt64(0) >= getUInt64(0) &&
-								 rhs.getUInt64(1) >= getUInt64(1);
+					return getUInt64(0) >= rhs.getUInt64(0) &&
+								 getUInt64(1) >= rhs.getUInt64(1);
 				case typeVec2UInt32:
-					return rhs.getUInt32(0) >= getUInt32(0) &&
-								 rhs.getUInt32(1) >= getUInt32(1);
+					return getUInt32(0) >= rhs.getUInt32(0) &&
+								 getUInt32(1) >= rhs.getUInt32(1);
 				case typeVec2UInt16:
-					return rhs.getUInt16(0) >= getUInt16(0) &&
-								 rhs.getUInt16(1) >= getUInt16(1);
+					return getUInt16(0) >= rhs.getUInt16(0) &&
+								 getUInt16(1) >= rhs.getUInt16(1);
 				case typeVec2UInt8:
-					return rhs.getUInt8(0) >= getUInt8(0) &&
-								 rhs.getUInt8(1) >= getUInt8(1);
+					return getUInt8(0) >= rhs.getUInt8(0) &&
+								 getUInt8(1) >= rhs.getUInt8(1);
 				case typeVec3Float:
-					return rhs.getFloat(0) >= getFloat(0) &&
-								 rhs.getFloat(1) >= getFloat(1) &&
-								 rhs.getFloat(2) >= getFloat(2);
+					return getFloat(0) >= rhs.getFloat(0) &&
+								 getFloat(1) >= rhs.getFloat(1) &&
+								 getFloat(2) >= rhs.getFloat(2);
 				case typeVec3Double:
-					return rhs.getDouble(0) >= getDouble(0) &&
-								 rhs.getDouble(1) >= getDouble(1) &&
-								 rhs.getDouble(2) >= getDouble(2);
+					return getDouble(0) >= rhs.getDouble(0) &&
+								 getDouble(1) >= rhs.getDouble(1) &&
+								 getDouble(2) >= rhs.getDouble(2);
 				case typeVec3Int64:
-					return rhs.getInt64(0) >= getInt64(0) &&
-								 rhs.getInt64(1) >= getInt64(1) &&
-								 rhs.getInt64(2) >= getInt64(2);
+					return getInt64(0) >= rhs.getInt64(0) &&
+								 getInt64(1) >= rhs.getInt64(1) &&
+								 getInt64(2) >= rhs.getInt64(2);
 				case typeVec3Int32:
-					return rhs.getInt32(0) >= getInt32(0) &&
-								 rhs.getInt32(1) >= getInt32(1) &&
-								 rhs.getInt32(2) >= getInt32(2);
+					return getInt32(0) >= rhs.getInt32(0) &&
+								 getInt32(1) >= rhs.getInt32(1) &&
+								 getInt32(2) >= rhs.getInt32(2);
 				case typeVec3Int16:
-					return rhs.getInt16(0) >= getInt16(0) &&
-								 rhs.getInt16(1) >= getInt16(1) &&
-								 rhs.getInt16(2) >= getInt16(2);
+					return getInt16(0) >= rhs.getInt16(0) &&
+								 getInt16(1) >= rhs.getInt16(1) &&
+								 getInt16(2) >= rhs.getInt16(2);
 				case typeVec3Int8:
-					return rhs.getInt8(0) >= getInt8(0) &&
-								 rhs.getInt8(1) >= getInt8(1) &&
-								 rhs.getInt8(2) >= getInt8(2);
+					return getInt8(0) >= rhs.getInt8(0) &&
+								 getInt8(1) >= rhs.getInt8(1) &&
+								 getInt8(2) >= rhs.getInt8(2);
 				case typeVec3UInt64:
-					return rhs.getUInt64(0) >= getUInt64(0) &&
-								 rhs.getUInt64(1) >= getUInt64(1) &&
-								 rhs.getUInt64(2) >= getUInt64(2);
+					return getUInt64(0) >= rhs.getUInt64(0) &&
+								 getUInt64(1) >= rhs.getUInt64(1) &&
+								 getUInt64(2) >= rhs.getUInt64(2);
 				case typeVec3UInt32:
-					return rhs.getUInt32(0) >= getUInt32(0) &&
-								 rhs.getUInt32(1) >= getUInt32(1) &&
-								 rhs.getUInt32(2) >= getUInt32(2);
+					return getUInt32(0) >= rhs.getUInt32(0) &&
+								 getUInt32(1) >= rhs.getUInt32(1) &&
+								 getUInt32(2) >= rhs.getUInt32(2);
 				case typeVec3UInt16:
-					return rhs.getUInt16(0) >= getUInt16(0) &&
-								 rhs.getUInt16(1) >= getUInt16(1) &&
-								 rhs.getUInt16(2) >= getUInt16(2);
+					return getUInt16(0) >= rhs.getUInt16(0) &&
+								 getUInt16(1) >= rhs.getUInt16(1) &&
+								 getUInt16(2) >= rhs.getUInt16(2);
 				case typeVec3UInt8:
-					return rhs.getUInt8(0) >= getUInt8(0) &&
-								 rhs.getUInt8(1) >= getUInt8(1) &&
-								 rhs.getUInt8(2) >= getUInt8(2);
+					return getUInt8(0) >= rhs.getUInt8(0) &&
+								 getUInt8(1) >= rhs.getUInt8(1) &&
+								 getUInt8(2) >= rhs.getUInt8(2);
 				case typeVec4Float:
-					return rhs.getFloat(0) >= getFloat(0) &&
-								 rhs.getFloat(1) >= getFloat(1) &&
-								 rhs.getFloat(2) >= getFloat(2) &&
-								 rhs.getFloat(3) >= getFloat(3);
+					return getFloat(0) >= rhs.getFloat(0) &&
+								 getFloat(1) >= rhs.getFloat(1) &&
+								 getFloat(2) >= rhs.getFloat(2) &&
+								 getFloat(3) >= rhs.getFloat(3);
 				case typeVec4Double:
-					return rhs.getDouble(0) >= getDouble(0) &&
-								 rhs.getDouble(1) >= getDouble(1) &&
-								 rhs.getDouble(2) >= getDouble(2) &&
-								 rhs.getDouble(3) >= getDouble(3);
+					return getDouble(0) >= rhs.getDouble(0) &&
+								 getDouble(1) >= rhs.getDouble(1) &&
+								 getDouble(2) >= rhs.getDouble(2) &&
+								 getDouble(3) >= rhs.getDouble(3);
 				case typeVec4Int64:
-					return rhs.getInt64(0) >= getInt64(0) &&
-								 rhs.getInt64(1) >= getInt64(1) &&
-								 rhs.getInt64(2) >= getInt64(2) &&
-								 rhs.getInt64(3) >= getInt64(3);
+					return getInt64(0) >= rhs.getInt64(0) &&
+								 getInt64(1) >= rhs.getInt64(1) &&
+								 getInt64(2) >= rhs.getInt64(2) &&
+								 getInt64(3) >= rhs.getInt64(3);
 				case typeVec4Int32:
-					return rhs.getInt32(0) >= getInt32(0) &&
-								 rhs.getInt32(1) >= getInt32(1) &&
-								 rhs.getInt32(2) >= getInt32(2) &&
-								 rhs.getInt32(3) >= getInt32(3);
+					return getInt32(0) >= rhs.getInt32(0) &&
+								 getInt32(1) >= rhs.getInt32(1) &&
+								 getInt32(2) >= rhs.getInt32(2) &&
+								 getInt32(3) >= rhs.getInt32(3);
 				case typeVec4Int16:
-					return rhs.getInt16(0) >= getInt16(0) &&
-								 rhs.getInt16(1) >= getInt16(1) &&
-								 rhs.getInt16(2) >= getInt16(2) &&
-								 rhs.getInt16(3) >= getInt16(3);
+					return getInt16(0) >= rhs.getInt16(0) &&
+								 getInt16(1) >= rhs.getInt16(1) &&
+								 getInt16(2) >= rhs.getInt16(2) &&
+								 getInt16(3) >= rhs.getInt16(3);
 				case typeVec4Int8:
-					return rhs.getInt8(0) >= getInt8(0) &&
-								 rhs.getInt8(1) >= getInt8(1) &&
-								 rhs.getInt8(2) >= getInt8(2) &&
-								 rhs.getInt8(3) >= getInt8(3);
+					return getInt8(0) >= rhs.getInt8(0) &&
+								 getInt8(1) >= rhs.getInt8(1) &&
+								 getInt8(2) >= rhs.getInt8(2) &&
+								 getInt8(3) >= rhs.getInt8(3);
 				case typeVec4UInt64:
-					return rhs.getUInt64(0) >= getUInt64(0) &&
-								 rhs.getUInt64(1) >= getUInt64(1) &&
-								 rhs.getUInt64(2) >= getUInt64(2) &&
-								 rhs.getUInt64(3) >= getUInt64(3);
+					return getUInt64(0) >= rhs.getUInt64(0) &&
+								 getUInt64(1) >= rhs.getUInt64(1) &&
+								 getUInt64(2) >= rhs.getUInt64(2) &&
+								 getUInt64(3) >= rhs.getUInt64(3);
 				case typeVec4UInt32:
-					return rhs.getUInt32(0) >= getUInt32(0) &&
-								 rhs.getUInt32(1) >= getUInt32(1) &&
-								 rhs.getUInt32(2) >= getUInt32(2) &&
-								 rhs.getUInt32(3) >= getUInt32(3);
+					return getUInt32(0) >= rhs.getUInt32(0) &&
+								 getUInt32(1) >= rhs.getUInt32(1) &&
+								 getUInt32(2) >= rhs.getUInt32(2) &&
+								 getUInt32(3) >= rhs.getUInt32(3);
 				case typeVec4UInt16:
-					return rhs.getUInt16(0) >= getUInt16(0) &&
-								 rhs.getUInt16(1) >= getUInt16(1) &&
-								 rhs.getUInt16(2) >= getUInt16(2) &&
-								 rhs.getUInt16(3) >= getUInt16(3);
+					return getUInt16(0) >= rhs.getUInt16(0) &&
+								 getUInt16(1) >= rhs.getUInt16(1) &&
+								 getUInt16(2) >= rhs.getUInt16(2) &&
+								 getUInt16(3) >= rhs.getUInt16(3);
 				case typeVec4UInt8:
-					return rhs.getUInt8(0) >= getUInt8(0) &&
-								 rhs.getUInt8(1) >= getUInt8(1) &&
-								 rhs.getUInt8(2) >= getUInt8(2) &&
-								 rhs.getUInt8(3) >= getUInt8(3);
+					return getUInt8(0) >= rhs.getUInt8(0) &&
+								 getUInt8(1) >= rhs.getUInt8(1) &&
+								 getUInt8(2) >= rhs.getUInt8(2) &&
+								 getUInt8(3) >= rhs.getUInt8(3);
 				default:
-					return (void*)rCon->data >= (void*)*this;
+					return (void*)*this >= (void*)rCon->data;
 			}
 		}
 		return false;
@@ -738,155 +744,155 @@ namespace gold {
 				case typeNull:
 					return isEmpty();
 				case typeObject:
-					return rCon->obj->data < getObject().data;
+					return getObject().data < rCon->obj->data;
 				case typeList:
-					return rCon->li->data < getList().data;
+					return getList().data < rCon->li->data;
 				case typeString:
-					return *rCon->str < (string) * this;
+					return (string) *this < *rCon->str;
 				case typeDouble:
-					return *rCon->d < (double)*this;
+					return (double)*this < *rCon->d;
 				case typeFloat:
-					return *rCon->f < (float)*this;
+					return (float)*this < *rCon->f;
 				case typeInt64:
-					return *rCon->i64 < (int64_t) * this;
+					return (int64_t) *this < *rCon->i64;
 				case typeInt32:
-					return *rCon->i32 < (int32_t) * this;
+					return (int32_t) *this < *rCon->i32;
 				case typeInt16:
-					return *rCon->i16 < (int16_t) * this;
+					return (int16_t) *this < *rCon->i16;
 				case typeInt8:
-					return *rCon->i8 < (int8_t) * this;
+					return (int8_t) *this < *rCon->i8;
 				case typeUInt64:
-					return *rCon->u64 < (uint64_t) * this;
+					return (uint64_t) *this < *rCon->u64;
 				case typeUInt32:
-					return *rCon->u32 < (uint32_t) * this;
+					return (uint32_t) *this < *rCon->u32;
 				case typeUInt16:
-					return *rCon->u16 < (uint16_t) * this;
+					return (uint16_t) *this < *rCon->u16;
 				case typeUInt8:
-					return *rCon->u8 < (uint8_t) * this;
+					return (uint8_t) *this < *rCon->u8;
 				case typeBool:
-					return *rCon->b < (bool)*this;
+					return (bool)*this < *rCon->b;
 				case typeVec2Float:
-					return rhs.getFloat(0) < getFloat(0) &&
-								 rhs.getFloat(1) < getFloat(1);
+					return getFloat(0) < rhs.getFloat(0) &&
+								 getFloat(1) < rhs.getFloat(1);
 				case typeVec2Double:
-					return rhs.getDouble(0) < getDouble(0) &&
-								 rhs.getDouble(1) < getDouble(1);
+					return getDouble(0) < rhs.getDouble(0) &&
+								 getDouble(1) < rhs.getDouble(1);
 				case typeVec2Int64:
-					return rhs.getInt64(0) < getInt64(0) &&
-								 rhs.getInt64(1) < getInt64(1);
+					return getInt64(0) < rhs.getInt64(0) &&
+								 getInt64(1) < rhs.getInt64(1);
 				case typeVec2Int32:
-					return rhs.getInt32(0) < getInt32(0) &&
-								 rhs.getInt32(1) < getInt32(1);
+					return getInt32(0) < rhs.getInt32(0) &&
+								 getInt32(1) < rhs.getInt32(1);
 				case typeVec2Int16:
-					return rhs.getInt16(0) < getInt16(0) &&
-								 rhs.getInt16(1) < getInt16(1);
+					return getInt16(0) < rhs.getInt16(0) &&
+								 getInt16(1) < rhs.getInt16(1);
 				case typeVec2Int8:
-					return rhs.getInt8(0) < getInt8(0) &&
-								 rhs.getInt8(1) < getInt8(1);
+					return getInt8(0) < rhs.getInt8(0) &&
+								 getInt8(1) < rhs.getInt8(1);
 				case typeVec2UInt64:
-					return rhs.getUInt64(0) < getUInt64(0) &&
-								 rhs.getUInt64(1) < getUInt64(1);
+					return getUInt64(0) < rhs.getUInt64(0) &&
+								 getUInt64(1) < rhs.getUInt64(1);
 				case typeVec2UInt32:
-					return rhs.getUInt32(0) < getUInt32(0) &&
-								 rhs.getUInt32(1) < getUInt32(1);
+					return getUInt32(0) < rhs.getUInt32(0) &&
+								 getUInt32(1) < rhs.getUInt32(1);
 				case typeVec2UInt16:
-					return rhs.getUInt16(0) < getUInt16(0) &&
-								 rhs.getUInt16(1) < getUInt16(1);
+					return getUInt16(0) < rhs.getUInt16(0) &&
+								 getUInt16(1) < rhs.getUInt16(1);
 				case typeVec2UInt8:
-					return rhs.getUInt8(0) < getUInt8(0) &&
-								 rhs.getUInt8(1) < getUInt8(1);
+					return getUInt8(0) < rhs.getUInt8(0) &&
+								 getUInt8(1) < rhs.getUInt8(1);
 				case typeVec3Float:
-					return rhs.getFloat(0) < getFloat(0) &&
-								 rhs.getFloat(1) < getFloat(1) &&
-								 rhs.getFloat(2) < getFloat(2);
+					return getFloat(0) < rhs.getFloat(0) &&
+								 getFloat(1) < rhs.getFloat(1) &&
+								 getFloat(2) < rhs.getFloat(2);
 				case typeVec3Double:
-					return rhs.getDouble(0) < getDouble(0) &&
-								 rhs.getDouble(1) < getDouble(1) &&
-								 rhs.getDouble(2) < getDouble(2);
+					return getDouble(0) < rhs.getDouble(0) &&
+								 getDouble(1) < rhs.getDouble(1) &&
+								 getDouble(2) < rhs.getDouble(2);
 				case typeVec3Int64:
-					return rhs.getInt64(0) < getInt64(0) &&
-								 rhs.getInt64(1) < getInt64(1) &&
-								 rhs.getInt64(2) < getInt64(2);
+					return getInt64(0) < rhs.getInt64(0) &&
+								 getInt64(1) < rhs.getInt64(1) &&
+								 getInt64(2) < rhs.getInt64(2);
 				case typeVec3Int32:
-					return rhs.getInt32(0) < getInt32(0) &&
-								 rhs.getInt32(1) < getInt32(1) &&
-								 rhs.getInt32(2) < getInt32(2);
+					return getInt32(0) < rhs.getInt32(0) &&
+								 getInt32(1) < rhs.getInt32(1) &&
+								 getInt32(2) < rhs.getInt32(2);
 				case typeVec3Int16:
-					return rhs.getInt16(0) < getInt16(0) &&
-								 rhs.getInt16(1) < getInt16(1) &&
-								 rhs.getInt16(2) < getInt16(2);
+					return getInt16(0) < rhs.getInt16(0) &&
+								 getInt16(1) < rhs.getInt16(1) &&
+								 getInt16(2) < rhs.getInt16(2);
 				case typeVec3Int8:
-					return rhs.getInt8(0) < getInt8(0) &&
-								 rhs.getInt8(1) < getInt8(1) &&
-								 rhs.getInt8(2) < getInt8(2);
+					return getInt8(0) < rhs.getInt8(0) &&
+								 getInt8(1) < rhs.getInt8(1) &&
+								 getInt8(2) < rhs.getInt8(2);
 				case typeVec3UInt64:
-					return rhs.getUInt64(0) < getUInt64(0) &&
-								 rhs.getUInt64(1) < getUInt64(1) &&
-								 rhs.getUInt64(2) < getUInt64(2);
+					return getUInt64(0) < rhs.getUInt64(0) &&
+								 getUInt64(1) < rhs.getUInt64(1) &&
+								 getUInt64(2) < rhs.getUInt64(2);
 				case typeVec3UInt32:
-					return rhs.getUInt32(0) < getUInt32(0) &&
-								 rhs.getUInt32(1) < getUInt32(1) &&
-								 rhs.getUInt32(2) < getUInt32(2);
+					return getUInt32(0) < rhs.getUInt32(0) &&
+								 getUInt32(1) < rhs.getUInt32(1) &&
+								 getUInt32(2) < rhs.getUInt32(2);
 				case typeVec3UInt16:
-					return rhs.getUInt16(0) < getUInt16(0) &&
-								 rhs.getUInt16(1) < getUInt16(1) &&
-								 rhs.getUInt16(2) < getUInt16(2);
+					return getUInt16(0) < rhs.getUInt16(0) &&
+								 getUInt16(1) < rhs.getUInt16(1) &&
+								 getUInt16(2) < rhs.getUInt16(2);
 				case typeVec3UInt8:
-					return rhs.getUInt8(0) < getUInt8(0) &&
-								 rhs.getUInt8(1) < getUInt8(1) &&
-								 rhs.getUInt8(2) < getUInt8(2);
+					return getUInt8(0) < rhs.getUInt8(0) &&
+								 getUInt8(1) < rhs.getUInt8(1) &&
+								 getUInt8(2) < rhs.getUInt8(2);
 				case typeVec4Float:
-					return rhs.getFloat(0) < getFloat(0) &&
-								 rhs.getFloat(1) < getFloat(1) &&
-								 rhs.getFloat(2) < getFloat(2) &&
-								 rhs.getFloat(3) < getFloat(3);
+					return getFloat(0) < rhs.getFloat(0) &&
+								 getFloat(1) < rhs.getFloat(1) &&
+								 getFloat(2) < rhs.getFloat(2) &&
+								 getFloat(3) < rhs.getFloat(3);
 				case typeVec4Double:
-					return rhs.getDouble(0) < getDouble(0) &&
-								 rhs.getDouble(1) < getDouble(1) &&
-								 rhs.getDouble(2) < getDouble(2) &&
-								 rhs.getDouble(3) < getDouble(3);
+					return getDouble(0) < rhs.getDouble(0) &&
+								 getDouble(1) < rhs.getDouble(1) &&
+								 getDouble(2) < rhs.getDouble(2) &&
+								 getDouble(3) < rhs.getDouble(3);
 				case typeVec4Int64:
-					return rhs.getInt64(0) < getInt64(0) &&
-								 rhs.getInt64(1) < getInt64(1) &&
-								 rhs.getInt64(2) < getInt64(2) &&
-								 rhs.getInt64(3) < getInt64(3);
+					return getInt64(0) < rhs.getInt64(0) &&
+								 getInt64(1) < rhs.getInt64(1) &&
+								 getInt64(2) < rhs.getInt64(2) &&
+								 getInt64(3) < rhs.getInt64(3);
 				case typeVec4Int32:
-					return rhs.getInt32(0) < getInt32(0) &&
-								 rhs.getInt32(1) < getInt32(1) &&
-								 rhs.getInt32(2) < getInt32(2) &&
-								 rhs.getInt32(3) < getInt32(3);
+					return getInt32(0) < rhs.getInt32(0) &&
+								 getInt32(1) < rhs.getInt32(1) &&
+								 getInt32(2) < rhs.getInt32(2) &&
+								 getInt32(3) < rhs.getInt32(3);
 				case typeVec4Int16:
-					return rhs.getInt16(0) < getInt16(0) &&
-								 rhs.getInt16(1) < getInt16(1) &&
-								 rhs.getInt16(2) < getInt16(2) &&
-								 rhs.getInt16(3) < getInt16(3);
+					return getInt16(0) < rhs.getInt16(0) &&
+								 getInt16(1) < rhs.getInt16(1) &&
+								 getInt16(2) < rhs.getInt16(2) &&
+								 getInt16(3) < rhs.getInt16(3);
 				case typeVec4Int8:
-					return rhs.getInt8(0) < getInt8(0) &&
-								 rhs.getInt8(1) < getInt8(1) &&
-								 rhs.getInt8(2) < getInt8(2) &&
-								 rhs.getInt8(3) < getInt8(3);
+					return getInt8(0) < rhs.getInt8(0) &&
+								 getInt8(1) < rhs.getInt8(1) &&
+								 getInt8(2) < rhs.getInt8(2) &&
+								 getInt8(3) < rhs.getInt8(3);
 				case typeVec4UInt64:
-					return rhs.getUInt64(0) < getUInt64(0) &&
-								 rhs.getUInt64(1) < getUInt64(1) &&
-								 rhs.getUInt64(2) < getUInt64(2) &&
-								 rhs.getUInt64(3) < getUInt64(3);
+					return getUInt64(0) < rhs.getUInt64(0) &&
+								 getUInt64(1) < rhs.getUInt64(1) &&
+								 getUInt64(2) < rhs.getUInt64(2) &&
+								 getUInt64(3) < rhs.getUInt64(3);
 				case typeVec4UInt32:
-					return rhs.getUInt32(0) < getUInt32(0) &&
-								 rhs.getUInt32(1) < getUInt32(1) &&
-								 rhs.getUInt32(2) < getUInt32(2) &&
-								 rhs.getUInt32(3) < getUInt32(3);
+					return getUInt32(0) < rhs.getUInt32(0) &&
+								 getUInt32(1) < rhs.getUInt32(1) &&
+								 getUInt32(2) < rhs.getUInt32(2) &&
+								 getUInt32(3) < rhs.getUInt32(3);
 				case typeVec4UInt16:
-					return rhs.getUInt16(0) < getUInt16(0) &&
-								 rhs.getUInt16(1) < getUInt16(1) &&
-								 rhs.getUInt16(2) < getUInt16(2) &&
-								 rhs.getUInt16(3) < getUInt16(3);
+					return getUInt16(0) < rhs.getUInt16(0) &&
+								 getUInt16(1) < rhs.getUInt16(1) &&
+								 getUInt16(2) < rhs.getUInt16(2) &&
+								 getUInt16(3) < rhs.getUInt16(3);
 				case typeVec4UInt8:
-					return rhs.getUInt8(0) < getUInt8(0) &&
-								 rhs.getUInt8(1) < getUInt8(1) &&
-								 rhs.getUInt8(2) < getUInt8(2) &&
-								 rhs.getUInt8(3) < getUInt8(3);
+					return getUInt8(0) < rhs.getUInt8(0) &&
+								 getUInt8(1) < rhs.getUInt8(1) &&
+								 getUInt8(2) < rhs.getUInt8(2) &&
+								 getUInt8(3) < rhs.getUInt8(3);
 				default:
-					return (void*)rCon->data < (void*)*this;
+					return (void*)*this < (void*)rCon->data;
 			}
 		}
 		return false;
@@ -899,155 +905,155 @@ namespace gold {
 				case typeNull:
 					return isEmpty();
 				case typeObject:
-					return rCon->obj->data > getObject().data;
+					return getObject().data > rCon->obj->data;
 				case typeList:
-					return rCon->li->data > getList().data;
+					return getList().data > rCon->li->data;
 				case typeString:
-					return *rCon->str > (string) * this;
+					return (string) *this > *rCon->str;
 				case typeDouble:
-					return *rCon->d > (double)*this;
+					return (double)*this > *rCon->d;
 				case typeFloat:
-					return *rCon->f > (float)*this;
+					return (float)*this > *rCon->f;
 				case typeInt64:
-					return *rCon->i64 > (int64_t) * this;
+					return (int64_t) *this > *rCon->i64;
 				case typeInt32:
-					return *rCon->i32 > (int32_t) * this;
+					return (int32_t) *this > *rCon->i32;
 				case typeInt16:
-					return *rCon->i16 > (int16_t) * this;
+					return (int16_t) *this > *rCon->i16;
 				case typeInt8:
-					return *rCon->i8 > (int8_t) * this;
+					return (int8_t) *this > *rCon->i8;
 				case typeUInt64:
-					return *rCon->u64 > (uint64_t) * this;
+					return (uint64_t) *this > *rCon->u64;
 				case typeUInt32:
-					return *rCon->u32 > (uint32_t) * this;
+					return (uint32_t) *this > *rCon->u32;
 				case typeUInt16:
-					return *rCon->u16 > (uint16_t) * this;
+					return (uint16_t) *this > *rCon->u16;
 				case typeUInt8:
-					return *rCon->u8 > (uint8_t) * this;
+					return (uint8_t) *this > *rCon->u8;
 				case typeBool:
-					return *rCon->b > (bool)*this;
+					return (bool)*this > *rCon->b;
 				case typeVec2Float:
-					return rhs.getFloat(0) > getFloat(0) &&
-								 rhs.getFloat(1) > getFloat(1);
+					return getFloat(0) > rhs.getFloat(0) &&
+								 getFloat(1) > rhs.getFloat(1);
 				case typeVec2Double:
-					return rhs.getDouble(0) > getDouble(0) &&
-								 rhs.getDouble(1) > getDouble(1);
+					return getDouble(0) > rhs.getDouble(0) &&
+								 getDouble(1) > rhs.getDouble(1);
 				case typeVec2Int64:
-					return rhs.getInt64(0) > getInt64(0) &&
-								 rhs.getInt64(1) > getInt64(1);
+					return getInt64(0) > rhs.getInt64(0) &&
+								 getInt64(1) > rhs.getInt64(1);
 				case typeVec2Int32:
-					return rhs.getInt32(0) > getInt32(0) &&
-								 rhs.getInt32(1) > getInt32(1);
+					return getInt32(0) > rhs.getInt32(0) &&
+								 getInt32(1) > rhs.getInt32(1);
 				case typeVec2Int16:
-					return rhs.getInt16(0) > getInt16(0) &&
-								 rhs.getInt16(1) > getInt16(1);
+					return getInt16(0) > rhs.getInt16(0) &&
+								 getInt16(1) > rhs.getInt16(1);
 				case typeVec2Int8:
-					return rhs.getInt8(0) > getInt8(0) &&
-								 rhs.getInt8(1) > getInt8(1);
+					return getInt8(0) > rhs.getInt8(0) &&
+								 getInt8(1) > rhs.getInt8(1);
 				case typeVec2UInt64:
-					return rhs.getUInt64(0) > getUInt64(0) &&
-								 rhs.getUInt64(1) > getUInt64(1);
+					return getUInt64(0) > rhs.getUInt64(0) &&
+								 getUInt64(1) > rhs.getUInt64(1);
 				case typeVec2UInt32:
-					return rhs.getUInt32(0) > getUInt32(0) &&
-								 rhs.getUInt32(1) > getUInt32(1);
+					return getUInt32(0) > rhs.getUInt32(0) &&
+								 getUInt32(1) > rhs.getUInt32(1);
 				case typeVec2UInt16:
-					return rhs.getUInt16(0) > getUInt16(0) &&
-								 rhs.getUInt16(1) > getUInt16(1);
+					return getUInt16(0) > rhs.getUInt16(0) &&
+								 getUInt16(1) > rhs.getUInt16(1);
 				case typeVec2UInt8:
-					return rhs.getUInt8(0) > getUInt8(0) &&
-								 rhs.getUInt8(1) > getUInt8(1);
+					return getUInt8(0) > rhs.getUInt8(0) &&
+								 getUInt8(1) > rhs.getUInt8(1);
 				case typeVec3Float:
-					return rhs.getFloat(0) > getFloat(0) &&
-								 rhs.getFloat(1) > getFloat(1) &&
-								 rhs.getFloat(2) > getFloat(2);
+					return getFloat(0) > rhs.getFloat(0) &&
+								 getFloat(1) > rhs.getFloat(1) &&
+								 getFloat(2) > rhs.getFloat(2);
 				case typeVec3Double:
-					return rhs.getDouble(0) > getDouble(0) &&
-								 rhs.getDouble(1) > getDouble(1) &&
-								 rhs.getDouble(2) > getDouble(2);
+					return getDouble(0) > rhs.getDouble(0) &&
+								 getDouble(1) > rhs.getDouble(1) &&
+								 getDouble(2) > rhs.getDouble(2);
 				case typeVec3Int64:
-					return rhs.getInt64(0) > getInt64(0) &&
-								 rhs.getInt64(1) > getInt64(1) &&
-								 rhs.getInt64(2) > getInt64(2);
+					return getInt64(0) > rhs.getInt64(0) &&
+								 getInt64(1) > rhs.getInt64(1) &&
+								 getInt64(2) > rhs.getInt64(2);
 				case typeVec3Int32:
-					return rhs.getInt32(0) > getInt32(0) &&
-								 rhs.getInt32(1) > getInt32(1) &&
-								 rhs.getInt32(2) > getInt32(2);
+					return getInt32(0) > rhs.getInt32(0) &&
+								 getInt32(1) > rhs.getInt32(1) &&
+								 getInt32(2) > rhs.getInt32(2);
 				case typeVec3Int16:
-					return rhs.getInt16(0) > getInt16(0) &&
-								 rhs.getInt16(1) > getInt16(1) &&
-								 rhs.getInt16(2) > getInt16(2);
+					return getInt16(0) > rhs.getInt16(0) &&
+								 getInt16(1) > rhs.getInt16(1) &&
+								 getInt16(2) > rhs.getInt16(2);
 				case typeVec3Int8:
-					return rhs.getInt8(0) > getInt8(0) &&
-								 rhs.getInt8(1) > getInt8(1) &&
-								 rhs.getInt8(2) > getInt8(2);
+					return getInt8(0) > rhs.getInt8(0) &&
+								 getInt8(1) > rhs.getInt8(1) &&
+								 getInt8(2) > rhs.getInt8(2);
 				case typeVec3UInt64:
-					return rhs.getUInt64(0) > getUInt64(0) &&
-								 rhs.getUInt64(1) > getUInt64(1) &&
-								 rhs.getUInt64(2) > getUInt64(2);
+					return getUInt64(0) > rhs.getUInt64(0) &&
+								 getUInt64(1) > rhs.getUInt64(1) &&
+								 getUInt64(2) > rhs.getUInt64(2);
 				case typeVec3UInt32:
-					return rhs.getUInt32(0) > getUInt32(0) &&
-								 rhs.getUInt32(1) > getUInt32(1) &&
-								 rhs.getUInt32(2) > getUInt32(2);
+					return getUInt32(0) > rhs.getUInt32(0) &&
+								 getUInt32(1) > rhs.getUInt32(1) &&
+								 getUInt32(2) > rhs.getUInt32(2);
 				case typeVec3UInt16:
-					return rhs.getUInt16(0) > getUInt16(0) &&
-								 rhs.getUInt16(1) > getUInt16(1) &&
-								 rhs.getUInt16(2) > getUInt16(2);
+					return getUInt16(0) > rhs.getUInt16(0) &&
+								 getUInt16(1) > rhs.getUInt16(1) &&
+								 getUInt16(2) > rhs.getUInt16(2);
 				case typeVec3UInt8:
-					return rhs.getUInt8(0) > getUInt8(0) &&
-								 rhs.getUInt8(1) > getUInt8(1) &&
-								 rhs.getUInt8(2) > getUInt8(2);
+					return getUInt8(0) > rhs.getUInt8(0) &&
+								 getUInt8(1) > rhs.getUInt8(1) &&
+								 getUInt8(2) > rhs.getUInt8(2);
 				case typeVec4Float:
-					return rhs.getFloat(0) > getFloat(0) &&
-								 rhs.getFloat(1) > getFloat(1) &&
-								 rhs.getFloat(2) > getFloat(2) &&
-								 rhs.getFloat(3) > getFloat(3);
+					return getFloat(0) > rhs.getFloat(0) &&
+								 getFloat(1) > rhs.getFloat(1) &&
+								 getFloat(2) > rhs.getFloat(2) &&
+								 getFloat(3) > rhs.getFloat(3);
 				case typeVec4Double:
-					return rhs.getDouble(0) > getDouble(0) &&
-								 rhs.getDouble(1) > getDouble(1) &&
-								 rhs.getDouble(2) > getDouble(2) &&
-								 rhs.getDouble(3) > getDouble(3);
+					return getDouble(0) > rhs.getDouble(0) &&
+								 getDouble(1) > rhs.getDouble(1) &&
+								 getDouble(2) > rhs.getDouble(2) &&
+								 getDouble(3) > rhs.getDouble(3);
 				case typeVec4Int64:
-					return rhs.getInt64(0) > getInt64(0) &&
-								 rhs.getInt64(1) > getInt64(1) &&
-								 rhs.getInt64(2) > getInt64(2) &&
-								 rhs.getInt64(3) > getInt64(3);
+					return getInt64(0) > rhs.getInt64(0) &&
+								 getInt64(1) > rhs.getInt64(1) &&
+								 getInt64(2) > rhs.getInt64(2) &&
+								 getInt64(3) > rhs.getInt64(3);
 				case typeVec4Int32:
-					return rhs.getInt32(0) > getInt32(0) &&
-								 rhs.getInt32(1) > getInt32(1) &&
-								 rhs.getInt32(2) > getInt32(2) &&
-								 rhs.getInt32(3) > getInt32(3);
+					return getInt32(0) > rhs.getInt32(0) &&
+								 getInt32(1) > rhs.getInt32(1) &&
+								 getInt32(2) > rhs.getInt32(2) &&
+								 getInt32(3) > rhs.getInt32(3);
 				case typeVec4Int16:
-					return rhs.getInt16(0) > getInt16(0) &&
-								 rhs.getInt16(1) > getInt16(1) &&
-								 rhs.getInt16(2) > getInt16(2) &&
-								 rhs.getInt16(3) > getInt16(3);
+					return getInt16(0) > rhs.getInt16(0) &&
+								 getInt16(1) > rhs.getInt16(1) &&
+								 getInt16(2) > rhs.getInt16(2) &&
+								 getInt16(3) > rhs.getInt16(3);
 				case typeVec4Int8:
-					return rhs.getInt8(0) > getInt8(0) &&
-								 rhs.getInt8(1) > getInt8(1) &&
-								 rhs.getInt8(2) > getInt8(2) &&
-								 rhs.getInt8(3) > getInt8(3);
+					return getInt8(0) > rhs.getInt8(0) &&
+								 getInt8(1) > rhs.getInt8(1) &&
+								 getInt8(2) > rhs.getInt8(2) &&
+								 getInt8(3) > rhs.getInt8(3);
 				case typeVec4UInt64:
-					return rhs.getUInt64(0) > getUInt64(0) &&
-								 rhs.getUInt64(1) > getUInt64(1) &&
-								 rhs.getUInt64(2) > getUInt64(2) &&
-								 rhs.getUInt64(3) > getUInt64(3);
+					return getUInt64(0) > rhs.getUInt64(0) &&
+								 getUInt64(1) > rhs.getUInt64(1) &&
+								 getUInt64(2) > rhs.getUInt64(2) &&
+								 getUInt64(3) > rhs.getUInt64(3);
 				case typeVec4UInt32:
-					return rhs.getUInt32(0) > getUInt32(0) &&
-								 rhs.getUInt32(1) > getUInt32(1) &&
-								 rhs.getUInt32(2) > getUInt32(2) &&
-								 rhs.getUInt32(3) > getUInt32(3);
+					return getUInt32(0) > rhs.getUInt32(0) &&
+								 getUInt32(1) > rhs.getUInt32(1) &&
+								 getUInt32(2) > rhs.getUInt32(2) &&
+								 getUInt32(3) > rhs.getUInt32(3);
 				case typeVec4UInt16:
-					return rhs.getUInt16(0) > getUInt16(0) &&
-								 rhs.getUInt16(1) > getUInt16(1) &&
-								 rhs.getUInt16(2) > getUInt16(2) &&
-								 rhs.getUInt16(3) > getUInt16(3);
+					return getUInt16(0) > rhs.getUInt16(0) &&
+								 getUInt16(1) > rhs.getUInt16(1) &&
+								 getUInt16(2) > rhs.getUInt16(2) &&
+								 getUInt16(3) > rhs.getUInt16(3);
 				case typeVec4UInt8:
-					return rhs.getUInt8(0) > getUInt8(0) &&
-								 rhs.getUInt8(1) > getUInt8(1) &&
-								 rhs.getUInt8(2) > getUInt8(2) &&
-								 rhs.getUInt8(3) > getUInt8(3);
+					return getUInt8(0) > rhs.getUInt8(0) &&
+								 getUInt8(1) > rhs.getUInt8(1) &&
+								 getUInt8(2) > rhs.getUInt8(2) &&
+								 getUInt8(3) > rhs.getUInt8(3);
 				default:
-					return (void*)rCon->data > (void*)*this;
+					return (void*)*this > (void*)rCon->data;
 			}
 		}
 		return false;
@@ -1205,7 +1211,7 @@ namespace gold {
 						 -con->f[8]});
 				case typeMat3x3Double:
 					return var(
-						typeMat3x3Float,
+						typeMat3x3Double,
 						{-con->d[0], -con->d[1], -con->d[2], -con->d[3],
 						 -con->d[4], -con->d[5], -con->d[6], -con->d[7],
 						 -con->d[8]});
@@ -1242,7 +1248,7 @@ namespace gold {
 				case typeDouble:
 					return var(b.getDouble() + getDouble());
 				case typePtr:
-					return var((void*)(b.getInt64() + getInt64()));
+					return var((void*)(getInt64() + b.getInt64()), typePtr);
 				case typeInt64:
 					return var(b.getInt64() + getInt64());
 				case typeInt32:
@@ -1256,7 +1262,7 @@ namespace gold {
 				case typeUInt32:
 					return var(b.getUInt32() + getUInt32());
 				case typeUInt16:
-					return var(b.getUInt16() + getUInt8());
+					return var(b.getUInt16() + getUInt16());
 				case typeUInt8:
 					return var(b.getUInt8() + getUInt8());
 				case typeBool:
@@ -1443,7 +1449,7 @@ namespace gold {
 						});
 				case typeMat3x3Double:
 					return var(
-						typeMat3x3Float,
+						typeMat3x3Double,
 						{
 							getDouble(0) + b.getDouble(0),
 							getDouble(1) + b.getDouble(1),
@@ -1558,29 +1564,29 @@ namespace gold {
 		if (con) {
 			switch (con->type) {
 				case typeFloat:
-					return var(b.getFloat() - getFloat());
+					return var(getFloat() - b.getFloat());
 				case typeDouble:
-					return var(b.getDouble() - getDouble());
+					return var(getDouble() - b.getDouble());
 				case typePtr:
-					return var((void*)(b.getInt64() - getInt64()));
+					return var((void*)(getInt64() - b.getInt64()), typePtr);
 				case typeInt64:
-					return var(b.getInt64() - getInt64());
+					return var(getInt64() - b.getInt64());
 				case typeInt32:
-					return var(b.getInt32() - getInt32());
+					return var(getInt32() - b.getInt32());
 				case typeInt16:
-					return var(b.getInt16() - getInt16());
+					return var(getInt16() - b.getInt16());
 				case typeInt8:
-					return var(b.getInt8() - getInt8());
+					return var(getInt8() - b.getInt8());
 				case typeUInt64:
-					return var(b.getUInt64() - getUInt64());
+					return var(getUInt64() - b.getUInt64());
 				case typeUInt32:
-					return var(b.getUInt32() - getUInt32());
+					return var(getUInt32() - b.getUInt32());
 				case typeUInt16:
-					return var(b.getUInt16() - getUInt8());
+					return var(getUInt16() - b.getUInt16());
 				case typeUInt8:
-					return var(b.getUInt8() - getUInt8());
+					return var(getUInt8() - b.getUInt8());
 				case typeBool:
-					return var(bool(b.getInt8() - getInt8()));
+					return var(bool(getInt8() - b.getInt8()));
 
 				case typeVec2Int64:
 					return var(
@@ -1765,7 +1771,7 @@ namespace gold {
 						});
 				case typeMat3x3Double:
 					return var(
-						typeMat3x3Float,
+						typeMat3x3Double,
 						{
 							getDouble(0) - b.getDouble(0),
 							getDouble(1) - b.getDouble(1),
@@ -1836,7 +1842,7 @@ namespace gold {
 				case typeDouble:
 					return var(b.getDouble() * getDouble());
 				case typePtr:
-					return var((void*)(b.getInt64() * getInt64()));
+					return var((void*)(getInt64() * b.getInt64()), typePtr);
 				case typeInt64:
 					return var(b.getInt64() * getInt64());
 				case typeInt32:
@@ -1850,11 +1856,11 @@ namespace gold {
 				case typeUInt32:
 					return var(b.getUInt32() * getUInt32());
 				case typeUInt16:
-					return var(b.getUInt16() * getUInt8());
+					return var(b.getUInt16() * getUInt16());
 				case typeUInt8:
 					return var(b.getUInt8() * getUInt8());
 				case typeBool:
-					return var(bool(b.getInt8() * getInt8()));
+					return var(b.getBool() && getBool());
 
 				case typeVec2Int64:
 					return var(
@@ -2085,7 +2091,7 @@ namespace gold {
 				case typeMat3x3Double:
 					// TODO: Actually do math...
 					return var(
-						typeMat3x3Float,
+						typeMat3x3Double,
 						{
 							getDouble(0) * b.getDouble(0),
 							getDouble(1) * b.getDouble(1),
@@ -2140,6 +2146,7 @@ namespace gold {
 								 b.getFloat(3)}));
 						return x;
 					}
+					break;
 				case typeMat4x4Double:
 					if (b.isVec4()) {
 						// TODO: BX doesn't have a double function
@@ -2177,29 +2184,29 @@ namespace gold {
 		if (con) {
 			switch (con->type) {
 				case typeFloat:
-					return var(b.getFloat() / getFloat());
+					return var(getFloat() / b.getFloat());
 				case typeDouble:
-					return var(b.getDouble() / getDouble());
+					return var(getDouble() / b.getDouble());
 				case typePtr:
-					return var((void*)(b.getInt64() / getInt64()));
+					return var((void*)(getInt64() / b.getInt64()), typePtr);
 				case typeInt64:
-					return var(b.getInt64() / getInt64());
+					return var(getInt64() / b.getInt64());
 				case typeInt32:
-					return var(b.getInt32() / getInt32());
+					return var(getInt32() / b.getInt32());
 				case typeInt16:
-					return var(b.getInt16() / getInt16());
+					return var(getInt16() / b.getInt16());
 				case typeInt8:
-					return var(b.getInt8() / getInt8());
+					return var(getInt8() / b.getInt8());
 				case typeUInt64:
-					return var(b.getUInt64() / getUInt64());
+					return var(getUInt64() / b.getUInt64());
 				case typeUInt32:
-					return var(b.getUInt32() / getUInt32());
+					return var(getUInt32() / b.getUInt32());
 				case typeUInt16:
-					return var(b.getUInt16() / getUInt8());
+					return var(getUInt16() / b.getUInt16());
 				case typeUInt8:
-					return var(b.getUInt8() / getUInt8());
+					return var(getUInt8() / b.getUInt8());
 				case typeBool:
-					return var(bool(b.getInt8() / getInt8()));
+					return var(bool(getInt8() / b.getInt8()));
 
 				case typeVec2Int64:
 					return var(
@@ -2384,7 +2391,7 @@ namespace gold {
 						});
 				case typeMat3x3Double:
 					return var(
-						typeMat3x3Float,
+						typeMat3x3Double,
 						{
 							getDouble(0) / b.getDouble(0),
 							getDouble(1) / b.getDouble(1),
@@ -2451,30 +2458,30 @@ namespace gold {
 		if (con) {
 			switch (con->type) {
 				case typeFloat:
-					return var(bx::mod(b.getFloat(), getFloat()));
+					return var(bx::mod(getFloat(), b.getFloat()));
 				case typeDouble:
 					return var(
-						bx::mod(float(b.getDouble()), float(getDouble())));
+						std::fmod(getDouble(), b.getDouble()));
 				case typePtr:
-					return var((void*)(b.getInt64() % getInt64()));
+					return var((void*)(getInt64() % b.getInt64()), typePtr);
 				case typeInt64:
-					return var(b.getInt64() % getInt64());
+					return var(getInt64() % b.getInt64());
 				case typeInt32:
-					return var(b.getInt32() % getInt32());
+					return var(getInt32() % b.getInt32());
 				case typeInt16:
-					return var(b.getInt16() % getInt16());
+					return var(getInt16() % b.getInt16());
 				case typeInt8:
-					return var(b.getInt8() % getInt8());
+					return var(getInt8() % b.getInt8());
 				case typeUInt64:
-					return var(b.getUInt64() % getUInt64());
+					return var(getUInt64() % b.getUInt64());
 				case typeUInt32:
-					return var(b.getUInt32() % getUInt32());
+					return var(getUInt32() % b.getUInt32());
 				case typeUInt16:
-					return var(b.getUInt16() % getUInt8());
+					return var(getUInt16() % b.getUInt16());
 				case typeUInt8:
-					return var(b.getUInt8() % getUInt8());
+					return var(getUInt8() % b.getUInt8());
 				case typeBool:
-					return var(bool(b.getInt8() % getInt8()));
+					return var(bool(getInt8() % b.getInt8()));
 
 				case typeVec2Int64:
 					return var(
@@ -2658,7 +2665,7 @@ namespace gold {
 						});
 				case typeMat3x3Double:
 					return var(
-						typeMat3x3Float,
+						typeMat3x3Double,
 						{
 							bx::mod(
 								float(getDouble(0)), float(b.getDouble(0))),
@@ -3263,13 +3270,13 @@ namespace gold {
 	void var::setUInt8(size_t i, uint8_t v) {
 		auto con = sPtr.get();
 		switch (con->type) {
-			case typeVec2UInt16:
+			case typeVec2UInt8:
 				con->u8[min((unsigned long)i, 1ul)] = v;
 				break;
-			case typeVec3UInt16:
+			case typeVec3UInt8:
 				con->u8[min((unsigned long)i, 2ul)] = v;
 				break;
-			case typeVec4UInt16:
+			case typeVec4UInt8:
 				con->u8[min((unsigned long)i, 3ul)] = v;
 				break;
 			default:
@@ -3325,7 +3332,7 @@ namespace gold {
 		}
 	}
 
-	string var::getString() const { return (string) * this; }
+	string var::getString() const { return this->operator std::string(); }
 
 	string_view var::getStringView() const {
 		auto con = sPtr.get();
@@ -4764,11 +4771,11 @@ namespace gold {
 								 S(c->d[2]) + ", " + S(c->d[3]) + "]";
 
 				case typeMat3x3Float:
-					return "[" + S(c->d[0]) + ", " + S(c->d[1]) + ", " +
-								 S(c->d[2]) + ", " + S(c->d[3]) + ", " +
-								 S(c->d[4]) + ", " + S(c->d[5]) + ", " +
-								 S(c->d[6]) + ", " + S(c->d[7]) + ", " +
-								 S(c->d[8]) + "]";
+					return "[" + S(c->f[0]) + ", " + S(c->f[1]) + ", " +
+								 S(c->f[2]) + ", " + S(c->f[3]) + ", " +
+								 S(c->f[4]) + ", " + S(c->f[5]) + ", " +
+								 S(c->f[6]) + ", " + S(c->f[7]) + ", " +
+								 S(c->f[8]) + "]";
 				case typeMat3x3Double:
 					return "[" + S(c->d[0]) + ", " + S(c->d[1]) + ", " +
 								 S(c->d[2]) + ", " + S(c->d[3]) + ", " +
@@ -5080,43 +5087,30 @@ namespace gold {
 	list explode(string v, list chars) {
 		auto numList = list({});
 		auto numBuff = string("");
-		for (size_t i = 0; i < v.size(); ++i) {
-			auto c = v[i];
-			bool breakOut = false;
+
+		auto isDelimiter = [&](char c) -> bool {
 			for (auto bi = chars.begin(); bi != chars.end(); ++bi) {
-				if (uint8_t(*bi) == uint8_t(c)) {
-					breakOut = true;
-					break;
-				}
+				if (uint8_t(*bi) == uint8_t(c)) return true;
 			}
-			if (breakOut) {
+			return false;
+		};
+
+		size_t i = 0;
+		while (i < v.size()) {
+			if (isDelimiter(v[i])) {
 				numList.pushString(numBuff);
 				numBuff = "";
-				i++;
-				bool good = true;
-				for (auto bi = chars.begin(); bi != chars.end(); ++bi) {
-					if (uint8_t(*bi) == uint8_t(v[i])) {
-						good = false;
-						break;
-					}
-				}
-				while (!good) {
-					i++;
-					good = true;
-					if (i < v.size() && i != string::npos)
-						for (auto bi = chars.begin(); bi != chars.end();
-								 ++bi) {
-							if (uint8_t(*bi) == uint8_t(v[i])) {
-								good = false;
-								break;
-							}
-						}
-				}
-				i--;
-			} else
-				numBuff.push_back(c);
+				// Skip all consecutive delimiters.
+				while (i < v.size() && isDelimiter(v[i])) ++i;
+			} else {
+				numBuff.push_back(v[i]);
+				++i;
+			}
 		}
-		numList.pushString(numBuff);
+		// Drop a trailing empty token produced by a trailing delimiter,
+		// but keep a single empty token for empty input.
+		if (numBuff.size() > 0 || numList.size() == 0)
+			numList.pushString(numBuff);
 		return numList;
 	}
 

@@ -54,9 +54,15 @@ if( BGFX_USE_OVR )
 endif()
 
 include( cmake/shared.cmake )
-include( cmake/bx.cmake )
-include( cmake/bimg.cmake )
-include( cmake/bgfx.cmake )
+if( NOT TARGET bx )
+	include( cmake/bx.cmake )
+endif()
+if( NOT TARGET bimg )
+	include( cmake/bimg.cmake )
+endif()
+if( NOT TARGET bgfx )
+	include( cmake/bgfx.cmake )
+endif()
 
 target_compile_definitions( bgfx PRIVATE BGFX_CONFIG_USE_TINYSTL=0)
 

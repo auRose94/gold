@@ -11,6 +11,9 @@
 	}
 
 namespace gold {
+	using std::map;
+	using std::string;
+	using std::vector;
 
 	namespace HTML {
 		struct iHTML : public gold::object {

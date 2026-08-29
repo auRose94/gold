@@ -13,12 +13,20 @@ include( CMakeParseArguments )
 add_library(brtshaderc 
 	STATIC
 	brtshaderc/tools/brtshaderc/brtshaderc.cpp
-	brtshaderc/tools/brtshaderc/shaderc_spirv.cpp
-	bgfx/tools/shaderc/shaderc.h 
-	bgfx/tools/shaderc/shaderc_glsl.cpp 
-	bgfx/tools/shaderc/shaderc_hlsl.cpp 
-	bgfx/tools/shaderc/shaderc_pssl.cpp 
+	bgfx/tools/shaderc/shaderc.h
+	bgfx/tools/shaderc/shaderc_spirv.cpp
+	bgfx/tools/shaderc/shaderc_glsl.cpp
+	bgfx/tools/shaderc/shaderc_hlsl.cpp
+	bgfx/tools/shaderc/shaderc_pssl.cpp
 	bgfx/tools/shaderc/shaderc_metal.cpp)
+
+# shaderc_spirv.cpp defines bgfx::g_allocator, which the bgfx library also
+# exports. Rename that one symbol here so the shaderc tools don't collide
+# with the bgfx runtime library at link time.
+set_source_files_properties(
+	bgfx/tools/shaderc/shaderc_spirv.cpp
+	PROPERTIES COMPILE_DEFINITIONS "g_allocator=g_shaderc_allocator"
+)
 
 target_include_directories(
 	brtshaderc

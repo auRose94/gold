@@ -1,6 +1,7 @@
 #include "shape.hpp"
 
 namespace gold {
+	using namespace std;
 
 	object& shape::getPrototype() {
 		static auto proto = obj{

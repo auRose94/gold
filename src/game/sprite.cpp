@@ -12,6 +12,7 @@
 #include "transform.hpp"
 
 namespace gold {
+	using namespace std;
 	using namespace bgfx;
 
 	binary getSpriteShaderData(shaderType stype);

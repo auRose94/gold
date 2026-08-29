@@ -6,9 +6,13 @@
 #include "window.hpp"
 
 namespace gold {
+	using std::map;
+	using std::string;
+	struct renderBackend;
 	struct gfxBackend : public object {
 	 protected:
 		static object& getPrototype();
+		static renderBackend*& render();
 
 	 public:
 		gfxBackend();

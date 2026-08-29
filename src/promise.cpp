@@ -5,6 +5,7 @@
 #include <thread>
 
 namespace gold {
+	using namespace std;
 
 	static const uint64_t threadSleep = 60;
 	static mutex promisesMutex;
@@ -69,11 +70,11 @@ namespace gold {
 					this_thread::sleep_for(
 						std::chrono::microseconds(threadSleep)
 																	 );
-				} catch (exception e) {
+				} catch (const exception& e) {
 					printError(e.what());
 				}
 			}
-		} catch (exception e) {
+		} catch (const exception& e) {
 			printError(e.what());
 			return -1;
 		}
@@ -127,6 +128,18 @@ namespace gold {
 			empty();
 		}
 		data = nullptr;
+	}
+
+	promise& promise::operator=(const promise& rhs) {
+		object::operator=(rhs);
+		return *this;
+	}
+
+	promise::promise(promise&& move) : object(std::move(move)) {}
+
+	promise& promise::operator=(promise&& rhs) {
+		object::operator=(std::move(rhs));
+		return *this;
 	}
 
 	var promise::addArgs(list args) {

@@ -3,7 +3,8 @@
 #include "file.hpp"
 
 namespace gold {
-	using namespace std;
+	using std::string;
+	using std::vector;
 	struct mesh : public file {
 	 protected:
 		static object& getPrototype();

@@ -1,3 +1,4 @@
+using namespace std;
 #include <camera.hpp>
 #include <component.hpp>
 #include <engine.hpp>
@@ -64,7 +65,7 @@ int main() {
 		auto getSprite = [=](auto x, auto y) -> sprite {
 			if ((x < itemsX && x >= 0) && (y < itemsY && y >= 0)) {
 				auto xVector = sprites[y].getList();
-				return xVector[x].getObject<sprite>();
+				return xVector[x].template getObject<sprite>();
 			}
 			return sprite();
 		};

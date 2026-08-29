@@ -9,6 +9,7 @@ add_library(
 		src/list.cpp
 		src/file.cpp
 		src/image.cpp
+		src/module.cpp
 		src/object.cpp
 		src/types.cpp
 		src/var.cpp
@@ -35,7 +36,7 @@ target_include_directories(
 target_link_libraries (
 	goldShared
 	PUBLIC 
-		cryptopp-static
+		OpenSSL::Crypto
 		bx
 		bimg
 		nlohmann_json::nlohmann_json
@@ -43,11 +44,17 @@ target_link_libraries (
 
 if(MSVC)
 else()
-	target_link_libraries (
-		goldShared
-		PUBLIC 
-			stdc++fs
-	)
+	if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "9.0")
+		# std::filesystem lived in libstdc++fs before GCC 9.
+		target_link_libraries(
+			goldShared
+			PUBLIC
+				stdc++fs
+		)
+	endif()
+	# module.cpp uses dlopen/dlclose for optional module loading.
+	find_package(Threads REQUIRED)
+	target_link_libraries(goldShared PRIVATE ${CMAKE_DL_LIBS})
 endif(MSVC)
 
 target_compile_features(

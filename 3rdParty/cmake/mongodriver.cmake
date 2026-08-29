@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 3.1)
+cmake_minimum_required(VERSION 3.16)
 
 set(libmongo_path ${PROJECT_SOURCE_DIR}/mongo-c-driver)
 

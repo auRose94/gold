@@ -1,3 +1,4 @@
+using namespace std;
 #include <database.hpp>
 #include <iostream>
 #include <server.hpp>

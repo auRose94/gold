@@ -3,6 +3,7 @@
 #include <random>
 
 namespace gg {
+	using namespace std;
 	string randomString(size_t length) {
 		// TODO: Found on SO, replace
 		const string CHARACTERS =

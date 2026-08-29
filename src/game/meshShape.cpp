@@ -13,6 +13,7 @@
 #include "shape.hpp"
 
 namespace gold {
+	using namespace std;
 	object& meshShape::getPrototype() {
 		static auto proto = obj{
 			{"priority", priorityEnum::dataPriority},

@@ -11,6 +11,7 @@
 #include <string_view>
 
 namespace gold {
+	using namespace std;
 
 	bimg::ImageContainer* image::getContainer() {
 		auto con = (bimg::ImageContainer*)getPtr("con");

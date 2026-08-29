@@ -11,6 +11,7 @@
 	name::name(list args) : iHTML(tag, args) {}
 
 namespace gold {
+	using namespace std;
 	namespace HTML {
 		gold::obj& iHTML::getPrototype() {
 			static auto proto = obj({

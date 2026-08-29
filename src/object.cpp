@@ -7,17 +7,14 @@
 #include <iostream>
 #include <memory>
 #include <string>
-#include <cryptopp/cryptlib.h>
-#include <cryptopp/hex.h>
-#include <cryptopp/pwdbased.h>
-#include <cryptopp/sha.h>
+#include <openssl/evp.h>
+#include <openssl/sha.h>
 
 #include "file.hpp"
 #include "types.hpp"
 
 namespace gold {
 	using namespace std;
-	using namespace CryptoPP;
 	static mutex cryptoMutex;
 	using value_t = nlohmann::detail::value_t;
 	struct objData {
@@ -59,6 +56,10 @@ namespace gold {
 
 	object::object(const obj& copy) : data(copy.data) {}
 
+	object::object(obj&& move) : data(std::move(move.data)) {
+		move.data = nullptr;
+	}
+
 	object::object(initList list)
 		: data(newObjData(object::omap(list), 0)) {
 		findParent();
@@ -75,11 +76,13 @@ namespace gold {
 	}
 
 	object::omap::iterator object::begin() {
+		initMemory();
 		unique_lock<mutex> gaurd(data->omutex);
 		return std::begin(data->items);
 	}
 
 	object::omap::iterator object::end() {
+		initMemory();
 		unique_lock<mutex> gaurd(data->omutex);
 		return std::end(data->items);
 	}
@@ -103,12 +106,13 @@ namespace gold {
 
 	string object::getCookieString() {
 		auto buffer = string();
+		auto count = size();
 		uint64_t i = 0;
 		for (auto it = begin(); it != end(); ++it, ++i) {
 			auto key = it->first;
 			auto value = it->second.getString();
-			auto end = i != size() - 1;
-			buffer += key + "=" + value + (end ? "" : "; ");
+			auto isLast = count == 0 || i == count - 1;
+			buffer += key + "=" + value + (isLast ? "" : "; ");
 		}
 		return buffer;
 	}
@@ -193,6 +197,17 @@ namespace gold {
 	object object::getParent() {
 		initMemory();
 		return data->parent;
+	}
+
+	bool object::inherits(const object other) const {
+		if (!data) return false;
+		if (!other.data) return false;
+		auto cur = data->parent;
+		while (cur) {
+			if (cur.data->id == other.data->id) return true;
+			cur = cur.data->parent;
+		}
+		return false;
 	}
 
 	template <typename T>
@@ -404,29 +419,26 @@ namespace gold {
 	gold::var object::generateHash(string value, string salt) {
 		try {
 			unique_lock<mutex> gaurd(cryptoMutex);
-			using byte = unsigned char;
-			byte derived[SHA256::DIGESTSIZE];
-
-			static PKCS5_PBKDF2_HMAC<SHA256> pbkdf;
-			pbkdf.DeriveKey(
-				(byte*)derived,
-				sizeof(derived),
-				0,
-				(byte*)value.data(),
-				value.size(),
-				(byte*)salt.data(),
-				salt.size(),
-				1024,
-				0.0f);
+			// OWASP recommends 600k iterations for PBKDF2-HMAC-SHA256.
+			unsigned char derived[SHA256_DIGEST_LENGTH];
+			if (PKCS5_PBKDF2_HMAC(
+					value.data(),
+					int(value.size()),
+					(const unsigned char*)salt.data(),
+					int(salt.size()),
+					600000,
+					EVP_sha256(),
+					SHA256_DIGEST_LENGTH,
+					derived) != 1)
+				return genericError("PBKDF2 key derivation failed");
 
 			std::string result;
-			auto sink = new StringSink(result);
-			auto encoder = new HexEncoder(sink);
-
-			encoder->Put(derived, sizeof(derived));
-			encoder->MessageEnd();
-
-			delete encoder;
+			result.resize(SHA256_DIGEST_LENGTH * 2);
+			for (size_t i = 0; i < SHA256_DIGEST_LENGTH; ++i) {
+				static const char hex[] = "0123456789abcdef";
+				result[i * 2] = hex[derived[i] >> 4];
+				result[i * 2 + 1] = hex[derived[i] & 0x0F];
+			}
 			return result;
 		} catch (exception& e) {
 			return genericError(e.what());
@@ -627,6 +639,7 @@ namespace gold {
 	}
 
 	bool object::operator==(object& other) {
+		if (!data || !other.data) return data == other.data;
 		if (data->id == other.data->id) return true;
 		return false;
 	}
@@ -640,12 +653,26 @@ namespace gold {
 		return *this;
 	}
 
+	object& object::operator=(object&& o) {
+		data = std::move(o.data);
+		o.data = nullptr;
+		return *this;
+	}
+
 	object::operator bool() const { return bool(this->data); }
 
 	void object::parseURLEncoded(string value, object& result) {
 		auto it = value.begin();
 		string buffer = "";
 		string key = "";
+
+		auto decodePercent = [&](string::iterator& it) {
+			string h = "0x";
+			if (it + 1 < value.end()) h += *(++it);
+			if (it + 1 < value.end()) h += *(++it);
+			auto c = (char)strtoul(h.c_str(), nullptr, 16);
+			buffer += string(&c, 1);
+		};
 
 		auto pushVar = [&]() {
 			if (key.size() > 0 && buffer.size() > 0) {
@@ -667,7 +694,7 @@ namespace gold {
 			}
 		};
 		while (it != value.end()) {
-			if (isalnum(*it))
+			if (isalnum((unsigned char)*it))
 				buffer += *it;
 			else if (*it == '=') {
 				key = buffer;
@@ -677,11 +704,7 @@ namespace gold {
 			} else if (*it == '+') {
 				buffer += " ";
 			} else if (*it == '%') {
-				string h = "0x";
-				h += *(++it);
-				h += *(++it);
-				auto c = (char)stoul(h, nullptr, 16);
-				buffer += string(&c, 1);
+				decodePercent(it);
 			} else {
 				buffer += *it;
 			}
@@ -694,8 +717,17 @@ namespace gold {
 		auto it = value.begin();
 		string buffer = "";
 		string key = "";
+
+		auto decodePercent = [&](string::iterator& it) {
+			string h = "0x";
+			if (it + 1 < value.end()) h += *(++it);
+			if (it + 1 < value.end()) h += *(++it);
+			auto c = (char)strtoul(h.c_str(), nullptr, 16);
+			buffer += string(&c, 1);
+		};
+
 		while (it != value.end()) {
-			if (isalnum(*it))
+			if (isalnum((unsigned char)*it))
 				buffer += *it;
 			else if (*it == '=') {
 				key = buffer;
@@ -719,11 +751,7 @@ namespace gold {
 			} else if (*it == '+') {
 				buffer += " ";
 			} else if (*it == '%') {
-				string h = "0x";
-				h += *(++it);
-				h += *(++it);
-				auto c = (char)stoul(h, nullptr, 16);
-				buffer += string(&c, 1);
+				decodePercent(it);
 			} else {
 				buffer += *it;
 			}
@@ -760,7 +788,7 @@ namespace gold {
 	}
 
 	var object::saveBSON(string path, object value) {
-		auto d = value.getJSONBin(true);
+		auto d = value.getBSON();
 		auto v = string_view((char*)d.data(), d.size());
 		return file::saveFile(path, v);
 	}
@@ -770,7 +798,7 @@ namespace gold {
 	}
 
 	var object::saveCBOR(string path, object value) {
-		auto d = value.getJSONBin(true);
+		auto d = value.getCBOR();
 		auto v = string_view((char*)d.data(), d.size());
 		return file::saveFile(path, v);
 	}
@@ -780,7 +808,7 @@ namespace gold {
 	}
 
 	var object::saveMsgPack(string path, object value) {
-		auto d = value.getJSONBin(true);
+		auto d = value.getMsgPack();
 		auto v = string_view((char*)d.data(), d.size());
 		return file::saveFile(path, v);
 	}
@@ -790,7 +818,7 @@ namespace gold {
 	}
 
 	var object::saveUBJSON(string path, object value) {
-		auto d = value.getJSONBin(true);
+		auto d = value.getUBJSON();
 		auto v = string_view((char*)d.data(), d.size());
 		return file::saveFile(path, v);
 	}

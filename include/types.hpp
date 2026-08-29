@@ -4,18 +4,29 @@
 #include <inttypes.h>
 #include <stdbool.h>
 
+#include <exception>
 #include <functional>
 #include <initializer_list>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <nlohmann/json.hpp>
+#include <ostream>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <vector>
 
 namespace gold {
-	using namespace std;
+	using std::exception;
+	using std::function;
+	using std::initializer_list;
+	using std::map;
+	using std::mutex;
+	using std::ostream;
+	using std::shared_ptr;
+	using std::string;
+	using std::string_view;
+	using std::vector;
 	using json = nlohmann::json;
 	/* <Types> */
 	struct object;
@@ -25,8 +36,7 @@ namespace gold {
 	using func = function<var(list)>;
 	using binary = vector<uint8_t>;
 	using key = string;
-	static bx::DefaultAllocator defaultAllocator =
-		bx::DefaultAllocator();
+	inline bx::DefaultAllocator defaultAllocator = bx::DefaultAllocator();
 
 	typedef enum types_t {
 		typeNull = 0,
@@ -96,6 +106,20 @@ namespace gold {
 
 	class genericError;
 
+	/**
+	 * A type-erased value that can hold any gold type: null, scalar
+	 * numbers, strings, binary blobs, lists, objects, methods/functions,
+	 * vectors/quaternions/matrices, or errors.
+	 *
+	 * `var` values are copy-on-write cheap: copies and moves share the
+	 * underlying storage through a shared_ptr, so passing var by value is
+	 * inexpensive.
+	 *
+	 * Conversions:
+	 * - `var.getString()` returns the string form for every type.
+	 * - The `operator string()` cast is implicit; `operator string_view()`
+	 *   is explicit and only valid for string/string_view/binary data.
+	 */
 	struct var {
 	 protected:
 		struct varContainer {
@@ -126,7 +150,10 @@ namespace gold {
 			~varContainer();
 
 			varContainer();
-			varContainer(const varContainer& other);
+			// varContainer owns its payload and must not be copied:
+			// sharing is done through var's shared_ptr (varPtr).
+			varContainer(const varContainer&) = delete;
+			varContainer& operator=(const varContainer&) = delete;
 		};
 		typedef shared_ptr<varContainer> varPtr;
 		static varPtr autoNull;
@@ -135,6 +162,7 @@ namespace gold {
 	 public:
 		var();
 		var(const var& copy);
+		var(var&& move);
 		var(const char* string);
 		var(string string);
 		var(const binary& bin);
@@ -170,6 +198,7 @@ namespace gold {
 		~var();
 
 		var& operator=(const var& rhs);
+		var& operator=(var&& rhs);
 		bool operator==(const var& rhs) const;
 		bool operator!=(const var& rhs) const;
 		bool operator<=(const var& rhs) const;
@@ -256,7 +285,7 @@ namespace gold {
 		}
 
 		operator string() const;
-		operator string_view() const;
+		explicit operator string_view() const;
 		operator int64_t() const;
 		operator int32_t() const;
 		operator int16_t() const;
@@ -278,7 +307,17 @@ namespace gold {
 		var operator()(list) const;
 	};
 
-	/* <List> */
+	/* <List>
+	 * A dynamic array of `var` values with JSON/BSON/CBOR/MsgPack/UBJSON
+	 * serialization. Items are addressed by index; out-of-range reads return
+	 * the caller-supplied default (or null).
+	 *
+	 * Thread-safety: every individual method (push/get/set/operator[]) locks
+	 * the underlying storage, so concurrent calls are safe. Iteration via
+	 * begin()/end() returns raw vector iterators and is NOT synchronized:
+	 * you must not mutate the list (or have another thread mutate it) while
+	 * iterating. For a safe read, copy items into a local list first.
+	 */
 	struct list {
 	 protected:
 		friend struct var;
@@ -301,9 +340,12 @@ namespace gold {
 
 		list();
 		list(const list& copy);
+		list(list&& move);
 		list(initList list);
 		list(var value);
 		~list();
+		list& operator=(const list& rhs);
+		list& operator=(list&& rhs);
 
 		uint64_t size();
 		void pop();
@@ -419,7 +461,12 @@ namespace gold {
 	using array = list;
 
 	/* </List> */
-	/* <Object> */
+	/* <Object>
+	 * An ordered map of named `var` values with prototype-based inheritance
+	 * (setParent/inherits) and JSON/BSON/CBOR/MsgPack/UBJSON serialization.
+	 * Values can also be addressed with expression strings such as
+	 * "child[0].name".
+	 */
 	struct object;
 	struct objData;
 	struct object {
@@ -443,6 +490,7 @@ namespace gold {
 	 public:
 		typedef initializer_list<omap::value_type> initList;
 		object(const object& copy);
+		object(object&& move);
 		object(initList copy);
 		object(var value);
 		object();
@@ -526,6 +574,7 @@ namespace gold {
 		var operator()(string name);
 		bool operator==(object&);
 		object& operator=(const object&);
+		object& operator=(object&&);
 		operator bool() const;
 
 		static void parseURLEncoded(string value, object& result);
@@ -572,14 +621,17 @@ namespace gold {
 
 	/* </Object> */
 
+	/** An error value: carries a message plus file/function/line of origin.
+	 * Returned (rather than thrown) by most gold APIs as a `var`; check with
+	 * `var::isError()` / `var::getError()`. */
 	class genericError : public exception, public object {
 	 public:
 		genericError(const genericError& copy);
 		genericError(
 			string_view message,
-			const char* _file = __builtin_FILE(),
-			const char* _func = __builtin_FUNCTION(),
-			const int _line = __builtin_LINE());
+			const char* _file = __FILE__,
+			const char* _func = __FUNCTION__,
+			const int _line = __LINE__);
 		operator string() const;
 		friend ostream& operator<<(ostream& os, genericError& dt);
 	};

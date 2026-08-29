@@ -6,6 +6,10 @@
 #include "types.hpp"
 
 namespace gold {
+	using std::mutex;
+	using std::shared_ptr;
+	using std::thread;
+	using std::vector;
 	struct worker {
 	 protected:
 		struct job;

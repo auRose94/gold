@@ -242,11 +242,16 @@ function(link_symbolic_shaders BUILD_PATH)
 		common 
 		pbr
 	)
+	# The examples are designed to live next to a gold submodule, so default
+	# to ../gold. When built in-tree from the gold repo, GOLD_SOURCE_DIR is
+	# set by the top-level CMakeLists and overrides the relative path.
+	if(NOT DEFINED GOLD_SOURCE_DIR)
+		set(GOLD_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../gold")
+	endif()
 	foreach( NAME ${symbolicShaderNames} )
-		get_filename_component(
+		set(
 			SOURCE_FOLDER
-			"../gold/src/shaders/${NAME}/"
-			ABSOLUTE
+			"${GOLD_SOURCE_DIR}/src/shaders/${NAME}/"
 		)
 		if(NOT (EXISTS ${BUILD_PATH}/shaders))
 			file(

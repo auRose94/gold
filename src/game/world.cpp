@@ -14,6 +14,7 @@
 #include "transform.hpp"
 
 namespace gold {
+	using namespace std;
 	using namespace bgfx;
 
 	class btDebugDraw;

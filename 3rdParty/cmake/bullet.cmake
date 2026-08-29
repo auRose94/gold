@@ -1,4 +1,4 @@
-
+cmake_minimum_required(VERSION 3.16)
 set(BULLET_PHYSICS_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/bullet3/src)
 set(LinearMath_SRC_DIR ${BULLET_PHYSICS_SOURCE_DIR}/LinearMath)
 set(BulletSoftBody_SRC_DIR ${BULLET_PHYSICS_SOURCE_DIR}/BulletSoftBody)
@@ -14,7 +14,7 @@ set(Bullet3Collision_SRC_DIR ${BULLET_PHYSICS_SOURCE_DIR}/Bullet3Collision)
 set(InverseDynamics_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/bullet3/Extras/InverseDynamics)
 message("Bullet SRC DIR: ${BULLET_PHYSICS_SOURCE_DIR}")
 
-cmake_minimum_required(VERSION 2.4.3)
+cmake_minimum_required(VERSION 3.16)
 set(CMAKE_ALLOW_LOOSE_LOOP_CONSTRUCTS true)
 cmake_policy(SET CMP0017 NEW)
 #this line has to appear before 'PROJECT' in order to be able to disable incremental linking

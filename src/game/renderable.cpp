@@ -3,6 +3,7 @@
 #include "component.hpp"
 
 namespace gold {
+	using namespace std;
 
 	obj& renderable::getPrototype() {
 		static auto proto = obj({

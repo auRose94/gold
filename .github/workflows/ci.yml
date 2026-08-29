@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  core:
+    name: Core + tests (shared lib)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libssl-dev libsasl2-dev
+
+      - name: Configure (core only)
+        env:
+          CC: ${{ matrix.compiler == 'gcc' && 'gcc' || 'clang' }}
+          CXX: ${{ matrix.compiler == 'gcc' && 'g++' || 'clang++' }}
+        run: >
+          cmake -S . -B build
+          -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DGOLD_BUILD_GAME=OFF
+          -DGOLD_BUILD_WEB=OFF
+
+      - name: Build
+        run: cmake --build build --target goldTests
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  full:
+    name: Full build (game + web + examples)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libssl-dev libsasl2-dev \
+            libx11-dev libxext-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxi-dev libxss-dev libxv-dev \
+            libxxf86vm-dev libgl1-mesa-dev libwayland-dev \
+            libdbus-1-dev libasound2-dev libpulse-dev
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DGOLD_BUILD_TESTS=OFF
+          -DGOLD_BUILD_EXAMPLES=ON
+
+      - name: Build
+        run: cmake --build build --target goldGame goldWeb ConwaysGameOfLife MyWebProject

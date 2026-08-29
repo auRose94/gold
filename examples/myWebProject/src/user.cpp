@@ -15,6 +15,7 @@
 #include "utility.hpp"
 
 namespace gg {
+	using namespace std;
 
 	using div = gold::HTML::div;
 

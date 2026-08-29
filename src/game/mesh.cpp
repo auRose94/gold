@@ -9,6 +9,7 @@
 #include "graphics.hpp"
 
 namespace gold {
+	using namespace std;
 	object& mesh::getPrototype() {
 		static auto proto = obj{
 			{"getVertexLayoutHandle",

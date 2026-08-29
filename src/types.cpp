@@ -4,6 +4,7 @@
 #include <bx/platform.h>
 
 namespace gold {
+	using namespace std;
 
 	const var nullVar = var();
 	const auto voidPSize = sizeof(void*);

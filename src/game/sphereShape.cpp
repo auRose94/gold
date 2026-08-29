@@ -11,6 +11,7 @@
 #include "shape.hpp"
 
 namespace gold {
+	using namespace std;
 	object& sphereShape::getPrototype() {
 		static auto proto = obj{
 			{"priority", priorityEnum::dataPriority},

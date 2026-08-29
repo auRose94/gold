@@ -6,6 +6,7 @@
 #include "transform.hpp"
 
 namespace gold {
+	using namespace std;
 
 	object& camera::getPrototype() {
 		static auto proto = obj({

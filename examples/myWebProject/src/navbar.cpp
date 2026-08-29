@@ -4,7 +4,10 @@
 #include "user.hpp"
 
 namespace gg {
+	using namespace std;
 	using div = HTML::div;
+	using span = HTML::span;
+	using a = HTML::a;
 	using namespace HTML;
 
 	li navDropdown(string id, string title, gold::list children) {

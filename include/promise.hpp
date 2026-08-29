@@ -13,9 +13,12 @@ namespace gold {
 		static void joinThreads();
 		promise();
 		promise(const promise& copy);
+		promise(promise&& move);
 		promise(object self, method m, list args);
 		promise(object self, func f, list args);
 		~promise();
+		promise& operator=(const promise& rhs);
+		promise& operator=(promise&& rhs);
 
 		var addArgs(list args);
 		var call(list args = {});

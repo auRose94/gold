@@ -10,6 +10,8 @@
 #include "user.hpp"
 
 namespace gg {
+	using namespace std;
+	using span = HTML::span;
 	using div = gold::HTML::div;
 	namespace fs = std::filesystem;
 	object& upload::getPrototype() {

@@ -3,6 +3,7 @@
 #include <html.hpp>
 
 namespace gg {
+	using namespace std;
 	using namespace HTML;
 	using div = HTML::div;
 	gold::list errorPage(gold::list args) {

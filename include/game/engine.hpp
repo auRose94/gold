@@ -9,6 +9,8 @@
 /* </Includes> */
 
 namespace gold {
+	using std::set;
+	using std::string;
 	struct engine : public object {
 	 protected:
 		static object& getPrototype();

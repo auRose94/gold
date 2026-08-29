@@ -3,6 +3,7 @@
 #include "types.hpp"
 
 namespace gold {
+	using namespace std;
 	using value_t = nlohmann::detail::value_t;
 	void list::initMemory() {
 		if (!data)
@@ -24,12 +25,14 @@ namespace gold {
 			f.r = char(args[0].getFloat() * 255);
 			f.g = char(args[1].getFloat() * 255);
 			f.b = char(args[2].getFloat() * 255);
-			f.a = char(args[3].getFloat() * 255);
+			f.a = args.size() >= 4
+				? char(args[3].getFloat() * 255)
+				: char(255);
 		} else if (args.isAllNumber() && args.size() >= 3) {
 			f.r = args[0].getUInt8();
 			f.g = args[1].getUInt8();
 			f.b = args[2].getUInt8();
-			f.a = args[3].getUInt8();
+			f.a = args.size() >= 4 ? args[3].getUInt8() : 255;
 		} else if (args[0].isNumber()) {
 			auto val = args[0];
 			if (val.isFloating()) {
@@ -90,6 +93,10 @@ namespace gold {
 
 	list::list(const list& copy) : data(copy.data) {}
 
+	list::list(list&& move) : data(std::move(move.data)) {
+		move.data = nullptr;
+	}
+
 	list::list(initializer_list<var> list)
 		: data(new arrData{avec(list), mutex()}) {}
 
@@ -103,6 +110,17 @@ namespace gold {
 	list::~list() {
 		if (data && data.use_count() <= 0) data->items.clear();
 		data = nullptr;
+	}
+
+	list& list::operator=(const list& rhs) {
+		data = rhs.data;
+		return *this;
+	}
+
+	list& list::operator=(list&& rhs) {
+		data = std::move(rhs.data);
+		rhs.data = nullptr;
+		return *this;
 	}
 
 	uint64_t list::size() {
@@ -371,9 +389,9 @@ namespace gold {
 	list list::operator-=(var item) {
 		if (!data) return *this;
 		unique_lock<mutex> gaurd(data->amutex);
-		for (auto it = begin(); it != end(); ++it) {
+		for (auto it = data->items.begin(); it != data->items.end(); ++it) {
 			if (*it == item) {
-				erase(it);
+				data->items.erase(it);
 				break;
 			}
 		}
@@ -386,6 +404,7 @@ namespace gold {
 
 	var list::operator[](uint64_t index) const {
 		if (!data) return var();
+		unique_lock<mutex> gaurd(data->amutex);
 		auto it = data->items.begin();
 		std::advance(it, index);
 		if (it != data->items.end()) return *it;

@@ -11,6 +11,7 @@
 #include "shape.hpp"
 
 namespace gold {
+	using namespace std;
 	object& boxShape::getPrototype() {
 		static auto proto = obj{
 			{"priority", priorityEnum::dataPriority},

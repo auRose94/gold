@@ -6,6 +6,7 @@
 #include "types.hpp"
 
 namespace gold {
+	using namespace std;
 	obj& envMap::getPrototype() {
 		static auto proto = obj({
 			{"priority", priorityEnum::genericPriority},

@@ -1,6 +1,7 @@
 #include "light.hpp"
 
 namespace gold {
+	using namespace std;
 	obj& light::getPrototype() {
 		static auto proto = obj({
 			{"priority", priorityEnum::genericPriority},

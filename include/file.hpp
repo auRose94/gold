@@ -5,8 +5,13 @@
 #include "types.hpp"
 
 namespace gold {
-	using namespace std;
+	using std::string;
+	using std::string_view;
+	using std::vector;
 	using path = std::filesystem::path;
+	/** A filesystem/file object. Reads/writes data with write-time caching,
+	 * plus parsing/serializing JSON, BSON, CBOR, MsgPack and UBJSON.
+	 * Malformed input is returned as a `genericError` var, never thrown. */
 	struct file : public object {
 	 protected:
 		static object& getPrototype();

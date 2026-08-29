@@ -3,6 +3,8 @@
 #include "types.hpp"
 
 namespace gold {
+	using std::string;
+	using std::string_view;
 	struct database : public object {
 	 protected:
 		static object& getPrototype();

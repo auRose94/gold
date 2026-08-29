@@ -1,14 +1,13 @@
 
 #include "engine.hpp"
 
-#include <SDL.h>
-
 #include <iostream>
 
 #include "camera.hpp"
 #include "component.hpp"
 #include "entity.hpp"
 #include "envMap.hpp"
+#include "game/windowSystem.hpp"
 #include "graphics.hpp"
 #include "light.hpp"
 #include "promise.hpp"
@@ -30,8 +29,7 @@ namespace gold {
 	string engine::getSettingsDir() {
 		auto gameName = getString("gameName");
 		auto company = getString("company");
-		auto dir = string(
-			SDL_GetPrefPath(company.c_str(), gameName.c_str()));
+		auto dir = applicationDataDir(company, gameName);
 		if (dir.size() == 0) dir = "./";
 		return dir;
 	}
@@ -90,11 +88,6 @@ namespace gold {
 	}
 
 	var engine::initialize(list) {
-		SDL_SetMainReady();
-		if (SDL_Init(SDL_INIT_EVERYTHING) != SDL_FALSE) {
-			cout << "[SDL2]" << SDL_GetError() << endl;
-			return genericError(SDL_GetError());
-		}
 		setList("entities", list({}));
 
 		auto configVar = loadSettings();
@@ -192,11 +185,15 @@ namespace gold {
 		auto comps = getList("components");
 
 		setBool("running", true);
-		SDL_Event e;
+		auto ws = win.getBackend();
 		while (getBool("running")) {
-			while (SDL_PollEvent(&e)) {
-				if (e.type == SDL_QUIT) setBool("running", false);
-				win.handleEvent({var((void*)&e)});
+			if (ws) {
+				object ev;
+				while (ws->poll(ev)) {
+					if (ev.getString("type") == "quit")
+						setBool("running", false);
+					win.handleEvent({ev});
+				}
 			}
 			phys.step();
 			gfx.preFrame();
@@ -360,7 +357,6 @@ namespace gold {
 
 		gfx.destroy();
 		win.destroy();
-		SDL_Quit();
 		empty();
 	}
 
