@@ -281,6 +281,7 @@ namespace gold {
 							data.data() + offset + size_t(i) * stride, tightSize);
 					parseGLTFBuffer(type, scalarType, 0, count, packed.data(), parsed);
 				}
+				section.setList("raw", parsed);
 				if (normalized) {
 					auto scale = scalarType == 5121 ? 255.0
 						: scalarType == 5123 ? 65535.0
@@ -488,54 +489,24 @@ namespace gold {
 								count = accessor.getUInt64("count");
 								countSet = true;
 							}
-							auto parsed = accessor.getList("parsed");
+							auto parsed = accessor.getList("raw",
+								accessor.getList("parsed"));
 							auto pit = parsed.begin();
 							advance(pit, vit);
 							if (pit != parsed.end()) {
-								if (pit->isFloating()) {
-									if (pit->isVec2()) {
-										pushBack(pit->getFloat(0));
-										pushBack(pit->getFloat(1));
-									} else if (pit->isVec3()) {
-										pushBack(pit->getFloat(0));
-										pushBack(pit->getFloat(1));
-										pushBack(pit->getFloat(2));
-									} else if (pit->isVec4()) {
-										pushBack(pit->getFloat(0));
-										pushBack(pit->getFloat(1));
-										pushBack(pit->getFloat(2));
-										pushBack(pit->getFloat(3));
-									}
-								} else if (pit->isSigned()) {
-									if (pit->isVec2()) {
-										pushBack(pit->getInt16(0));
-										pushBack(pit->getInt16(1));
-									} else if (pit->isVec3()) {
-										pushBack(pit->getInt16(0));
-										pushBack(pit->getInt16(1));
-										pushBack(pit->getInt16(2));
-									} else if (pit->isVec4()) {
-										pushBack(pit->getInt16(0));
-										pushBack(pit->getInt16(1));
-										pushBack(pit->getInt16(2));
-										pushBack(pit->getInt16(3));
-									}
-								} else if (
-									pit->getType() == typeVec2UInt8 ||
-									pit->getType() == typeVec3UInt8 ||
-									pit->getType() == typeVec4UInt8) {
-									if (pit->isVec2()) {
-										pushBack(pit->getUInt8(0));
-										pushBack(pit->getUInt8(1));
-									} else if (pit->isVec3()) {
-										pushBack(pit->getUInt8(0));
-										pushBack(pit->getUInt8(1));
-										pushBack(pit->getUInt8(2));
-									} else if (pit->isVec4()) {
-										pushBack(pit->getUInt8(0));
-										pushBack(pit->getUInt8(1));
-										pushBack(pit->getUInt8(2));
-										pushBack(pit->getUInt8(3));
+								auto componentType = accessor.getUInt32("componentType");
+								auto components = pit->isVec2() ? 2 :
+									pit->isVec3() ? 3 : pit->isVec4() ? 4 : 0;
+								for (uint8_t i = 0; i < components; ++i) {
+									switch (componentType) {
+										case 5120: pushBack(int16_t(pit->getInt8(i))); break;
+										case 5121: pushBack(pit->getUInt8(i)); break;
+										case 5122: pushBack(pit->getInt16(i)); break;
+										case 5123: pushBack(pit->getUInt16(i)); break;
+										case 5125: pushBack(pit->getUInt32(i)); break;
+										case 5126: pushBack(pit->getFloat(i)); break;
+										default:
+											return genericError("Unsupported glTF vertex component type");
 									}
 								}
 							}

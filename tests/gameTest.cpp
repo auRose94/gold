@@ -207,6 +207,7 @@ TEST(gltf_external_buffers_and_normalized_accessors) {
 	EXPECT_NEAR(color.getFloat(0), 0.0f, 1e-6);
 	EXPECT_NEAR(color.getFloat(1), 128.0f / 255.0f, 1e-6);
 	EXPECT_NEAR(color.getFloat(2), 1.0f, 1e-6);
+	EXPECT_EQ(accessors.getObject(1).getList("raw").getVar(0).getUInt8(1), 128u);
 	EXPECT_EQ(loaded.getList("images").getObject(0).getBinary("data").size(), (size_t)38);
 	EXPECT_EQ(loaded.getList("images").getObject(1).getBinary("data").size(), (size_t)4);
 	EXPECT_EQ(loaded.getList("images").getObject(2).getBinary("data").size(), (size_t)3);
