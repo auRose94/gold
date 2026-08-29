@@ -341,6 +341,25 @@ TEST(file_base64) {
 	EXPECT_TRUE(binaryEqual(decoded, data));
 }
 
+TEST(file_asset_pack_roundtrip) {
+	auto packed = file::pack(list({
+		obj({{"path", "z.txt"}, {"data", binary({'z'})}}),
+		obj({{"path", "a.bin"}, {"data", binary({1, 2, 3})}}),
+	}));
+	EXPECT_FALSE(packed.isError());
+	auto unpacked = file::unpack(packed.getBinary());
+	EXPECT_FALSE(unpacked.isError());
+	EXPECT_EQ(unpacked.getList().size(), (uint64_t)2);
+	EXPECT_EQ(unpacked.getList().getObject(0).getString("path"), "a.bin");
+	EXPECT_EQ(unpacked.getList().getObject(1).getString("path"), "z.txt");
+}
+
+TEST(file_asset_pack_rejects_unsafe_input) {
+	EXPECT_TRUE(file::pack(list({obj({{"path", "../secret"}})})).isError());
+	auto bad = binary({'G', 'O', 'L', 'D', 'P', 'A', 'K', '1', 1, 0, 0, 0});
+	EXPECT_TRUE(file::unpack(bad).isError());
+}
+
 TEST(object_generate_hash) {
 	auto h1 = object::generateHash("password", "salt");
 	auto h2 = object::generateHash("password", "salt");

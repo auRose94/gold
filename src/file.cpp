@@ -8,6 +8,7 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <algorithm>
 
 namespace gold {
 	using namespace std;
@@ -338,6 +339,84 @@ namespace gold {
     }
     out = binary(decoded.begin(), decoded.end());
 }
+		return out;
+	}
+
+	var file::pack(list entries) {
+		struct entry {
+			string path;
+			binary data;
+		};
+		vector<entry> files;
+		for (auto it = entries.begin(); it != entries.end(); ++it) {
+			auto item = it->getObject();
+			if (!item) return genericError("asset pack entry is not an object");
+			auto name = item.getString("path");
+			fs::path path(name);
+			if (name.empty() || path.is_absolute() ||
+				path.lexically_normal().string().find("..") != string::npos)
+				return genericError("asset pack path must be relative and safe");
+			for (auto& existing : files)
+				if (existing.path == path.generic_string())
+					return genericError("duplicate asset pack path");
+			files.push_back({path.generic_string(), item.getBinary("data")});
+		}
+		sort(files.begin(), files.end(), [](const entry& a, const entry& b) {
+			return a.path < b.path;
+		});
+		binary out;
+		const char magic[] = "GOLDPAK1";
+		out.insert(out.end(), magic, magic + 8);
+		auto put32 = [&out](uint32_t value) {
+			for (int i = 0; i < 4; ++i) out.push_back(uint8_t(value >> (i * 8)));
+		};
+		auto put64 = [&out](uint64_t value) {
+			for (int i = 0; i < 8; ++i) out.push_back(uint8_t(value >> (i * 8)));
+		};
+		put32(uint32_t(files.size()));
+		for (auto& item : files) {
+			put32(uint32_t(item.path.size()));
+			put64(uint64_t(item.data.size()));
+			out.insert(out.end(), item.path.begin(), item.path.end());
+			out.insert(out.end(), item.data.begin(), item.data.end());
+		}
+		return out;
+	}
+
+	var file::unpack(binary data) {
+		if (data.size() < 12 || string((char*)data.data(), 8) != "GOLDPAK1")
+			return genericError("invalid asset pack header");
+		size_t pos = 8;
+		auto get32 = [&]() -> uint32_t {
+			uint32_t value = 0;
+			for (int i = 0; i < 4; ++i) value |= uint32_t(data[pos++]) << (i * 8);
+			return value;
+		};
+		auto get64 = [&]() -> uint64_t {
+			uint64_t value = 0;
+			for (int i = 0; i < 8; ++i) value |= uint64_t(data[pos++]) << (i * 8);
+			return value;
+		};
+		uint32_t count = get32();
+		list out;
+		for (uint32_t i = 0; i < count; ++i) {
+			if (pos > data.size() || data.size() - pos < 12)
+				return genericError("truncated asset pack entry");
+			uint32_t pathSize = get32();
+			uint64_t dataSize = get64();
+			if (pathSize == 0 || pathSize > data.size() - pos ||
+				dataSize > data.size() - pos - pathSize)
+				return genericError("invalid asset pack entry size");
+			string path((char*)data.data() + pos, pathSize);
+			pos += pathSize;
+			fs::path safe(path);
+			if (safe.is_absolute() || safe.lexically_normal().string().find("..") != string::npos)
+				return genericError("unsafe asset pack path");
+			binary bytes(data.begin() + pos, data.begin() + pos + dataSize);
+			pos += dataSize;
+			out.pushObject(obj({{"path", path}, {"data", bytes}}));
+		}
+		if (pos != data.size()) return genericError("trailing asset pack data");
 		return out;
 	}
 

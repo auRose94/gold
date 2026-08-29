@@ -56,5 +56,7 @@ namespace gold {
 		static binary decodeDataURL(string_view v, string& mimeType);
 		static binary decodeBase64(string_view v);
 		static string encodeBase64(binary b);
+		static var pack(list entries);
+		static var unpack(binary data);
 	};
 }  // namespace gold
