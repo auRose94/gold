@@ -109,7 +109,7 @@ int main() {
 	});
 
 	auto simObj = entity({{"name", "sim"}});
-	auto simCom = jo("proto", simulator);
+	auto simCom = simulator;
 	auto children = ja();
 	auto sprites = ja();
 	auto frame = ja();
@@ -132,8 +132,10 @@ int main() {
 			auto halfX = itemsX / 2;
 			auto halfY = (itemsY / 2) - 0.5;
 			itemTrans.setPosition({x - halfX, y - halfY, 22});
+			// ~30% random fill: dense grids collapse to a still-life in a
+			// few generations, so start sparse enough to stay alive.
 			auto alive =
-				std::generate_canonical<double, 10>(gen) >= 0.35;
+				std::generate_canonical<double, 10>(gen) >= 0.70;
 
 			auto aliveColor = simCom.getVar("aliveColor");
 			auto deadColor = simCom.getVar("deadColor");
@@ -155,7 +157,7 @@ int main() {
 	simCom["sprites"] = sprites;
 	simCom["frame"] = frame;
 	simObj += children;
-	simObj += {simCom};
+	simObj += {simulator};
 	main += {simObj};
 
 	main.start();
