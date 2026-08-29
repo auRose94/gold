@@ -13,6 +13,7 @@
 // ternary, arithmetic/comparison/logical operators, if/while/for,
 // return/break/continue.
 
+#include <iostream>
 #include <string>
 #include <string_view>
 
@@ -32,6 +33,11 @@ namespace gold {
 	 * globals; returns the value or genericError. */
 	var langEval(std::string_view source,
 		object globals = object(), bool enforceTypes = false);
+
+	/** Interactive REPL: reads lines from `in`, evaluates each (allowing
+	 * multi-line blocks and expressions), prints results to `out`. */
+	void langRepl(std::istream& in = std::cin, std::ostream& out = std::cout,
+		bool enforceTypes = false);
 
 	/**
 	 * The `script` object facade: a configurable, embeddable script.

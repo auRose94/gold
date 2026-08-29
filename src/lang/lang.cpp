@@ -161,7 +161,8 @@ namespace gold {
 					"let", "const", "var", "function", "return", "if",
 					"else", "while", "for", "break", "continue", "class",
 					"constructor", "new", "this", "true", "false", "null",
-					"undefined",
+					"undefined", "throw", "try", "catch", "finally", "of",
+					"in", "typeof",
 				};
 				Token t;
 				t.type = Tok::Ident;
@@ -347,6 +348,8 @@ namespace gold {
 			object parseFunction(bool named);
 			object parseClass();
 			object parseReturn();
+			object parseThrow();
+			object parseTry();
 			object parseExprStmt();
 			var parseExpression();
 			var parseAssignment();
@@ -396,6 +399,8 @@ namespace gold {
 			if (atKw("function")) return parseFunction(true);
 			if (atKw("class")) return parseClass();
 			if (atKw("return")) return parseReturn();
+			if (atKw("throw")) return parseThrow();
+			if (atKw("try")) return parseTry();
 			if (atKw("break")) {
 				i++;
 				expectPunc(";");
@@ -413,23 +418,33 @@ namespace gold {
 
 		object Parser::parseLet() {
 			auto kw = advance().lex;
-			string name;
-			expectIdent(name);
-			string type = parseType();
-			var value;
-			bool hasValue = false;
-			if (checkOp("=")) {
-				value = parseExpression();
-				hasValue = true;
+			auto decls = list();
+			while (true) {
+				string name;
+				expectIdent(name);
+				string type = parseType();
+				var value;
+				bool hasValue = false;
+				if (checkOp("=")) {
+					value = parseExpression();
+					hasValue = true;
+				}
+				auto d = object();
+				d.setString("n", name);
+				if (!type.empty()) d.setString("type", type);
+				if (hasValue) d.setVar("v", value);
+				decls.pushObject(d);
+				if (toks[i].type == Tok::Punc && toks[i].lex == ",") {
+					i++;
+					continue;
+				}
+				break;
 			}
-			// allow semicolon or newline (ASI for statements)
 			if (toks[i].type == Tok::Punc && toks[i].lex == ";") i++;
 			auto n = object();
 			n.setString("t", "let");
-			n.setString("n", name);
 			n.setString("kw", kw);
-			if (!type.empty()) n.setString("type", type);
-			if (hasValue) n.setVar("v", value);
+			n.setList("decls", decls);
 			return n;
 		}
 
@@ -481,6 +496,34 @@ namespace gold {
 		object Parser::parseFor() {
 			i++;
 			expectPunc("(");
+			// for (x of iter) / for (x in obj)
+			{
+				size_t save = i;
+				string kw, name;
+				if (atKw("let") || atKw("const") || atKw("var")) {
+					kw = toks[i].lex;
+					i++;
+				}
+				if (toks[i].type == Tok::Ident) {
+					name = toks[i].lex;
+					if (toks[i + 1].type == Tok::Kw &&
+						(toks[i + 1].lex == "of" || toks[i + 1].lex == "in")) {
+						auto mode = toks[i + 1].lex;
+						i += 2;
+						auto iter = parseExpression();
+						expectPunc(")");
+						auto body = parseStatement();
+						auto n = object();
+						n.setString("t", mode == "of" ? "forof" : "forin");
+						n.setString("var", name);
+						n.setString("kw", kw);
+						n.setVar("iter", iter);
+						n.setObject("body", body);
+						return n;
+					}
+				}
+				i = save;
+			}
 			object init;
 			if (atKw("let") || atKw("const") || atKw("var")) {
 				init = parseLet();
@@ -523,9 +566,15 @@ namespace gold {
 						string name;
 						expectIdent(name);
 						string type = parseType();
+						var def;
+						if (toks[i].type == Tok::Op && toks[i].lex == "=") {
+							i++;
+							def = parseExpression();
+						}
 						auto p = object();
 						p.setString("n", name);
 						if (!type.empty()) p.setString("type", type);
+						if (def.getType() != typeNull) p.setVar("def", def);
 						params.pushObject(p);
 						if (toks[i].type == Tok::Punc && toks[i].lex == ",") {
 							i++;
@@ -610,6 +659,39 @@ namespace gold {
 			auto n = object();
 			n.setString("t", "return");
 			if (value.getType() != typeNull) n.setVar("v", value);
+			return n;
+		}
+
+		object Parser::parseThrow() {
+			i++;  // throw
+			auto value = parseExpression();
+			if (toks[i].type == Tok::Punc && toks[i].lex == ";") i++;
+			auto n = object();
+			n.setString("t", "throw");
+			n.setVar("v", value);
+			return n;
+		}
+
+		object Parser::parseTry() {
+			i++;  // try
+			auto body = parseBlock();
+			object n;
+			n.setString("t", "try");
+			n.setObject("body", body);
+			if (atKw("catch")) {
+				i++;
+				expectPunc("(");
+				string param;
+				expectIdent(param);
+				expectPunc(")");
+				auto catchBody = parseBlock();
+				n.setString("param", param);
+				n.setObject("catch", catchBody);
+			}
+			if (atKw("finally")) {
+				i++;
+				n.setObject("finally", parseBlock());
+			}
 			return n;
 		}
 
@@ -723,6 +805,16 @@ namespace gold {
 				n.setVar("r", right);
 				left = var(n);
 			}
+			if (toks[i].type == Tok::Kw && toks[i].lex == "in") {
+				i++;
+				auto right = parseAdditive();
+				auto n = object();
+				n.setString("t", "bin");
+				n.setString("op", "in");
+				n.setVar("l", left);
+				n.setVar("r", right);
+				left = var(n);
+			}
 			return left;
 		}
 
@@ -768,6 +860,14 @@ namespace gold {
 				auto n = object();
 				n.setString("t", "un");
 				n.setString("op", op);
+				n.setVar("a", a);
+				return var(n);
+			}
+			if (toks[i].type == Tok::Kw && toks[i].lex == "typeof") {
+				i++;
+				auto a = parseUnary();
+				auto n = object();
+				n.setString("t", "typeof");
 				n.setVar("a", a);
 				return var(n);
 			}
@@ -848,6 +948,12 @@ namespace gold {
 					return var();
 				}
 			} else if (toks[i].type == Tok::Punc && toks[i].lex == "(") {
+				// Only treat as arrow params when the first token is an
+				// identifier or it's empty; otherwise it's a grouping.
+				auto inner = toks[i + 1];
+				bool paramsLike = (inner.type == Tok::Ident) ||
+					(inner.type == Tok::Punc && inner.lex == ")");
+				if (!paramsLike) return var();
 				auto save2 = i;
 				params = parseParams();
 				if (!(toks[i].type == Tok::Op && toks[i].lex == "=>")) {
@@ -1034,6 +1140,8 @@ namespace gold {
 							items.pushVar(parseExpression());
 							if (toks[i].type == Tok::Punc && toks[i].lex == ",") {
 								i++;
+								if (toks[i].type == Tok::Punc && toks[i].lex == "]")
+									break;  // trailing comma
 								continue;
 							}
 							break;
@@ -1077,6 +1185,8 @@ namespace gold {
 				}
 				if (toks[i].type == Tok::Punc && toks[i].lex == ",") {
 					i++;
+					if (toks[i].type == Tok::Punc && toks[i].lex == "}")
+						break;  // trailing comma
 					continue;
 				}
 				break;
@@ -1093,7 +1203,7 @@ namespace gold {
 		// ------------------------------------------------------------------
 
 		struct Signal {
-			enum Kind { Return, Break, Continue } kind;
+			enum Kind { Return, Break, Continue, Throw } kind;
 			var value;
 		};
 
@@ -1102,9 +1212,46 @@ namespace gold {
 			return v.isObject() &&
 				v.getObject().getBool("__goldFn");
 		}
+		bool isBuiltinFn(const var& v) {
+			return v.isObject() &&
+				v.getObject().getString("__goldBuiltin").size() > 0;
+		}
+		bool callMathBuiltin(const string& name, list args, var& out) {
+			auto n = args.size() > 0 ? args.getVar(0).getDouble() : 0.0;
+			if (name == "round") { out = var(std::round(n)); return true; }
+			if (name == "floor") { out = var(std::floor(n)); return true; }
+			if (name == "ceil") { out = var(std::ceil(n)); return true; }
+			if (name == "abs") { out = var(std::fabs(n)); return true; }
+			if (name == "sqrt") { out = var(std::sqrt(n)); return true; }
+			if (name == "pow") {
+				auto b = args.size() > 1 ? args.getVar(1).getDouble() : 1.0;
+				out = var(std::pow(n, b)); return true;
+			}
+			if (name == "max") {
+				double m = n;
+				for (uint64_t i = 1; i < args.size(); ++i)
+					m = std::max(m, args.getVar(i).getDouble());
+				out = var(m); return true;
+			}
+			if (name == "min") {
+				double m = n;
+				for (uint64_t i = 1; i < args.size(); ++i)
+					m = std::min(m, args.getVar(i).getDouble());
+				out = var(m); return true;
+			}
+			return false;
+		}
+
 		bool isClass(const var& v) {
 			return v.isObject() &&
 				v.getObject().getBool("__goldClass");
+		}
+
+		list initList() {
+			list l;
+			l.setVar(0, var());
+			l.erase(l.begin());
+			return l;
 		}
 
 		class Interpreter {
@@ -1112,7 +1259,110 @@ namespace gold {
 			bool enforceTypes;
 			string err;
 
-			bool truthy(const var& v) {
+			string typeName(const var& v) {
+			switch (v.getType()) {
+				case typeNull: return "null";
+				case typeBool: return "boolean";
+				case typeString: case typeStringView: return "string";
+				case typeInt64: case typeInt32: case typeInt16: case typeInt8:
+				case typeUInt64: case typeUInt32: case typeUInt16: case typeUInt8:
+				case typeDouble: case typeFloat: return "number";
+				case typeList: return "array";
+				case typeObject:
+					if (isFn(v)) return "function";
+					if (isClass(v)) return "class";
+					return "object";
+				default: return "unknown";
+			}
+		}
+
+		bool setInt(var& out, int64_t v) { out = var(v); return true; }
+		string strToUpper(string s) { for (auto& c : s) c = toupper((unsigned char)c); return s; }
+		string strToLower(string s) { for (auto& c : s) c = tolower((unsigned char)c); return s; }
+		string strTrim(string s) {
+			size_t a = s.find_first_not_of(" \t\n\r");
+			size_t b = s.find_last_not_of(" \t\n\r");
+			if (a == string::npos) return "";
+			return s.substr(a, b - a + 1);
+		}
+
+		// Built-in string/array method dispatch. Returns true if handled.
+		bool callBuiltin(var obj, const string& method, list args, var& out) {
+			if (obj.isString()) {
+				auto str = obj.getString();
+				if (method == "toUpperCase") { out = var(strToUpper(str)); return true; }
+				if (method == "toLowerCase") { out = var(strToLower(str)); return true; }
+				if (method == "trim") { out = var(strTrim(str)); return true; }
+				if (method == "indexOf") {
+					auto needle = args.size() > 0 ? (string)args.getVar(0) : string();
+					return setInt(out, (int64_t)str.find(needle));
+				}
+				if (method == "includes") {
+					auto needle = args.size() > 0 ? (string)args.getVar(0) : string();
+					out = var(str.find(needle) != string::npos); return true;
+				}
+				if (method == "substr" || method == "slice") {
+					auto start = args.size() > 0 ? args.getVar(0).getInt64() : int64_t(0);
+					auto n = args.size() > 1 ? args.getVar(1).getUInt64() : string::npos;
+					out = var(str.substr((size_t)start, n)); return true;
+				}
+				if (method == "split") {
+					auto sep = args.size() > 0 ? (string)args.getVar(0) : string(",");
+					list res;
+					size_t p = 0, q;
+					while ((q = str.find(sep, p)) != string::npos) {
+						res.pushString(str.substr(p, q - p)); p = q + sep.size();
+					}
+					res.pushString(str.substr(p));
+					out = var(res); return true;
+				}
+				if (method == "startsWith") {
+					auto needle = args.size() > 0 ? (string)args.getVar(0) : string();
+					out = var(str.rfind(needle, 0) == 0); return true;
+				}
+				return false;
+			}
+			if (obj.isList()) {
+				auto li = obj.getList();
+				if (method == "push") {
+					for (auto it = args.begin(); it != args.end(); ++it) li.pushVar(*it);
+					out = var((uint64_t)li.size()); return true;
+				}
+				if (method == "pop") {
+					if (li.size() > 0) { out = li.getVar(li.size() - 1); return true; }
+					out = var(); return true;
+				}
+				if (method == "join") {
+					auto sep = args.size() > 0 ? (string)args.getVar(0) : string(",");
+					string r; bool first = true;
+					for (auto it = li.begin(); it != li.end(); ++it) {
+						if (!first) r += sep;
+						r += (string)(*it); first = false;
+					}
+					out = var(r); return true;
+				}
+				if (method == "indexOf") {
+					auto needle = args.size() > 0 ? args.getVar(0) : var();
+					uint64_t i = 0;
+					for (auto it = li.begin(); it != li.end(); ++it, ++i)
+						if (*it == needle) { out = var((int64_t)i); return true; }
+					out = var(int64_t(-1)); return true;
+				}
+				if (method == "includes") {
+					auto needle = args.size() > 0 ? args.getVar(0) : var();
+					for (auto it = li.begin(); it != li.end(); ++it)
+						if (*it == needle) { out = var(true); return true; }
+					out = var(false); return true;
+				}
+				if (method == "shift") {
+					if (li.size() > 0) { out = li.getVar(0); return true; }
+					out = var(); return true;
+				}
+				return false;
+			}
+			return false;
+		}
+bool truthy(const var& v) {
 				switch (v.getType()) {
 					case typeNull: return false;
 					case typeBool: return v.getBool();
@@ -1204,6 +1454,8 @@ namespace gold {
 				for (uint64_t i = 0; i < n; ++i) {
 					auto p = params.getObject(i);
 					var v = i < args.size() ? args.getVar(i) : var();
+					if (v.getType() == typeNull && p.getVar("def").getType() != typeNull)
+						v = evalNode(p.getVar("def"), scope);
 					auto t = p.getString("type");
 					checkType(t, v);
 					scope[p.getString("n")] = v;
@@ -1294,7 +1546,7 @@ namespace gold {
 					return var(out);
 				}
 				if (t == "arr") {
-					auto out = list();
+					auto out = initList();
 					auto items = o.getList("items");
 					for (auto it = items.begin(); it != items.end(); ++it)
 						out.pushVar(evalNode(*it, env));
@@ -1357,7 +1609,18 @@ namespace gold {
 				}
 				if (t == "member") {
 					auto obj = evalNode(o.getVar("o"), env);
-					return obj.getObject().getVar(o.getString("p"));
+					auto prop = o.getString("p");
+					if (obj.isString() && prop == "length")
+						return var((int64_t)obj.getString().size());
+					if (obj.isList() && prop == "length")
+						return var((int64_t)obj.getList().size());
+					if (obj.isObject()) {
+						// return the property (including builtin markers)
+						auto oo = obj.getObject();
+						if (oo.owns(prop)) return oo.getVar(prop);
+						return var();
+					}
+					return var();
 				}
 				if (t == "index") {
 					auto obj = evalNode(o.getVar("o"), env);
@@ -1367,18 +1630,58 @@ namespace gold {
 					return var();
 				}
 				if (t == "call") {
-					auto fn = evalNode(o.getVar("f"), env);
+					auto callee = o.getVar("f").getObject();
 					auto args = list();
 					auto argNodes = o.getList("args");
 					for (auto it = argNodes.begin(); it != argNodes.end(); ++it)
 						args.pushVar(evalNode(*it, env));
-					// this-binding for method calls (a.b(...) where b is a fn)
-					var thisArg;
-					auto callee = o.getVar("f").getObject();
 					if (callee.getString("t") == "member") {
-						thisArg = evalNode(callee.getVar("o"), env);
+						auto obj = evalNode(callee.getVar("o"), env);
+						auto method = callee.getString("p");
+						// built-in string/array method?
+						var built;
+						if (callBuiltin(obj, method, args, built))
+							return built;
+						// array map/filter with a callback function
+						if (obj.isList() &&
+							(method == "map" || method == "filter") &&
+							args.size() > 0 && isFn(args.getVar(0))) {
+							auto fn = args.getVar(0);
+							auto li = obj.getList();
+							auto res = list();
+							for (auto it = li.begin(); it != li.end(); ++it) {
+								if (method == "map") {
+									res.pushVar(callFn(fn, list{*it}, var()));
+								} else if (truthy(callFn(fn, list{*it}, var()))) {
+									res.pushVar(*it);
+								}
+							}
+							return var(res);
+						}
+						// Math builtins
+						if (obj.isObject() &&
+							callMathBuiltin(method, args, built))
+							return built;
+						// gold object method (this = obj)
+						auto fn = obj.getObject().getVar(method);
+						if (isBuiltinFn(fn)) {
+							var mathOut;
+							if (callMathBuiltin(
+									fn.getObject().getString("__goldBuiltin"),
+									args, mathOut))
+								return mathOut;
+						}
+						return callFn(fn, args, obj);
 					}
-					return callFn(fn, args, thisArg);
+					auto fn = evalNode(o.getVar("f"), env);
+					if (isBuiltinFn(fn)) {
+						var mathOut;
+						if (callMathBuiltin(
+								fn.getObject().getString("__goldBuiltin"),
+								args, mathOut))
+							return mathOut;
+					}
+					return callFn(fn, args, var());
 				}
 				if (t == "assign") {
 					auto target = o.getVar("target").getObject();
@@ -1416,10 +1719,21 @@ namespace gold {
 					}
 					throw runtime_error("invalid assignment target");
 				}
+				if (t == "typeof") {
+					auto a = evalNode(o.getVar("a"), env);
+					return var(typeName(a));
+				}
 				if (t == "bin") {
 					auto op = o.getString("op");
 					auto l = evalNode(o.getVar("l"), env);
 					auto r = evalNode(o.getVar("r"), env);
+					if (op == "in") {
+						if (r.isObject())
+							return var(r.getObject().owns((string)l));
+						if (r.isList())
+							return var(l.getUInt64() < r.getList().size());
+						return var(false);
+					}
 					if (op == "&&") return var(truthy(l) && truthy(r));
 					if (op == "||") return var(truthy(l) || truthy(r));
 					if (op == "==" || op == "===")
@@ -1470,12 +1784,18 @@ namespace gold {
 			var execNode(object node, object env) {
 				auto t = node.getString("t");
 				if (t == "let") {
-					var value;
-					if (node.getVar("v").getType() != typeNull)
-						value = evalNode(node.getVar("v"), env);
-					checkType(node.getString("type"), value);
-					env[node.getString("n")] = value;
-					return value;
+					var result;
+					auto decls = node.getList("decls");
+					for (auto it = decls.begin(); it != decls.end(); ++it) {
+						auto d = it->getObject();
+						var value;
+						if (d.getVar("v").getType() != typeNull)
+							value = evalNode(d.getVar("v"), env);
+						checkType(d.getString("type"), value);
+						env[d.getString("n")] = value;
+						result = value;
+					}
+					return result;
 				}
 				if (t == "block") {
 					// a nested block creates a child scope
@@ -1533,6 +1853,82 @@ namespace gold {
 					}
 					return result;
 				}
+				if (t == "throw") {
+					var value;
+					if (node.getVar("v").getType() != typeNull)
+						value = evalNode(node.getVar("v"), env);
+					throw Signal{Signal::Throw, value};
+				}
+				if (t == "try") {
+					var result;
+					try {
+						result = execNode(node.getObject("body"), env);
+					} catch (Signal& sig) {
+						if (sig.kind == Signal::Throw) {
+							auto cb = node.getVar("catch");
+							if (cb.getType() != typeNull) {
+								auto catchObj = cb.getObject();
+								auto scope = object();
+								scope.setParent(env);
+								scope[node.getString("param")] = sig.value;
+								result = execNode(catchObj, scope);
+							}
+						} else throw;
+					}
+					auto fin = node.getVar("finally");
+					if (fin.getType() != typeNull)
+						execNode(fin.getObject(), env);
+					return result;
+				}
+				if (t == "forof") {
+					auto iter = evalNode(node.getVar("iter"), env);
+					var result;
+					auto scope = object();
+					scope.setParent(env);
+					if (iter.isList()) {
+						auto li = iter.getList();
+						for (auto it = li.begin(); it != li.end(); ++it) {
+							scope[node.getString("var")] = *it;
+							try { result = execNode(node.getObject("body"), scope); }
+							catch (Signal& s) {
+								if (s.kind == Signal::Break) break;
+								if (s.kind == Signal::Continue) continue;
+								throw;
+							}
+						}
+					} else if (iter.isObject()) {
+						auto o = iter.getObject();
+						for (auto it = o.begin(); it != o.end(); ++it) {
+							scope[node.getString("var")] = var(it->first);
+							try { result = execNode(node.getObject("body"), scope); }
+							catch (Signal& s) {
+								if (s.kind == Signal::Break) break;
+								if (s.kind == Signal::Continue) continue;
+								throw;
+							}
+						}
+					}
+					return result;
+				}
+				if (t == "forin") {
+					auto objVar = evalNode(node.getVar("iter"), env);
+					var result;
+					auto scope = object();
+					scope.setParent(env);
+					if (objVar.isObject()) {
+						auto o = objVar.getObject();
+						for (auto it = o.begin(); it != o.end(); ++it) {
+							scope[node.getString("var")] = var(it->first);
+							try { result = execNode(node.getObject("body"), scope); }
+							catch (Signal& s) {
+								if (s.kind == Signal::Break) break;
+								if (s.kind == Signal::Continue) continue;
+								throw;
+							}
+						}
+					}
+					return result;
+				}
 				if (t == "return") {
 					var value;
 					if (node.getVar("v").getType() != typeNull)
@@ -1569,9 +1965,14 @@ namespace gold {
 					for (auto it = body.begin(); it != body.end(); ++it)
 						result = execNode(it->getObject(), globals);
 					return result;
+				} catch (Signal& s) {
+					if (s.kind == Signal::Throw)
+						return genericError((string)s.value);
+					err = "unexpected control-flow signal";
+					return genericError(err);
 				} catch (const exception& e) {
 					err = e.what();
-							return genericError(err);
+					return genericError(err);
 				}
 			}
 			var eval(object program) {
@@ -1599,6 +2000,17 @@ namespace gold {
 		object makeGlobals(object g) {
 			object globals;
 			if (g) globals.copy(g);
+			// predefine the Math builtin namespace
+			auto math = object();
+			static const char* names[] = {
+				"round", "floor", "ceil", "abs", "sqrt", "pow", "max", "min",
+			};
+			for (auto nm : names) {
+				object b;
+				b.setString("__goldBuiltin", nm);
+				math.setObject(nm, b);
+			}
+			globals.setObject("Math", math);
 			return ensureData(globals);
 		}
 
@@ -1647,6 +2059,54 @@ namespace gold {
 		auto g = makeGlobals(globals);
 		Interpreter interp(g, enforceTypes);
 		return interp.eval(ast);
+	}
+
+	// ----------------------------------------------------------------------
+	// REPL
+	// ----------------------------------------------------------------------
+
+	void langRepl(std::istream& in, std::ostream& out, bool enforceTypes) {
+		auto globals = makeGlobals(object());
+		out << "gold::lang REPL — type statements, ^D to exit\n";
+		string buf;
+		string line;
+		bool multiline = false;
+		while (true) {
+			out << (multiline ? "...> " : "gold> ") << std::flush;
+			if (!std::getline(in, line)) break;
+			buf += line;
+			buf += "\n";
+			// continue collecting while braces/parens are unbalanced
+			int depth = 0;
+			bool inStr = false;
+			for (size_t i = 0; i < buf.size(); ++i) {
+				char c = buf[i];
+				if (inStr) {
+					if (c == '\\') i++;
+					else if (c == '"' || c == '\'') inStr = false;
+					continue;
+				}
+				if (c == '"' || c == '\'') inStr = true;
+				else if (c == '{' || c == '(' || c == '[') depth++;
+				else if (c == '}' || c == ')' || c == ']') depth--;
+			}
+			if (depth > 0) {
+				multiline = true;
+				continue;
+			}
+			multiline = false;
+			string err;
+			auto ast = compile(buf, err);
+			if (!ast) {
+				out << "Error: " << err << "\n";
+			} else {
+				Interpreter replInterp(globals, enforceTypes);
+				auto v = replInterp.run(ast);
+				if (v.isError()) out << "Error: " << (string)*v.getError() << "\n";
+				else if (v.getType() != typeNull) out << (string)v << "\n";
+			}
+			buf.clear();
+		}
 	}
 
 	// ----------------------------------------------------------------------

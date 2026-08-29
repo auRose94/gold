@@ -1,4 +1,5 @@
 #include <iostream>
+#include <sstream>
 
 #include "goldjs.hpp"
 #include "goldtest.hpp"
@@ -70,6 +71,70 @@ TEST(lang_errors) {
 	EXPECT_TRUE(r.isError());
 	auto r2 = langRun("foo(1);", object(), false);  // unknown fn
 	EXPECT_TRUE(r2.isError());
+}
+
+TEST(lang_try_catch) {
+	auto r = langRun(
+		"let h; try { throw \"boom\"; } catch (e) { h = `caught: ${e}`; } "
+		"try { 5 + 5; } catch (e) { h = \"no\"; } h;",
+		object(), false);
+	EXPECT_EQ(r.getString(), "caught: boom");
+	auto un = langRun("throw \"oops\";", object(), false);
+	EXPECT_TRUE(un.isError());
+}
+
+TEST(lang_iteration) {
+	auto r = langRun(
+		"let s = 0; for (const x of [1,2,3,4]) { s += x; } s;",
+		object(), false);
+	EXPECT_EQ(r.getInt64(), 10);
+	auto keys = langRun(
+		"const u = { a: 1, b: 2 }; let k = []; for (const name in u) { k.push(name); } k.join(\",\");",
+		object(), false);
+	EXPECT_EQ(keys.getString(), "a,b");
+}
+
+TEST(lang_builtins) {
+	auto str = langRun(
+		"const s = \"Hello World\"; s.toUpperCase() + \"/\" + s.length + \"/\" + s.indexOf(\"World\");",
+		object(), false);
+	EXPECT_EQ(str.getString(), "HELLO WORLD/11/6");
+	auto arr = langRun(
+		"const a = [1,2,3]; a.push(4); a.join(\"-\") + \"/\" + a.length;",
+		object(), false);
+	EXPECT_EQ(arr.getString(), "1-2-3-4/4");
+	auto map = langRun(
+		"const a = [1,2,3]; a.map((x) => x * 2).join(\",\");",
+		object(), false);
+	EXPECT_EQ(map.getString(), "2,4,6");
+	auto math = langRun("Math.round(7.7) + Math.floor(7.7);", object(), false);
+	EXPECT_EQ(math.getInt64(), 15);
+}
+
+TEST(lang_misc) {
+	EXPECT_EQ(langRun("typeof 42 + \" \" + typeof \"x\" + \" \" + typeof [1] + \" \" + typeof {};",
+		object(), false).getString(), "number string array object");
+	EXPECT_TRUE(langRun("\"a\" in { a: 1 };", object(), false).getBool());
+	EXPECT_EQ(langRun("function f(a, b = 10) { return a + b; } f(5);",
+		object(), false).getInt64(), 15);
+	// closures over multiple scopes
+	EXPECT_EQ(langRun("const make = (n) => (x) => x + n; const add5 = make(5); add5(10);",
+		object(), false).getInt64(), 15);
+	// multi-declarators
+	EXPECT_EQ(langRun("const a = 1, b = 2; a + b;", object(), false).getInt64(), 3);
+}
+
+TEST(lang_repl) {
+	std::stringstream in;
+	in << "1 + 2;\n";
+	in << "const s = \"hi\"; s.toUpperCase();\n";
+	in << "try { throw 7; } catch (e) { `got ${e}`; }\n";
+	std::stringstream out;
+	langRepl(in, out, false);
+	auto text = out.str();
+	EXPECT_NE(text.find("3"), string::npos);
+	EXPECT_NE(text.find("HI"), string::npos);
+	EXPECT_NE(text.find("got 7"), string::npos);
 }
 
 TEST(lang_script_facade) {
