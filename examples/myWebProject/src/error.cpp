@@ -1,6 +1,7 @@
 #include "error.hpp"
 
 #include <html.hpp>
+#include <goldjs.hpp>
 
 namespace gg {
 	using namespace std;
@@ -10,11 +11,11 @@ namespace gg {
 		auto err = args[0].getError();
 		auto content = gold::list{
 			div({
-				obj{{"class", "card pageCard text-light bg-dark"}},
+				jo("class", "card pageCard text-light bg-dark"),
 				div({
-					obj{{"class", "card-body"}},
+					jo("class", "card-body"),
 					h5({
-						obj{{"class", "card-title"}},
+						jo("class", "card-title"),
 						"Error",
 					}),
 					p({string(*err)}),

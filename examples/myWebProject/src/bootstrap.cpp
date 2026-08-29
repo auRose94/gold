@@ -1,6 +1,7 @@
 #include "bootstrap.hpp"
 
 #include <iostream>
+#include <goldjs.hpp>
 
 namespace gg {
 	using namespace std;
@@ -9,7 +10,7 @@ namespace gg {
 		using namespace gold::HTML;
 		div row(gold::list content) {
 			auto element = div({
-				obj{{"class", "row"}},
+				jo("class", "row"),
 			});
 			element += content;
 			return element;
@@ -17,7 +18,7 @@ namespace gg {
 
 		div col(gold::list content) {
 			auto element = div({
-				obj{{"class", "col"}},
+				jo("class", "col"),
 			});
 			element += content;
 			return element;
@@ -35,13 +36,12 @@ namespace gg {
 			inputAttributes.copy(inputAtts);
 			auto inputElement = input({inputAttributes});
 			auto element = div({
-				obj{{"class", "form-group row"}},
+				jo("class", "form-group row"),
 				label({
-					obj{{"class", "col-sm-5 col-form-label"},
-							{"for", name}},
+					jo("class", "col-sm-5 col-form-label", "for", name),
 					labelText,
 				}),
-				div({obj{{"class", "col-sm"}}, inputElement}),
+				div({jo("class", "col-sm"), inputElement}),
 			});
 			return element;
 		}
@@ -57,10 +57,10 @@ namespace gg {
 			inputAttributes.copy(inputAtts);
 			auto inputElement = input({inputAttributes});
 			auto element = div({
-				obj{{"class", "form-check form-check-inline"}},
+				jo("class", "form-check form-check-inline"),
 				inputElement,
 				label({
-					obj{{"class", "form-check-label"}, {"for", id}},
+					jo("class", "form-check-label", "for", id),
 					labelText,
 				}),
 			});
@@ -81,17 +81,16 @@ namespace gg {
 			inputAttributes.copy(inputAtts);
 			auto inputElement = input({inputAttributes});
 			auto element = div({
-				obj{{"class", "form-group row"}},
+				jo("class", "form-group row"),
 				label({
-					obj{{"class", "col-sm-5 col-form-label"},
-							{"for", name}},
+					jo("class", "col-sm-5 col-form-label", "for", name),
 					labelText,
 				}),
-				div({obj{{"class", "col-sm"}}, inputElement}),
+				div({jo("class", "col-sm"), inputElement}),
 			});
 			if (hasError)
 				element +=
-					{div({obj{{"class", "invalid-feedback"}}, error})};
+					{div({jo("class", "invalid-feedback"), error})};
 			return element;
 		}
 
@@ -109,16 +108,16 @@ namespace gg {
 			inputAttributes.copy(inputAtts);
 			auto inputElement = input({inputAttributes});
 			auto element = div({
-				obj{{"class", "form-group"}},
+				jo("class", "form-group"),
 				label({
-					obj{{"class", "form-label"}, {"for", name}},
+					jo("class", "form-label", "for", name),
 					labelText,
 				}),
 				inputElement,
 			});
 			if (hasError)
 				element +=
-					{div({obj{{"class", "invalid-feedback"}}, error})};
+					{div({jo("class", "invalid-feedback"), error})};
 			return element;
 		}
 
@@ -133,9 +132,9 @@ namespace gg {
 			inputAttributes.copy(inputAtts);
 			auto inputElement = input({inputAttributes});
 			auto element = div({
-				obj{{"class", "form-group"}},
+				jo("class", "form-group"),
 				label({
-					obj{{"style", "margin-right: 16px;"}, {"for", id}},
+					jo("style", "margin-right: 16px;", "for", id),
 					labelText,
 				}),
 				inputElement,
@@ -157,14 +156,13 @@ namespace gg {
 			auto sel = HTML::select({selAtt});
 			sel += content;
 			auto el = div({
-				obj{{"class", "form-group row"}},
+				jo("class", "form-group row"),
 				label({
-					obj{{"class", "col-sm-5 col-form-label"},
-							{"for", name}},
+					jo("class", "col-sm-5 col-form-label", "for", name),
 					labelText,
 				}),
 				div({
-					obj{{"class", "col-sm"}},
+					jo("class", "col-sm"),
 					sel,
 				}),
 			});
@@ -174,9 +172,7 @@ namespace gg {
 		option formSelectOption(
 			string title, string value, bool selected) {
 			auto o = option({
-				obj{{"value", value},
-						{"selected",
-						 selected ? gold::var("true") : gold::var(false)}},
+				jo("value", value, "selected", selected ? gold::var("true") : gold::var(false)),
 				title,
 			});
 			return o;

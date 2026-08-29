@@ -2,6 +2,7 @@
 
 #include "session.hpp"
 #include "user.hpp"
+#include <goldjs.hpp>
 
 namespace gg {
 	using namespace std;
@@ -19,7 +20,7 @@ namespace gg {
 		});
 		container += children;
 		auto drop = li({
-			obj{{"class", "nav-item dropdown"}},
+			jo("class", "nav-item dropdown"),
 			a({
 				obj{
 					{"class", "nav-link dropdown-toggle"},
@@ -42,12 +43,12 @@ namespace gg {
 		auto aClass = string(active ? " active" : "");
 		auto className = "dropdown-item" + aClass;
 		auto aItem = a({
-			obj{{"class", className}, {"href", href}},
+			jo("class", className, "href", href),
 			title,
 		});
 		if (active) {
 			aItem += {span({
-				obj{{"class", "sr-only"}},
+				jo("class", "sr-only"),
 				" (current)",
 			})};
 		}
@@ -59,17 +60,17 @@ namespace gg {
 		auto aClass = string(active ? " active" : "");
 		auto className = "nav-item" + aClass;
 		auto aItem = a({
-			obj{{"class", "nav-link"}, {"href", href}},
+			jo("class", "nav-link", "href", href),
 			title,
 		});
 		if (active) {
 			aItem += {span({
-				obj{{"class", "sr-only"}},
+				jo("class", "sr-only"),
 				" (current)",
 			})};
 		}
 		auto op = li({
-			obj{{"class", className}},
+			jo("class", className),
 			aItem,
 		});
 
@@ -84,7 +85,7 @@ namespace gg {
 		if (sesh) q = "?s=" + sesh.getID();
 
 		auto ret = ul({
-			obj{{"class", "navbar-nav mr-auto"}},
+			jo("class", "navbar-nav mr-auto"),
 		});
 		auto userDropdownTitle = u ? firstName : "Guest";
 		if (u) {

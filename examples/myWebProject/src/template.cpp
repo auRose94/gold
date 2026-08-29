@@ -3,6 +3,7 @@
 #include "navbar.hpp"
 #include "session.hpp"
 #include "user.hpp"
+#include <goldjs.hpp>
 
 namespace gg {
 	using namespace std;
@@ -18,9 +19,9 @@ namespace gg {
 		auto q = string();
 		if (s && !s.getBool("useCookies")) q = "?s=" + sessionID;
 		auto headEl = head({
-			obj{{"lang", "en"}},
+			jo("lang", "en"),
 			title({"MyWebProject"}),
-			meta{{obj{{"charset", "utf-8"}}}},
+			meta{{jo("charset", "utf-8")}},
 			meta({obj{
 				{"name", "viewport"},
 				{"content",
@@ -51,12 +52,11 @@ namespace gg {
 				{"rel", "stylesheet"},
 				{"href", "/css/main/baseStyle.css"},
 			}}),
-			script({obj{{"src", "/js/main/jquery-3.5.1.js"}}}),
-			script({obj{{"src", "/js/main/luxon.min.js"}}}),
-			script({obj{{"src", "/js/fontawesome/js/all.min.js"}}}),
+			script({jo("src", "/js/main/jquery-3.5.1.js")}),
+			script({jo("src", "/js/main/luxon.min.js")}),
+			script({jo("src", "/js/fontawesome/js/all.min.js")}),
 			script(
-				{obj{{"src", "/js/bootstrap/bootstrap.bundle.min.js"},
-						 {"defer", true}}}),
+				{jo("src", "/js/bootstrap/bootstrap.bundle.min.js", "defer", true)}),
 		});
 		headEl += header;
 		auto bodyEl = body({

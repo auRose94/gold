@@ -13,6 +13,7 @@
 #include "template.hpp"
 #include "user.hpp"
 #include "utility.hpp"
+#include <goldjs.hpp>
 
 namespace gg {
 	using namespace std;
@@ -107,7 +108,7 @@ namespace gg {
 		if (!colRes.isObject()) cerr << colRes << endl;
 		auto def = collection();
 		auto col = colRes.getObject<collection>();
-		getPrototype().setObject("collection", col);
+		getPrototype()["collection"] = col;
 
 		func getUserHome = [](list args) -> gold::var {
 			serveArgs(args, req, res);
@@ -204,25 +205,25 @@ namespace gg {
 					string error;
 					if (user::invalidEmail(userEmail, error)) {
 						res.writeStatus({401});
-						return res.end({obj{{"error", error}}});
+						return res.end({jo("error", error)});
 					} else if (user::invalidPassword(
 											 userPassword, error)) {
 						res.writeStatus({401});
-						return res.end({obj{{"error", error}}});
+						return res.end({jo("error", error)});
 					} else {
 						auto loggedIn =
 							user::login(userEmail, userPassword, agent);
 						if (loggedIn.isError()) {
 							res.writeStatus({401});
-							return res.end({obj{{"error", loggedIn}}});
+							return res.end({jo("error", loggedIn)});
 						} else if (loggedIn.isList()) {
 							auto ret = loggedIn.getList();
 							auto sesh = ret[1].getObject<session>();
-							sesh.writeSession({obj{{"res", res}}});
-							return res.end({obj{{"session", sesh}}});
+							sesh.writeSession({jo("res", res)});
+							return res.end({jo("session", sesh)});
 						} else {
 							res.writeStatus({401});
-							return res.end({obj{{"error", "invalid login"}}});
+							return res.end({jo("error", "invalid login")});
 						}
 					}
 				} else {
@@ -270,7 +271,7 @@ namespace gg {
 						auto sesh = session(userO);
 						auto agent =
 							req.getHeader({"user-agent"}).getString();
-						sesh.setString("agent", agent);
+						sesh["agent"] = agent;
 						auto succ = sesh.save();
 						if (succ.isError()) {
 							return res.end(
@@ -476,29 +477,29 @@ namespace gg {
 		if (p != cp)
 			err.setString(
 				"confPassword", "Confirm password doesn't match.");
-		if (invalidEmail(email, e)) err.setString("email", e);
-		if (invalidPassword(p, e)) err.setString("password", e);
-		if (invalidFirstName(fn, e)) err.setString("firstName", e);
-		if (invalidMidName(mn, e)) err.setString("midName", e);
-		if (invalidLastName(ln, e)) err.setString("lastName", e);
-		if (invalidCompany(com, e)) err.setString("company", e);
-		if (invalidPhone(ph, e)) err.setString("phone", e);
-		if (invalidGender(ge, e)) err.setString("gender", e);
-		if (invalidBirthday(bi, e)) err.setString("birthday", e);
-		if (invalidAddress1(a1, e)) err.setString("address1", e);
-		if (invalidAddress2(a2, e)) err.setString("address2", e);
-		if (invalidCountry(con, e)) err.setString("country", e);
-		if (invalidCity(city, e)) err.setString("city", e);
-		if (invalidZone(zone, e)) err.setString("zone", e);
-		if (invalidZip(zip, e)) err.setString("zip", e);
-		if (invalidIcon(icon, e)) err.setString("icon", e);
-		if (invalidUserType(ut, e)) err.setString("userType", e);
+		if (invalidEmail(email, e)) err["email"] = e;
+		if (invalidPassword(p, e)) err["password"] = e;
+		if (invalidFirstName(fn, e)) err["firstName"] = e;
+		if (invalidMidName(mn, e)) err["midName"] = e;
+		if (invalidLastName(ln, e)) err["lastName"] = e;
+		if (invalidCompany(com, e)) err["company"] = e;
+		if (invalidPhone(ph, e)) err["phone"] = e;
+		if (invalidGender(ge, e)) err["gender"] = e;
+		if (invalidBirthday(bi, e)) err["birthday"] = e;
+		if (invalidAddress1(a1, e)) err["address1"] = e;
+		if (invalidAddress2(a2, e)) err["address2"] = e;
+		if (invalidCountry(con, e)) err["country"] = e;
+		if (invalidCity(city, e)) err["city"] = e;
+		if (invalidZone(zone, e)) err["zone"] = e;
+		if (invalidZip(zip, e)) err["zip"] = e;
+		if (invalidIcon(icon, e)) err["icon"] = e;
+		if (invalidUserType(ut, e)) err["userType"] = e;
 
 		if (err.size() > 0) return err;
 
 		auto col =
 			getPrototype().getObject<collection>("collection");
-		auto existU = col.findOne({obj{{"email", email}}});
+		auto existU = col.findOne({jo("email", email)});
 		if (existU.isError())
 			return existU;
 		else if (existU.isObject())
@@ -507,8 +508,8 @@ namespace gg {
 		auto u = user(data);
 		auto salt = randomString(16);
 		auto hash = generateHash(p, salt);
-		u.setString("salt", salt);
-		u.setString("hash", hash);
+		u["salt"] = salt;
+		u["hash"] = hash;
 		// We have to remove sensitive data
 		u.erase("password");
 		u.erase("confPassword");
@@ -520,7 +521,7 @@ namespace gg {
 		string email, string password, string agent) {
 		auto col =
 			getPrototype().getObject<collection>("collection");
-		auto exist = col.findOne({obj{{"email", email}}});
+		auto exist = col.findOne({jo("email", email)});
 		collection::setParentModel(exist, getPrototype());
 		if (exist.isError())
 			return exist;
@@ -531,7 +532,7 @@ namespace gg {
 				return valid;
 			else if (valid.getBool()) {
 				auto sesh = session(u);
-				sesh.setString("agent", agent);
+				sesh["agent"] = agent;
 				auto saved = sesh.save();
 				if (saved.isError()) return saved;
 				return gold::var(gold::list{u, sesh});

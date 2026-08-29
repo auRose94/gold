@@ -13,6 +13,7 @@ using namespace std;
 #include <texture.hpp>
 #include <thread>
 #include <transform.hpp>
+#include <goldjs.hpp>
 
 using namespace gold;
 
@@ -33,10 +34,7 @@ int main() {
 
 	cout << itemsX << "x" << itemsY << endl;
 
-	auto circleTexture = gpuTexture(obj{
-		{"path", "./assets/circle.dds"},
-		{"flags", "min_anis;mag_point;mip_point"},
-	});
+	auto circleTexture = gpuTexture(jo("path", "./assets/circle.dds", "flags", "min_anis;mag_point;mip_point"));
 
 	component simulator;
 
@@ -44,9 +42,9 @@ int main() {
 		auto self = args[0].getObject<component>();
 		auto sprites = self.getList("sprites");
 		auto last = self.getList("frame");
-		auto frame = list({});
+		auto frame = ja();
 		for (auto y = 0u; y < itemsY; y++) {
-			auto col = list({});
+			auto col = ja();
 			for (auto x = 0u; x < itemsX; x++) {
 				col.setBool(x, false);
 			}
@@ -91,15 +89,15 @@ int main() {
 				auto aliveColor = self.getVar("aliveColor");
 				auto deadColor = self.getVar("deadColor");
 				if (alive)
-					cSprite.setVar("color", aliveColor);
+					cSprite["color"] = aliveColor;
 				else
-					cSprite.setVar("color", deadColor);
+					cSprite["color"] = deadColor;
 				auto fRow = frame.getList(y);
 				fRow.setBool(x, alive);
 				frame.setList(y, fRow);
 			}
 		}
-		self.setList("frame", frame);
+		self["frame"] = frame;
 		return var();
 	});
 
@@ -111,15 +109,13 @@ int main() {
 	});
 
 	auto simObj = entity({{"name", "sim"}});
-	auto simCom = obj{
-		{"proto", simulator},
-	};
-	auto children = list({});
-	auto sprites = list({});
-	auto frame = list({});
+	auto simCom = jo("proto", simulator);
+	auto children = ja();
+	auto sprites = ja();
+	auto frame = ja();
 	for (auto y = 0u; y < itemsY; y++) {
-		auto fCol = list({});
-		auto sCol = list({});
+		auto fCol = ja();
+		auto sCol = ja();
 		for (auto x = 0u; x < itemsX; x++) {
 			fCol.setBool(x, false);
 			sCol.setNull(x);
@@ -131,7 +127,7 @@ int main() {
 	std::mt19937 gen(rd());
 	for (auto y = 0u; y < itemsY; y++) {
 		for (auto x = 0u; x < itemsX; x++) {
-			auto itemEnt = entity(obj{});
+			auto itemEnt = entity(jo());
 			auto itemTrans = itemEnt.getTransform();
 			auto halfX = itemsX / 2;
 			auto halfY = (itemsY / 2) - 0.5;
@@ -156,8 +152,8 @@ int main() {
 			frame.setList(y, rowFrame);
 		}
 	}
-	simCom.setList("sprites", sprites);
-	simCom.setList("frame", frame);
+	simCom["sprites"] = sprites;
+	simCom["frame"] = frame;
 	simObj += children;
 	simObj += {simCom};
 	main += {simObj};

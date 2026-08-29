@@ -5,6 +5,7 @@
 
 #include "user.hpp"
 #include "utility.hpp"
+#include <goldjs.hpp>
 
 namespace gg {
 	using namespace std;
@@ -28,7 +29,7 @@ namespace gg {
 		}
 		auto agent = req.getHeader({"user-agent"}).getString();
 		return session::findOne(
-			{obj{{"_id", seshId}, {"agent", agent}}});
+			{jo("_id", seshId, "agent", agent)});
 	}
 
 	gold::var session::writeSession(list args) {
@@ -134,8 +135,8 @@ namespace gg {
 		}
 		auto indRes = col.addIndexes({
 			"session",
-			obj{{"expire", 1}},
-			obj{{"expireAfterSeconds", 0}},
+			jo("expire", 1),
+			jo("expireAfterSeconds", 0),
 		});
 		if (indRes.isError()) cerr << indRes << endl;
 		return ret;
@@ -145,7 +146,7 @@ namespace gg {
 		auto colRes = db.getCollection({"session"});
 		if (colRes.isError()) cerr << colRes << endl;
 		col = colRes.getObject<collection>();
-		getPrototype().setObject("col", col);
+		getPrototype()["col"] = col;
 	}
 
 	gold::var session::findOne(list args) {

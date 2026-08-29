@@ -12,7 +12,7 @@
 //     "stats", o("age", 30, "score", 9.5)
 //   );
 //   user["score"] = 10;                 // write through
-//   t("Hello $0, you scored $1", user["name"], user["score"]);  // "Hello bob, ..."
+//   tpl("Hello $0, you scored $1", user["name"], user["score"]);  // "Hello bob, ..."
 //   each(user["tags"].getList(), func([&](list e){ ... }));
 
 #include <cctype>
@@ -29,28 +29,28 @@ namespace gold {
 	// object/array literals
 	// ------------------------------------------------------------------
 
-	/** `o("a", 1, "b", "x", ...)` -> object {a:1, b:"x"} (nestable). */
-	inline object o() { return object(); }
+	/** `jo("a", 1, "b", "x", ...)` -> object {a:1, b:"x"} (nestable). */
+	inline object jo() { return object(); }
 	template <typename V, typename... R>
-	object o(const char* key, V&& value, R&&... rest) {
+	object jo(const char* key, V&& value, R&&... rest) {
 		object r;
 		r.setVar(key, var(std::forward<V>(value)));
 		if constexpr (sizeof...(rest) > 0) {
-			auto more = o(std::forward<R>(rest)...);
+			auto more = jo(std::forward<R>(rest)...);
 			for (auto it = more.begin(); it != more.end(); ++it)
 				r.setVar(it->first, it->second);
 		}
 		return r;
 	}
 
-	/** `a(1, "x", 2.5, ...)` -> list [1, "x", 2.5] (nestable). */
-	inline list a() { return list(); }
+	/** `ja(1, "x", 2.5, ...)` -> list [1, "x", 2.5] (nestable). */
+	inline list ja() { return list(); }
 	template <typename V, typename... R>
-	list a(V&& value, R&&... rest) {
+	list ja(V&& value, R&&... rest) {
 		list l;
 		l.pushVar(var(std::forward<V>(value)));
 		if constexpr (sizeof...(rest) > 0) {
-			auto more = a(std::forward<R>(rest)...);
+			auto more = ja(std::forward<R>(rest)...);
 			for (auto it = more.begin(); it != more.end(); ++it)
 				l.pushVar(*it);
 		}
@@ -65,9 +65,9 @@ namespace gold {
 		inline string fmtOne(var v) { return (string)v; }
 	}  // namespace detail
 
-	/** `t("Hello $0, you have $1", name, count)` — JS template literals. */
+	/** `tpl("Hello $0, you have $1", name, count)` — JS template literals. */
 	template <typename... A>
-	string t(const char* format, A&&... args) {
+	string tpl(const char* format, A&&... args) {
 		std::vector<string> vals = {
 			detail::fmtOne(var(std::forward<A>(args)))...};
 		string out;

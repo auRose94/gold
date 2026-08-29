@@ -487,13 +487,13 @@ TEST(list_functions) {
 
 TEST(js_sugar) {
 	// Object/array literals, JS-style.
-	auto user = o(
+	auto user = jo(
 		"name", "bob",
 		"age", 30,
 		"score", 9.5,
 		"admin", true,
-		"tags", a("admin", "dev"),
-		"meta", o("joined", 2020, "active", true));
+		"tags", ja("admin", "dev"),
+		"meta", jo("joined", 2020, "active", true));
 
 	EXPECT_EQ(user.getString("name"), "bob");
 	EXPECT_EQ(user.getInt64("age"), 30);
@@ -519,22 +519,22 @@ TEST(js_sugar) {
 	EXPECT_FALSE((bool)user["meta"]["active"]);
 
 	// var indexing (object wrapped in a var).
-	var v = o("a", 1, "b", "x");
+	var v = jo("a", 1, "b", "x");
 	v["b"] = "y";
 	EXPECT_EQ(v["b"].getString(), "y");
 	EXPECT_EQ(v["a"].getInt64(), 1);
 
 	// list element write-through.
-	auto li = a(1, 2, 3);
+	auto li = ja(1, 2, 3);
 	li[1] = 99;
 	EXPECT_EQ(li.getInt64(1), 99);
 
 	// Template strings.
-	EXPECT_EQ(t("Hello $0, $1", "bob", 31), "Hello bob, 31");
-	EXPECT_EQ(t("no placeholders"), "no placeholders");
+	EXPECT_EQ(tpl("Hello $0, $1", "bob", 31), "Hello bob, 31");
+	EXPECT_EQ(tpl("no placeholders"), "no placeholders");
 
 	// Array helpers.
-	auto nums = a(1, 2, 3, 4, 5);
+	auto nums = ja(1, 2, 3, 4, 5);
 	auto doubled = mapArr(nums, func([](list a) -> var {
 		return var(a[0].getInt64() * 2);
 	}));
@@ -547,7 +547,7 @@ TEST(js_sugar) {
 		return var(a[0].getInt64() > 3);
 	}));
 	EXPECT_EQ(first.getInt64(), 4);
-	EXPECT_EQ(join(a("x", "y", "z"), "-"), "x-y-z");
+	EXPECT_EQ(join(ja("x", "y", "z"), "-"), "x-y-z");
 
 	// JSON shorthand round-trip.
 	auto js = toJSON(user);

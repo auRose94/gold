@@ -8,6 +8,7 @@
 #include "session.hpp"
 #include "template.hpp"
 #include "user.hpp"
+#include <goldjs.hpp>
 
 namespace gg {
 	using namespace std;
@@ -135,7 +136,7 @@ namespace gg {
 	var upload::getOwners(list args) {
 		auto owners = getList("owners");
 		auto returns = list({});
-		auto criteria = obj{{"_id", owners}};
+		auto criteria = jo("_id", owners);
 		returns += user::findMany({criteria}).getList();
 		return returns;
 	}
@@ -152,7 +153,7 @@ namespace gg {
 			serveArgs(args, req, res);
 
 			auto id = req.getParameter({0}).getString();
-			auto item = upload::findOne({obj({{"_id", id}})})
+			auto item = upload::findOne({jo("_id", id)})
 										.getObject<upload>();
 			auto hide = item.getBool("hide");
 			auto nsfw = item.getBool("nsfw");
@@ -191,7 +192,7 @@ namespace gg {
 			serveArgs(args, req, res);
 
 			auto id = req.getParameter({0}).getString();
-			auto item = upload::findOne({obj({{"_id", id}})})
+			auto item = upload::findOne({jo("_id", id)})
 										.getObject<upload>();
 			if (item) {
 				auto dataURL = item.getString("src");
@@ -260,7 +261,7 @@ namespace gg {
 				auto u = req.callMethod("getUser").getObject<user>();
 				if (u) {
 					auto find = obj{
-						{"owners", obj{{"$in", list({u.getID()})}}},
+						{"owners", jo("$in", list({u.getID()}))},
 					};
 					auto opt = obj({});
 					auto resp = upload::findMany({find, opt});
@@ -274,7 +275,7 @@ namespace gg {
 						} else if (resp.isList()) {
 							auto l = resp.getList();
 							auto j =
-								obj{{"total", l.size()}, {"rows", l}}.getJSON();
+								jo("total", l.size(), "rows", l).getJSON();
 							return res.end({j});
 						}
 					} else if (req.acceptingHTML()) {
@@ -311,7 +312,7 @@ namespace gg {
 					obj::parseURLEncoded(data, params);
 
 					auto itemRet =
-						upload::findOne({obj{{"_id", itemId}}});
+						upload::findOne({jo("_id", itemId)});
 					if (!itemRet.isError()) {
 						auto item = itemRet.getObject<upload>();
 						item.copy(params);

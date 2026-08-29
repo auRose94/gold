@@ -34,7 +34,7 @@ int main() {
 		return 1;
 	}
 
-	session::getPrototype().setString("domain", "127.0.0.1:8080");
+	session::getPrototype()["domain"] = "127.0.0.1:8080";
 
 	setIndexRoute(db, serv);
 
