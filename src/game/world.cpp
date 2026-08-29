@@ -77,7 +77,6 @@ namespace gold {
 			const btVector3& from,
 			const btVector3& to,
 			const btVector3& color) {
-			// TODO: override methods, get more use out of the layout
 			lines.push_back(DebugLine{
 				{
 					from.x(),
@@ -294,6 +293,7 @@ namespace gold {
 	var world::debugDraw() {
 		auto dynamicsWorld =
 			(btDiscreteDynamicsWorld*)getPtr("dynamicsWorld");
+		if (!dynamicsWorld) return genericError("World is not initialized");
 		dynamicsWorld->debugDrawWorld();
 		return var();
 	}
@@ -311,6 +311,7 @@ namespace gold {
 					default:
 						break;
 				}
+				break;
 			}
 			case bgfx::RendererType::Metal: {
 				switch (stype) {
@@ -321,6 +322,7 @@ namespace gold {
 					default:
 						break;
 				}
+				break;
 			}
 			case bgfx::RendererType::OpenGLES: {
 				switch (stype) {
@@ -331,6 +333,7 @@ namespace gold {
 					default:
 						break;
 				}
+				break;
 			}
 			case bgfx::RendererType::OpenGL: {
 				switch (stype) {
@@ -341,6 +344,7 @@ namespace gold {
 					default:
 						break;
 				}
+				break;
 			}
 			case bgfx::RendererType::Vulkan: {
 				switch (stype) {

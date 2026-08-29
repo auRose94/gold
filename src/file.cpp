@@ -74,7 +74,7 @@ namespace gold {
 			return genericError(
 				"data is empty, supply as argument or set data on "
 				"object");
-		auto str = ofstream(path);
+		auto str = ofstream(path, ios::binary);
 		if (str.is_open()) {
 			str.write((char*)bin.data(), bin.size());
 			str.close();
@@ -107,7 +107,7 @@ namespace gold {
 											.count();
 				auto lastWriteTime = getUInt64("writeTime");
 				if (bin.size() > 0 && wtms == lastWriteTime) return bin;
-				auto str = ifstream(path);
+				auto str = ifstream(path, ios::binary);
 				if (str.is_open()) {
 					str.seekg(0, str.end);
 					auto size = size_t(str.tellg());
@@ -138,21 +138,26 @@ namespace gold {
 	}
 
 	var file::getWriteTime(list args) {
-		auto path =
-			args.size() > 0 ? args[0].getString() : getString("path");
-		if (path.size() == 0)
-			return genericError(
-				"path is empty, supply as argument or set path on "
-				"object");
-		auto cur = getUInt64("writeTime");
-		if (cur != 0) return cur;
-		auto writeTime = fs::last_write_time(path);
-		auto wtms =
-			(uint64_t)
-				std::chrono::duration_cast<std::chrono::nanoseconds>(
-					writeTime.time_since_epoch())
-					.count();
-		return wtms;
+		try {
+			auto path =
+				args.size() > 0 ? args[0].getString() : getString("path");
+			if (path.size() == 0)
+				return genericError(
+					"path is empty, supply as argument or set path on "
+					"object");
+			auto cur = getUInt64("writeTime");
+			if (cur != 0) return cur;
+			if (!fs::exists(path)) return genericError("file does not exist");
+			auto writeTime = fs::last_write_time(path);
+			auto wtms =
+				(uint64_t)
+					std::chrono::duration_cast<std::chrono::nanoseconds>(
+						writeTime.time_since_epoch())
+						.count();
+			return wtms;
+		} catch (const exception& e) {
+			return genericError(e.what());
+		}
 	}
 
 	var file::hash(list args) {
@@ -307,7 +312,7 @@ namespace gold {
 		auto semiIndex = v.find(';');
 		if (
 			semiIndex == string::npos && commaIndex != string::npos) {
-			mimeType = v.substr(5, commaIndex);
+			mimeType = v.substr(5, commaIndex - 5);
 		} else if (
 			semiIndex != string::npos && semiIndex < commaIndex) {
 			mimeType = v.substr(5, semiIndex - 5);
@@ -318,8 +323,21 @@ namespace gold {
 		if (args.find(";base64") != string::npos) {
 			out = decodeBase64(data);
 		} else
-			// TODO: Swap out escaped chars
-			out = binary(data.begin(), data.end());
+// Decode percent‑escaped characters (e.g., %20 for space)
+{
+    std::string decoded;
+    decoded.reserve(data.size());
+    for (size_t i = 0; i < data.size(); ++i) {
+        if (data[i] == '%' && i + 2 < data.size() && isxdigit(static_cast<unsigned char>(data[i+1])) && isxdigit(static_cast<unsigned char>(data[i+2]))) {
+            std::string hexStr{data[i+1], data[i+2]};
+            decoded.push_back(static_cast<char>(std::stoi(hexStr, nullptr, 16)));
+            i += 2;
+        } else {
+            decoded.push_back(data[i]);
+        }
+    }
+    out = binary(decoded.begin(), decoded.end());
+}
 		return out;
 	}
 

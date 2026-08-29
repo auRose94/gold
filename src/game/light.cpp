@@ -33,6 +33,7 @@ namespace gold {
 	var light::getColor(list) { return getUInt32("color"); }
 
 	var light::setIntensity(list args) {
+		if (args.size() == 0) return genericError("setIntensity requires a value");
 		float in = args[0].getFloat();
 		setFloat("intensity", in);
 		return in;
@@ -51,6 +52,7 @@ namespace gold {
 	var light::getCone(list) { return getVar("cone"); }
 
 	var light::setType(list args) {
+		if (args.size() == 0) return genericError("setType requires a value");
 		auto val = args.getString(0);
 		setString("type", val);
 		return val;

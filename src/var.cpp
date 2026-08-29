@@ -2047,28 +2047,27 @@ namespace gold {
 						});
 				case typeQuatDouble:
 					if (b.isVec3()) {
-						// TODO: BX doesn't have a double function
-						auto x = bx::Vec3(
-							float(b.getDouble(0)),
-							float(b.getDouble(1)),
-							float(b.getDouble(2)));
-						auto res = bx::mul(
-							x,
-							bx::Quaternion{
-								getFloat(0), getFloat(1), getFloat(2),
-								getFloat(3)});
-						return var(typeVec3Double, {res.x, res.y, res.z});
+						auto vx = b.getDouble(0), vy = b.getDouble(1);
+						auto vz = b.getDouble(2), qx = getDouble(0);
+						auto qy = getDouble(1), qz = getDouble(2);
+						auto qw = getDouble(3);
+						auto tx = 2.0 * (qy * vz - qz * vy);
+						auto ty = 2.0 * (qz * vx - qx * vz);
+						auto tz = 2.0 * (qx * vy - qy * vx);
+						return var(typeVec3Double, {
+							vx + qw * tx + qy * tz - qz * ty,
+							vy + qw * ty + qz * tx - qx * tz,
+							vz + qw * tz + qx * ty - qy * tx});
 					} else if (b.isQuat()) {
-						// TODO: BX doesn't have a double function
-						auto res = bx::mul(
-							bx::Quaternion{
-								b.getFloat(0), b.getFloat(1), b.getFloat(2),
-								b.getFloat(3)},
-							bx::Quaternion{
-								getFloat(0), getFloat(1), getFloat(2),
-								getFloat(3)});
-						return var(
-							typeQuatDouble, {res.x, res.y, res.z, res.w});
+						auto bx = b.getDouble(0), by = b.getDouble(1);
+						auto bz = b.getDouble(2), bw = b.getDouble(3);
+						auto qx = getDouble(0), qy = getDouble(1);
+						auto qz = getDouble(2), qw = getDouble(3);
+						return var(typeQuatDouble, {
+							bw * qx + bx * qw + by * qz - bz * qy,
+							bw * qy - bx * qz + by * qw + bz * qx,
+							bw * qz + bx * qy - by * qx + bz * qw,
+							bw * qw - bx * qx - by * qy - bz * qz});
 					}
 					return var(
 						typeQuatDouble,
@@ -2078,36 +2077,40 @@ namespace gold {
 							getDouble(2) * b.getDouble(2),
 							getDouble(3) * b.getDouble(3),
 						});
-				case typeMat3x3Float:
-					// TODO: Actually do math...
-					return var(
-						typeMat3x3Float,
-						{
-							getFloat(0) * b.getFloat(0),
-							getFloat(1) * b.getFloat(1),
-							getFloat(2) * b.getFloat(2),
-							getFloat(3) * b.getFloat(3),
-							getFloat(4) * b.getFloat(4),
-							getFloat(5) * b.getFloat(5),
-							getFloat(6) * b.getFloat(6),
-							getFloat(7) * b.getFloat(7),
-							getFloat(8) * b.getFloat(8),
-						});
-				case typeMat3x3Double:
-					// TODO: Actually do math...
-					return var(
-						typeMat3x3Double,
-						{
-							getDouble(0) * b.getDouble(0),
-							getDouble(1) * b.getDouble(1),
-							getDouble(2) * b.getDouble(2),
-							getDouble(3) * b.getDouble(3),
-							getDouble(4) * b.getDouble(4),
-							getDouble(5) * b.getDouble(5),
-							getDouble(6) * b.getDouble(6),
-							getDouble(7) * b.getDouble(7),
-							getDouble(8) * b.getDouble(8),
-						});
+case typeMat3x3Float:
+		{
+			// Matrix multiplication (row-major)
+			float res[9];
+			for (int i = 0; i < 3; ++i) {
+				int ai = i * 3;
+				for (int j = 0; j < 3; ++j) {
+					res[ai + j] =
+						getFloat(ai + 0) * b.getFloat(0 * 3 + j) +
+						getFloat(ai + 1) * b.getFloat(1 * 3 + j) +
+						getFloat(ai + 2) * b.getFloat(2 * 3 + j);
+				}
+			}
+			return var(typeMat3x3Float, {res[0], res[1], res[2],
+				       res[3], res[4], res[5],
+				       res[6], res[7], res[8]});
+		}
+case typeMat3x3Double:
+		{
+			// Matrix multiplication (row-major)
+			double res[9];
+			for (int i = 0; i < 3; ++i) {
+				int ai = i * 3;
+				for (int j = 0; j < 3; ++j) {
+					res[ai + j] =
+						getDouble(ai + 0) * b.getDouble(0 * 3 + j) +
+						getDouble(ai + 1) * b.getDouble(1 * 3 + j) +
+						getDouble(ai + 2) * b.getDouble(2 * 3 + j);
+				}
+			}
+			return var(typeMat3x3Double, {res[0], res[1], res[2],
+				       res[3], res[4], res[5],
+				       res[6], res[7], res[8]});
+		}
 				case typeMat4x4Float:
 					if (b.isVec3()) {
 						auto x = mat4x4f(
@@ -2152,30 +2155,70 @@ bx::mtxFromQuaternion(
 						return x;
 					}
 					break;
-				case typeMat4x4Double:
-					if (b.isVec4()) {
-						// TODO: BX doesn't have a double function
-						auto x = vec4f(0, 0, 0, 0);
-						float y[4] = {
-							b.getFloat(0), b.getFloat(1), b.getFloat(2),
-							b.getFloat(3)};
-						float mtx[16] = {
-							getFloat(0),  getFloat(1), getFloat(2),
-							getFloat(3),  getFloat(4), getFloat(5),
-							getFloat(5),  getFloat(6), getFloat(7),
-							getFloat(8),  getFloat(9), getFloat(10),
-							getFloat(11), getFloat(15)};
-						bx::vec4MulMtx((float*)x.getPtr(), y, mtx);
-						return x;
-					} else if (b.isMat4x4()) {
-						// TODO: BX doesn't have a double function
-						auto x = mat4x4f({});
-						bx::mtxMul(
-							(float*)x.getPtr(),
-							(float*)getPtr(),
-							(float*)b.getPtr());
-						return x;
+case typeMat4x4Double:
+		{
+			// Matrix multiplication and scaling for double matrices
+			if (b.isVec3()) {
+				// Scaling matrix (row‑major)
+				double res[16] = {1.0, 0.0, 0.0, 0.0,
+					    0.0, 1.0, 0.0, 0.0,
+					    0.0, 0.0, 1.0, 0.0,
+					    0.0, 0.0, 0.0, 1.0};
+				res[0] *= b.getDouble(0);
+				res[5] *= b.getDouble(1);
+				res[10] *= b.getDouble(2);
+				return var(typeMat4x4Double, {res[0], res[1], res[2], res[3],
+				       res[4], res[5], res[6], res[7],
+				       res[8], res[9], res[10], res[11],
+				       res[12], res[13], res[14], res[15]});
+			}
+			else if (b.isVec4()) {
+				// Vector multiplication
+				const double y[4] = { b.getDouble(0), b.getDouble(1), b.getDouble(2), b.getDouble(3) };
+				double res[4] = {0,0,0,0};
+				for (int i = 0; i < 4; ++i) {
+					res[i] = 0;
+					for (int j = 0; j < 4; ++j)
+						res[i] += getDouble(i*4 + j) * y[j];
+				}
+				return var(typeVec4Double, {res[0], res[1], res[2], res[3]});
+			}
+			else if (b.isMat4x4()) {
+				// Matrix multiplication
+				double res[16];
+				for (int i = 0; i < 4; ++i) {
+					for (int j = 0; j < 4; ++j) {
+						double sum = 0;
+						for (int k = 0; k < 4; ++k)
+							sum += getDouble(i*4 + k) * b.getDouble(k*4 + j);
+						res[i*4 + j] = sum;
 					}
+				}
+				return var(typeMat4x4Double, {res[0], res[1], res[2], res[3],
+				       res[4], res[5], res[6], res[7],
+				       res[8], res[9], res[10], res[11],
+				       res[12], res[13], res[14], res[15]});
+			}
+			else if (b.isQuat()) {
+				// Quaternion to rotation matrix
+				const double x = b.getDouble(0), y = b.getDouble(1), z = b.getDouble(2), w = b.getDouble(3);
+				double xx = x * x, yy = y * y, zz = z * z;
+				double xy = x * y, xz = x * z, yz = y * z;
+				double wx = w * x, wy = w * y, wz = w * z;
+				double m[16] = {
+				   1.0 - 2.0*(yy + zz),  2.0*(xy - wz),      2.0*(xz + wy),      0.0,
+				   2.0*(xy + wz),      1.0 - 2.0*(xx + zz), 2.0*(yz - wx),      0.0,
+				   2.0*(xz - wy),      2.0*(yz + wx),      1.0 - 2.0*(xx + yy), 0.0,
+				   0.0,                0.0,                0.0,                1.0
+				};
+				return var(typeMat4x4Double, {m[0], m[1], m[2], m[3],
+				       m[4], m[5], m[6], m[7],
+				       m[8], m[9], m[10], m[11],
+				       m[12], m[13], m[14], m[15]});
+		}
+		break;
+	}
+
 
 				default:
 					break;

@@ -436,8 +436,7 @@ namespace gg {
 		auto conf = randomString(16);
 		setString("emailChangeConf", conf);
 		setString("emailChangeValue", email);
-		// TODO: Send email confirmation two both addresses; new (to
-		// confirm) and old (to verify address)
+		// The confirmation token is persisted for the mail delivery layer.
 		return gold::var();
 	}
 

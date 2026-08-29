@@ -36,7 +36,7 @@ namespace gold {
 				else if (t == typeFloat || t == typeDouble)
 					setVar("depth", *it);
 			}
-		else if (args[0].isObject()) {
+		else if (args.size() > 0 && args[0].isObject()) {
 			auto c = args[0].getObject();
 			auto flags = c.getVar("flags");
 			auto rgba = c.getVar("rgba");
@@ -54,21 +54,23 @@ namespace gold {
 	}
 
 	var camera::setViewSize(list args) {
+		if (args.size() == 0) return genericError("setViewSize requires a value");
 		if (args[0].isList()) {
 			setViewSize(args[0].getList());
 		} else if (args[0].isVec2()) {
 			setVar("size", args[0]);
-		} else if (args.isAllNumber())
+		} else if (args.size() >= 2 && args.isAllNumber())
 			setVar(
 				"size", vec2f(args[0].getFloat(), args[1].getFloat()));
 		return var();
 	}
 	var camera::setViewOffset(list args) {
+		if (args.size() == 0) return genericError("setViewOffset requires a value");
 		if (args[0].isList()) {
 			setViewOffset(args[0].getList());
 		} else if (args[0].isVec2()) {
 			setVar("offset", args[0]);
-		} else if (args.isAllNumber())
+		} else if (args.size() >= 2 && args.isAllNumber())
 			setVar(
 				"offset",
 				vec2f(args[0].getFloat(), args[1].getFloat()));
@@ -94,7 +96,7 @@ namespace gold {
 		auto size = getVar("size");
 		auto width = size.getFloat(0);
 		auto height = size.getFloat(1);
-		auto ratio = width / height;
+		auto ratio = height != 0.0f ? width / height : 1.0f;
 		auto homo = bgfx::getCaps()->homogeneousDepth;
 		auto proj = projection(fov, ratio, near, far, homo);
 		bgfx::setViewTransform(

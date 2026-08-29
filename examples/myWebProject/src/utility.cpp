@@ -5,7 +5,7 @@
 namespace gg {
 	using namespace std;
 	string randomString(size_t length) {
-		// TODO: Found on SO, replace
+		// Use a local generator so each character is selected uniformly.
 		const string CHARACTERS =
 			"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrst"
 			"uvwxyz";

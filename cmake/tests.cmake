@@ -3,6 +3,7 @@ enable_testing()
 add_executable(
 	goldTests
 	tests/test.cpp
+	tests/test_file_decode.cpp
 )
 
 if(MSVC)

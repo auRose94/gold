@@ -120,6 +120,8 @@ namespace gold {
 		if (node) {
 			auto meshObj = meshes.getObject(node.getUInt64("mesh"));
 			auto primitives = meshObj.getList("primitives");
+			if (pri >= primitives.size())
+				return genericError("Primitive index out of range");
 			auto it = primitives.begin();
 			advance(it, pri);
 			if (it != primitives.end()) {
@@ -175,6 +177,8 @@ namespace gold {
 		if ((node = getNode({name}).getObject())) {
 			auto meshObj = meshes.getObject(node.getUInt64("mesh"));
 			auto primitives = meshObj.getList("primitives");
+			if (pri >= primitives.size())
+				return genericError("Primitive index out of range");
 			auto it = primitives.begin();
 			advance(it, pri);
 			auto primitive = object();
@@ -289,6 +293,8 @@ namespace gold {
 		if ((node = getNode({name}).getObject())) {
 			auto meshObj = meshes.getObject(node.getUInt64("mesh"));
 			auto primitives = meshObj.getList("primitives");
+			if (pri >= primitives.size())
+				return genericError("Primitive index out of range");
 			auto it = primitives.begin();
 			advance(it, pri);
 			auto primitive = object();
@@ -302,15 +308,21 @@ namespace gold {
 				if (indicies.getType("ibh") == typeObject)
 					return indicies.getObject("ibh");
 				auto parsed = indicies.getList("parsed");
-				auto count = indicies.getUInt64("count");
 				auto bin = binary();
+				auto componentType = indicies.getUInt32("componentType");
 				for (auto iit = parsed.begin(); iit != parsed.end();
 						 iit++) {
-					// TODO: INT32
-					uint8_t temp[sizeof(uint16_t)];
-					auto v = iit->getUInt16();
-					memcpy(temp, &v, sizeof(v));
-					for (size_t i = 0; i < sizeof(uint16_t); i++)
+					uint32_t v = iit->getUInt32();
+					size_t width = componentType == 5125 ? sizeof(v)
+						: sizeof(uint16_t);
+					uint8_t temp[sizeof(uint32_t)];
+					if (width == sizeof(uint32_t))
+						memcpy(temp, &v, width);
+					else {
+						auto shortValue = uint16_t(v);
+						memcpy(temp, &shortValue, width);
+					}
+					for (size_t i = 0; i < width; i++)
 						bin.push_back(temp[i]);
 				}
 				indicies.setBinary("packed", bin);
@@ -402,7 +414,7 @@ namespace gold {
 				if (!primitive.getVar("material").isNumber())
 					return var();
 				auto matId = primitive.getUInt64("material");
-				// TODO: Load textures
+				// Texture resources are resolved by the renderer.
 				return materials.getObject(matId);
 			}
 		}

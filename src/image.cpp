@@ -27,6 +27,7 @@ namespace gold {
 		auto cubeMap = getBool("cubeMap");
 		auto mips = getUInt16("numMips") != 0;
 		auto bin = getStringView("data");
+		if (width == 0 || height == 0 || bin.empty()) return nullptr;
 
 		con = bimg::imageAlloc(
 			&defaultAllocator,
@@ -191,6 +192,7 @@ namespace gold {
 				uint16_t(d), uint16_t(numLayers),
 				cubeMap,
 				hasMips, view.data());
+			if (!allocCon) return;
 			setPtr("con", allocCon);
 			setStringView(
 				"data",
@@ -266,12 +268,15 @@ namespace gold {
 	}
 
 	var image::convert(list args) {
+		if (args.size() < 1)
+			return genericError("convert requires a target format");
 		auto targetFormat =
 			(bimg::TextureFormat::Enum)args[0].getUInt32();
 		auto mips = args[1].getBool(true);
 		auto sourceFormat =
 			(bimg::TextureFormat::Enum)getUInt32("format");
 		auto con = getContainer();
+		if (!con) return genericError("image has no valid data");
 		if (bimg::imageConvert(targetFormat, sourceFormat)) {
 			auto newCon = bimg::imageConvert(
 				&defaultAllocator, targetFormat, *con, mips);
@@ -288,11 +293,13 @@ namespace gold {
 	}
 	var image::toLinearRGBA32F() {
 		auto con = getContainer();
+		if (!con) return genericError("image has no valid data");
 		bimg::imageRgba32fToLinear(con);
 		return *this;
 	}
 	var image::toGammaRGBA32F() {
 		auto con = getContainer();
+		if (!con) return genericError("image has no valid data");
 		bimg::imageRgba32fToGamma(con);
 		return *this;
 	}
@@ -433,7 +440,10 @@ namespace gold {
 		return img;
 	}
 	var image::getRawData(list args) {
+		if (args.size() < 2)
+			return genericError("getRawData requires side and level");
 		auto con = getContainer();
+		if (!con) return genericError("image has no valid data");
 		auto side = args[0].getUInt16();
 		auto lod = args[1].getUInt8();
 		auto mip = bimg::ImageMip();

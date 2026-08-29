@@ -48,6 +48,7 @@ namespace gold {
 	}
 
 	var transform::setPosition(list args) {
+		if (args.size() == 0) return genericError("setPosition requires a value");
 		if (args.getType(0) == typeList) {
 			setPosition(args);
 		} else if (args[0].isVec3()) {
@@ -66,6 +67,7 @@ namespace gold {
 	}
 
 	var transform::setRotation(list args) {
+		if (args.size() == 0) return genericError("setRotation requires a value");
 		if (args.getType(0) == typeList) {
 			setRotation(args);
 		} else if (args[0].isQuat()) {
@@ -102,6 +104,7 @@ namespace gold {
 	}
 
 	var transform::setScale(list args) {
+		if (args.size() == 0) return genericError("setScale requires a value");
 		if (args.getType(0) == typeList) {
 			setScale(args);
 		} else if (args[0].isVec3()) {

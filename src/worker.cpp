@@ -2,6 +2,7 @@
 
 #include <mutex>
 #include <thread>
+#include <chrono>
 #include <iostream>
 
 namespace gold {
@@ -63,18 +64,16 @@ namespace gold {
 	}
 
 	void worker::wait() {
-		auto cores = thread::hardware_concurrency();
-		if (cores != 0 && threads.size() >= cores) {
-			while (true) {
-				if (mtx.try_lock()) {
-					if (jobs.size() == 0) break;
-					mtx.unlock();
-				}
+		if (threads.empty()) {
+			while (auto job = nextJob()) job->call();
+			return;
+		}
+		for (;;) {
+			{
+				lock_guard<mutex> guard(mtx);
+				if (jobs.empty()) return;
 			}
-			mtx.unlock();
-		} else {
-			kill = true;
-			workerProcess(this);
+			this_thread::sleep_for(chrono::milliseconds(1));
 		}
 	}
 

@@ -509,35 +509,32 @@ namespace gold {
 					 pit != primitives.end();
 					 ++pit) {
 				auto primitive = pit->getObject();
-				auto attributes = primitive.getObject("attributes");
 				auto matId = primitive.getUInt64("material");
 				auto mat = materials.getObject(matId);
 				auto matName = mat.getString("name");
-				// TODO: Hashing needs to be done for the built
-				// ^^^^: Use the defines and i/o for uniqueness.
-				auto program = shaderProgram::findInCache(
-					meshName + matName + "Program");
+				auto cacheName = meshName + matName + "Program";
+				auto program = shaderProgram::findInCache(cacheName);
 				auto vConfig = configureVertex(primitive, meshObj);
 				auto fConfig = configureFragment(primitive, meshObj);
 				if (!program) {
-					program = shaderProgram({
+					program = shaderProgram(obj({
 						{"name", matName + "Shader"},
 						{"vert", shaderObject(obj({
-											 {"type", 'v'},
-											 {"src", "./shaders/pbr/vs_pbr.sc"},
-											 {"proto", vConfig},
-										 }))},
-						{"frag", shaderObject({
-											 {"type", 'f'},
-											 {"src", "./shaders/pbr/fs_pbr.sc"},
-											 {"proto", fConfig},
-										 })},
-					});
+							{"type", 'v'},
+							{"src", "./shaders/pbr/vs_pbr.sc"},
+							{"proto", vConfig},
+						}))},
+						{"frag", shaderObject(obj({
+							{"type", 'f'},
+							{"src", "./shaders/pbr/fs_pbr.sc"},
+							{"proto", fConfig},
+						}))},
+					}));
 				}
 				primitive.setObject("program", program);
-			}
 		}
-		return var();
+	}
+	return var();
 	}
 
 	var meshRenderer::destroy(list) { return var(); }

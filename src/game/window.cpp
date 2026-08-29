@@ -80,14 +80,14 @@ namespace gold {
 		int32_t width = WindowCentered;
 		int32_t height = WindowCentered;
 
-		if (args[0].getType() == typeList) {
+		if (args.size() > 0 && args[0].getType() == typeList) {
 			auto arr = args[0].getList();
 			if (arr.getType(0) == typeInt32) width = arr.getInt32(0);
 			if (arr.getType(1) == typeInt32) height = arr.getInt32(1);
-		} else if (args[0].isVec2()) {
+		} else if (args.size() > 0 && args[0].isVec2()) {
 			width = args[0].getInt32(0);
 			height = args[0].getInt32(1);
-		} else if (args[0].isNumber() && args[1].isNumber()) {
+		} else if (args.size() > 1 && args[0].isNumber() && args[1].isNumber()) {
 			width = args[0].getInt32();
 			height = args[1].getInt32();
 		}
@@ -102,14 +102,14 @@ namespace gold {
 		int32_t x = WindowCentered;
 		int32_t y = WindowCentered;
 
-		if (args[0].getType() == typeList) {
+		if (args.size() > 0 && args[0].getType() == typeList) {
 			auto arr = args[0].getList();
 			if (arr.getType(0) == typeInt32) x = arr.getInt32(0);
 			if (arr.getType(1) == typeInt32) y = arr.getInt32(1);
-		} else if (args[0].isVec2()) {
+		} else if (args.size() > 0 && args[0].isVec2()) {
 			x = args[0].getInt32(0);
 			y = args[0].getInt32(1);
-		} else if (args[0].isNumber() && args[1].isNumber()) {
+		} else if (args.size() > 1 && args[0].isNumber() && args[1].isNumber()) {
 			x = args[0].getInt32();
 			y = args[1].getInt32();
 		}
@@ -122,7 +122,7 @@ namespace gold {
 	var window::setTitle(list args) {
 		auto sys = backend();
 		string title;
-		if (args[0].getType() == typeString)
+		if (args.size() > 0 && args[0].getType() == typeString)
 			title = args[0].getString();
 		if (title.size() > 0) {
 			setString("title", title);
@@ -136,9 +136,9 @@ namespace gold {
 		auto sys = backend();
 		bool fullscreen = false;
 		bool desktop = false;
-		if (args[0].getType() == typeBool)
+		if (args.size() > 0 && args[0].getType() == typeBool)
 			fullscreen = (bool)args[0];
-		else if (args[0].getType() == typeList) {
+		else if (args.size() > 0 && args[0].getType() == typeList) {
 			auto arr = args[0].getList();
 			if (arr.getType(0) == typeBool)
 				fullscreen = arr.getBool(0);
@@ -153,7 +153,7 @@ namespace gold {
 	var window::setBorderless(list args) {
 		auto sys = backend();
 		bool borderless = false;
-		if (args[0].getType() == typeBool)
+		if (args.size() > 0 && args[0].getType() == typeBool)
 			borderless = args[0].getBool();
 		setBool("borderless", borderless);
 		if (sys) sys->setBorderless(borderless);

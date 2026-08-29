@@ -120,6 +120,19 @@ TEST(var_arithmetic_mat3x3_double) {
 	EXPECT_NEAR(neg.getDouble(0), -1.0, 1e-9);
 }
 
+TEST(var_arithmetic_quat_double) {
+	auto q = quatd(0.0, 0.0, 0.0, 1.0);
+	auto v = vec3d(2.0, 3.0, 4.0);
+	auto rotated = q * v;
+	EXPECT_EQ(rotated.getType(), typeVec3Double);
+	EXPECT_NEAR(rotated.getDouble(0), 2.0, 1e-9);
+	EXPECT_NEAR(rotated.getDouble(1), 3.0, 1e-9);
+	EXPECT_NEAR(rotated.getDouble(2), 4.0, 1e-9);
+	auto product = q * q;
+	EXPECT_EQ(product.getType(), typeQuatDouble);
+	EXPECT_NEAR(product.getDouble(3), 1.0, 1e-9);
+}
+
 TEST(var_mat3x3_float_string) {
 	// Regression: typeMat3x3Float string read the double union member
 	auto m = mat3x3f({1.f, 2.f, 3.f, 4.f, 5.f, 6.f, 7.f, 8.f, 9.f});
@@ -476,6 +489,26 @@ TEST(list_get_color) {
 	EXPECT_TRUE(c3 != 0);
 	auto c4 = list::getColor(list({var(1.0f), var(0.5f), var(0.25f), var(1.0f)}));
 	EXPECT_TRUE(c4 != 0);
+}
+
+TEST(list_safe_empty_operations) {
+	list empty;
+	empty.pop();
+	EXPECT_EQ(empty.getType(0), typeNull);
+	EXPECT_EQ(list::getColor(empty), (uint32_t)0);
+	list target;
+	empty.assignList(0, target);
+	EXPECT_EQ(target.size(), (uint64_t)0);
+}
+
+TEST(list_get_vec2f_short_input) {
+	EXPECT_TRUE(list::getVec2f(list()).isEmpty());
+	EXPECT_TRUE(list::getVec2f(list({var(1.0f)})).isEmpty());
+}
+
+TEST(file_missing_write_time_is_error) {
+	file missing(path("/tmp/gold-file-that-does-not-exist"));
+	EXPECT_TRUE(missing.getWriteTime().isError());
 }
 
 TEST(list_functions) {

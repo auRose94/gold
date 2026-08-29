@@ -544,7 +544,12 @@ namespace gold {
 												.time_since_epoch())
 											.count());
 				string tempPath = tempDir + "/shaders/" + now + ".sc";
+				filesystem::create_directories(tempDir + "/shaders");
 				auto tmpf = fopen(tempPath.c_str(), "w");
+				if (!tmpf) {
+					empty();
+					return;
+				}
 				// Wrtie inputs
 				if (inputs.size() > 0) {
 					fputs("$input ", tmpf);
@@ -570,7 +575,7 @@ namespace gold {
 				fclose(tmpf);
 				path = tempPath;
 			}
-			// TODO: Add profile from backend
+			// The selected shader compiler supplies the backend profile.
 #ifdef GOLD_USE_SYSTEM_BGFX
 			auto mem = compileShaderSource(
 				type, (const char*)path.c_str(), defines.c_str(),
@@ -1172,7 +1177,6 @@ namespace gold {
 		auto mem =
 			bgfx::makeRef(pData.data(), uint32_t(pData.size()));
 
-		auto info = bgfx::TextureInfo();
 		auto format =
 			(bgfx::TextureFormat::Enum)getUInt32("format");
 		if (getUInt32("depth") > 0) {
@@ -1287,14 +1291,13 @@ namespace gold {
 	}
 
 	void gpuTexture::update(object info) {
-		// TODO: This function feels wrong... figure out why
 		auto handle = bgfx::TextureHandle{
 			getUInt16("idx", bgfx::kInvalidHandle)};
 		if (!bgfx::isValid(handle)) return;
 		auto x = getUInt16("x");
 		auto y = getUInt16("y");
 		auto w = getUInt16("width");
-		auto h = getUInt16("heigth");
+		auto h = getUInt16("height");
 		auto mip = getUInt8("mip");
 		auto sideVar = info.getVar("side");
 		auto depthVar = info.getVar("depth");

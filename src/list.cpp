@@ -16,10 +16,11 @@ namespace gold {
 				char g;
 				char b;
 				char a;
-			} f;
+			} f{};
 			uint32_t color;
 		};
 
+		if (args.size() == 0) return 0;
 		if (args.isAllFloating() && args.size() >= 3) {
 			f.r = char(args[0].getFloat() * 255);
 			f.g = char(args[1].getFloat() * 255);
@@ -39,6 +40,7 @@ namespace gold {
 					f.r = char(val.getFloat(0) * 255);
 					f.g = char(val.getFloat(1) * 255);
 					f.b = char(val.getFloat(2) * 255);
+					f.a = char(255);
 				} else if (val.isVec4()) {
 					f.r = char(val.getFloat(0) * 255);
 					f.g = char(val.getFloat(1) * 255);
@@ -50,6 +52,7 @@ namespace gold {
 					f.r = val.getUInt8(0);
 					f.g = val.getUInt8(1);
 					f.b = val.getUInt8(2);
+					f.a = char(255);
 				} else if (val.isVec4()) {
 					f.r = val.getUInt8(0);
 					f.g = val.getUInt8(1);
@@ -65,6 +68,10 @@ namespace gold {
 
 	var list::getVec2f(list args) {
 		var val;
+		if (args.size() < 2) {
+			if (args.size() == 1 && args[0].isVec2()) return args[0];
+			return val;
+		}
 		if (args.isAllFloating()) {
 			val = vec2f(args[0].getFloat(), args[1].getFloat());
 		} else if (args.isAllNumber()) {
@@ -131,12 +138,14 @@ namespace gold {
 	void list::pop() {
 		if (!data) return;
 		unique_lock<mutex> gaurd(data->amutex);
+		if (data->items.empty()) return;
 		data->items.pop_back();
 	}
 
 	types list::getType(uint64_t index) {
 		if (!data) return typeNull;
 		unique_lock<mutex> gaurd(data->amutex);
+		if (index >= data->items.size()) return typeNull;
 		return data->items[index].getType();
 	}
 
@@ -846,6 +855,7 @@ namespace gold {
 	void list::assignList(uint64_t index, list& result) {
 		initMemory();
 		unique_lock<mutex> gaurd(data->amutex);
+		if (index >= data->items.size()) return;
 		auto item = data->items[index];
 		if (item.getType() == typeList) result = list(item);
 	}

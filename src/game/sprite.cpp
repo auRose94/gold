@@ -127,6 +127,7 @@ namespace gold {
 	}
 
 	var sprite::setArea(list args) {
+		if (args.size() == 0) return genericError("setArea requires a value");
 		if (args[0].isVec4()) {
 			setVar("area", args[0]);
 		} else if (args.size() == 4) {

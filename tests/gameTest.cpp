@@ -3,6 +3,12 @@
 #include "game/inputSystem.hpp"
 #include "game/window.hpp"
 #include "game/windowSystem.hpp"
+#include "game/light.hpp"
+#include "game/sprite.hpp"
+#include "game/camera.hpp"
+#include "game/transform.hpp"
+#include "game/world.hpp"
+#include "image.hpp"
 #include "goldtest.hpp"
 
 using namespace gold;
@@ -124,6 +130,50 @@ TEST(input_backend_interface) {
 	EXPECT_TRUE(bogus == nullptr);
 
 	delete input;
+}
+
+TEST(image_invalid_operations_are_errors) {
+	image empty;
+	EXPECT_TRUE(empty.convert(list()).isError());
+	EXPECT_TRUE(empty.convert({var(uint32_t(1))}).isError());
+	EXPECT_TRUE(empty.toLinearRGBA32F().isError());
+	EXPECT_TRUE(empty.getRawData(list()).isError());
+}
+
+TEST(window_setters_accept_empty_arguments) {
+	window win;
+	win.setSize(list());
+	win.setPos(list());
+	win.setTitle(list());
+	win.setFullscreen(list());
+	win.setBorderless(list());
+	EXPECT_EQ(win.getInt32("width"), WindowCentered);
+	EXPECT_EQ(win.getInt32("height"), WindowCentered);
+	EXPECT_FALSE(win.getBool("fullscreen"));
+	EXPECT_FALSE(win.getBool("borderless"));
+}
+
+TEST(game_setters_report_missing_arguments) {
+	sprite spr;
+	light lamp;
+	EXPECT_TRUE(spr.setArea(list()).isError());
+	EXPECT_TRUE(lamp.setIntensity(list()).isError());
+	EXPECT_TRUE(lamp.setType(list()).isError());
+}
+
+TEST(camera_and_transform_setters_report_missing_arguments) {
+	camera cam;
+	transform trans;
+	EXPECT_TRUE(cam.setViewSize(list()).isError());
+	EXPECT_TRUE(cam.setViewOffset(list()).isError());
+	EXPECT_TRUE(trans.setPosition(list()).isError());
+	EXPECT_TRUE(trans.setRotation(list()).isError());
+	EXPECT_TRUE(trans.setScale(list()).isError());
+}
+
+TEST(world_debug_draw_reports_uninitialized_world) {
+	world scene;
+	EXPECT_TRUE(scene.debugDraw().isError());
 }
 
 int main() {
