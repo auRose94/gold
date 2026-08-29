@@ -16,6 +16,7 @@ namespace gold {
 		OpenGL,    // direct GL (not yet implemented)
 		Vulkan,    // direct Vulkan (not yet implemented)
 		BGFX,      // bgfx renderer (current default)
+		SDLGPU,    // SDL3 GPU renderer (SDL_GPU)
 	};
 
 	/** Opaque GPU object handles. Resources own one of these (an index that

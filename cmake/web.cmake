@@ -59,5 +59,5 @@ target_compile_features(
 		cxx_variable_templates
 		cxx_variadic_macros
 		cxx_template_template_parameters
-		cxx_std_20
+		cxx_std_26
 )

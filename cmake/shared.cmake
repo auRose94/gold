@@ -31,14 +31,16 @@ target_include_directories(
 		"include"
 		3rdParty/
 		3rdParty/uWebSockets/src
+		# image.cpp uses the stb single-header image loader directly.
+		3rdParty/bimg/3rdparty
 )
 
 target_link_libraries (
 	goldShared
 	PUBLIC 
 		OpenSSL::Crypto
-		bx
-		bimg
+		${GOLD_BX_TARGET}
+		${GOLD_BIMG_TARGET}
 		nlohmann_json::nlohmann_json
 )
 
@@ -75,5 +77,5 @@ target_compile_features(
 		cxx_variable_templates
 		cxx_variadic_macros
 		cxx_template_template_parameters
-		cxx_std_20
+		cxx_std_26
 )

@@ -69,7 +69,8 @@ All code not in 3rdParty or explicitly stated otherwise are Apache version 2.
 
 ## Building
 
-The project uses CMake (3.16+). Submodules must be present:
+The project uses CMake (3.16+) and builds with **C++26** (GCC ≥ 13 / Clang ≥ 16;
+`CMAKE_CXX_STANDARD 26`). Submodules must be present:
 
 ```sh
 git submodule update --init --recursive
@@ -83,6 +84,17 @@ Build options (all default to `ON` except examples):
 * `GOLD_BUILD_WEB` – the web server module (`gold::web`)
 * `GOLD_BUILD_TESTS` – the test suite
 * `GOLD_BUILD_EXAMPLES` – build the example projects (default `OFF`; requires `GOLD_BUILD_GAME`)
+* `GOLD_USE_SYSTEM_BGFX` – use an installed bgfx (`libbgfx.so` + the
+  `bgfx-shaderc` tool) instead of building the bundled bgfx/bx/bimg
+  submodules and the bundled shader-compiler stack (glslang, spirv-tools,
+  glsl-optimizer, fcpp). Defaults to `ON` when a system bgfx is found;
+  falls back to the bundled sources otherwise. Using the system install
+  cuts a full build to tens of seconds. Requires the `bgfx` CMake package
+  and `/usr/bin/bgfx-shaderc` (e.g. the `bgfx-cmake` package on Arch).
+
+With system bgfx, shaders are compiled at build time and at runtime by
+the external `bgfx-shaderc` tool; the runtime shader compiler is not
+statically linked into `gold::game`.
 
 To build and test just the shared core (fast, no game/web deps):
 
@@ -106,6 +118,10 @@ cmake --build build --target ConwaysGameOfLife MyWebProject
 > OpenSSL library, which is also required by the web module. The bundled
 > Crypto++ submodule has been removed. Install it with your system package
 > manager if missing (e.g. `libssl-dev` on Debian/Ubuntu).
+>
+> The game module uses system SDL3 (`libSDL3`, `sdl3` pkg-config module) for
+> its `"sdl"` window backend; the bundled SDL2 submodule has been removed.
+> Install it if missing (e.g. `sdl3` on Arch, `libsdl3-dev` on Debian).
 
 ## Security notes
 
@@ -137,7 +153,10 @@ Window creation is abstracted behind `windowSystem` (a pure interface with no
 SDL/bgfx types in its headers). The `window` object is a facade over a
 backend chosen by name:
 
-* `"sdl"` (default) — SDL2 window + input events.
+* `"sdl"` / `"sdl3"` — SDL3 window + input events (registered under both
+  names). SDL3 ships Wayland and X11 drivers (native handles come from SDL
+  window properties; on Wayland gold creates the `wl_egl_window` the EGL
+  render backend needs).
 * `"wayland"` — native Wayland (xdg-shell) window + wl_seat input.
 * `"headless"` — no real window; for tests, CI, and offscreen rendering.
 
@@ -150,10 +169,36 @@ compositor:
 { "backend": ["wayland", "sdl", "headless"] }
 ```
 
-Input capture from real devices is abstracted behind `inputSystem` with an
-`"evdev"` backend (libevdev; uinput is write-only, so evdev is used for real
-capture). The render backend binds to the platform window through
-`windowSystem::native()`.
+### Input backends
+
+`inputSystem` abstracts device capture. Backends:
+
+* `"evdev"` — real device capture via libevdev (`/dev/input/event*`).
+* `"sdl"` — SDL3's unified input: gamepad (`gamepad_button`/`gamepad_axis`/
+  `gamepad_touchpad` events), touch (`touch_down`/`touch_move`/...), and
+  sensors (`sensor`). Keyboard/mouse continue to arrive through the window
+  event stream; the SDL input backend re-pushes those events so the window
+  backend still sees them.
+
+### Audio backends
+
+`audioSystem` abstracts playback. Backends:
+
+* `"sdl"` — SDL3 audio: opens the default device, loads WAVs, and plays
+  them through SDL3 audio streams (overlapping playback, per-stream volume).
+
+### Render backends
+
+The render backend binds to the platform window through `windowSystem::native()`.
+Select it with the graphics config `"renderBackend"` (`"bgfx"` default,
+`"sdlgpu"` for the SDL3 GPU backend, `"vulkan"` reserved); it falls back to
+bgfx when unavailable. The SDL3 GPU backend currently drives the window's
+swapchain (device init, clear, present); the full resource/draw pipeline is
+in progress.
+
+The engine loop runs at a configurable frame rate (`"frameTime"` ms in the
+game's `config.json`, default 16 → 60fps) so it does not peg the CPU when
+the compositor does not present/vsync.
 
 ### Events & handlers are gold data
 
@@ -196,8 +241,11 @@ against Vulkan and swap it in.
 ## Submodule policy
 
 The `3rdParty` submodules track upstream branches. `nlohmann/json`, `zlib`
-and `libuv` are kept at their latest releases. The tightly-coupled graphics
-stack (`bgfx`/`bx`/`bimg`, `SDL`, `bullet3`) and the author's `brtshaderc`
-fork are pinned to the commits the framework was developed against; bumping
-them independently is likely to break the game module build. Crypto++ and
-snappy have been removed entirely (OpenSSL provides PBKDF2/base64).
+and `libuv` are kept at their latest releases, and `bullet3`, `freetype2`
+and `mongo-c-driver` are updated to their latest master commits. The
+`bgfx`/`bx`/`bimg`/`brtshaderc` sources are only built as a fallback when no
+system bgfx is installed (`GOLD_USE_SYSTEM_BGFX`). `uSockets`/`uWebSockets`
+are pinned to a version matching the web module's usage (their latest
+releases changed the app-construction API). SDL2 and SDL_image/SDL_ttf were
+removed entirely: the game module uses system SDL3, and Crypto++/snappy were
+removed earlier (OpenSSL provides PBKDF2/base64).

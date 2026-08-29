@@ -35,7 +35,7 @@ target_compile_features(
 		cxx_variable_templates
 		cxx_variadic_macros
 		cxx_template_template_parameters
-		cxx_std_20
+		cxx_std_26
 )
 
 add_test(NAME goldTests COMMAND goldTests)
@@ -65,7 +65,7 @@ if(GOLD_BUILD_GAME)
 	target_compile_features(
 		goldGameTests
 		PRIVATE
-			cxx_std_20
+			cxx_std_26
 	)
 	add_test(NAME goldGameTests COMMAND goldGameTests)
 endif()

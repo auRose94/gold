@@ -85,7 +85,7 @@ namespace gold {
 	}
 
 	var transform::setAxisRotation(list args) {
-		auto axis = bx::Vec3();
+		auto axis = bx::Vec3(0.0f, 0.0f, 0.0f);
 		auto value = float(0);
 		for (auto it = args.begin(); it != args.end(); ++it) {
 			if (it->isVec3())
@@ -94,7 +94,7 @@ namespace gold {
 			else if (it->isNumber())
 				value = it->getFloat(0);
 		}
-		auto qua = bx::rotateAxis(axis, value);
+		auto qua = bx::fromAxisAngle(axis, value);
 		auto rot = quatf(qua.x, qua.y, qua.z, qua.w);
 		setVar("rot", rot);
 		setBool("rebuild", true);

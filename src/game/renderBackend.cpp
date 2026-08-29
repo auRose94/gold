@@ -1,7 +1,9 @@
 #include "game/renderBackend.hpp"
 
 #include <bgfx/bgfx.h>
+#if __has_include(<bgfx/platform.h>)
 #include <bgfx/platform.h>
+#endif
 
 #include <cstring>
 #include <map>
@@ -216,7 +218,10 @@ namespace gold {
 			}
 			bool readTexture(renderHandle h, void* data,
 				uint8_t mip) override {
-				bgfx::readTexture(tex(h), data, mip);
+				bgfx::TextureRegion region;
+				region.handle = tex(h);
+				region.mip = mip;
+				bgfx::read(region, data);
 				return true;
 			}
 			void* directAccessPtr(renderHandle h) override {
@@ -353,8 +358,25 @@ namespace gold {
 				uint16_t dstX, uint16_t dstY, uint16_t dstZ, renderHandle src,
 				uint8_t srcMip, uint16_t srcX, uint16_t srcY, uint16_t srcZ,
 				uint16_t w, uint16_t h, uint16_t d) override {
-				bgfx::blit(view, tex(dst), dstMip, dstX, dstY, dstZ, tex(src),
-					srcMip, srcX, srcY, srcZ, w, h, d);
+				bgfx::TextureRegion dstRegion;
+				dstRegion.handle = tex(dst);
+				dstRegion.mip = dstMip;
+				dstRegion.x = dstX;
+				dstRegion.y = dstY;
+				dstRegion.z = dstZ;
+				dstRegion.width = w;
+				dstRegion.height = h;
+				dstRegion.depth = d;
+				bgfx::TextureRegion srcRegion;
+				srcRegion.handle = tex(src);
+				srcRegion.mip = srcMip;
+				srcRegion.x = srcX;
+				srcRegion.y = srcY;
+				srcRegion.z = srcZ;
+				srcRegion.width = w;
+				srcRegion.height = h;
+				srcRegion.depth = d;
+				bgfx::blit(view, dstRegion, srcRegion);
 			}
 			void setImage(uint8_t stage, renderHandle tex_, uint8_t mip,
 				texAccess access, texFormat f) override {

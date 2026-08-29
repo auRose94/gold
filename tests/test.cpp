@@ -124,7 +124,11 @@ TEST(var_mat3x3_float_string) {
 	auto m = mat3x3f({1.f, 2.f, 3.f, 4.f, 5.f, 6.f, 7.f, 8.f, 9.f});
 	auto s = m.getString();
 	EXPECT_NE(s, "");
-	EXPECT_EQ(s.substr(0, 3), "[1.");
+	// First element must read the float 1.f (not the double union's junk).
+	// Formatting varies by libstdc++ version (1.0 vs 1.000000), so only
+	// check that it starts with the correct value.
+	EXPECT_EQ(s[0], '[');
+	EXPECT_EQ(s[1], '1');
 }
 
 TEST(var_vec_set_uint8) {

@@ -173,7 +173,6 @@ namespace gold {
 					setBool("hasAlpha", con.m_hasAlpha);
 					setBool("cubeMap", con.m_cubeMap);
 					setBool("ktx", con.m_ktx);
-					setBool("ktxLE", con.m_ktxLE);
 					setBool("srgb", con.m_srgb);
 					return;
 				}
@@ -468,7 +467,7 @@ namespace gold {
 		if (!error.isOk()) {
 			auto err = error.getMessage();
 			return genericError(
-				string(err.getPtr(), err.getLength()));
+				string(err.getCPtr(), err.getLength()));
 		}
 		auto bin = binary(size);
 		memcpy(bin.data(), block.more(), size);
@@ -486,7 +485,7 @@ namespace gold {
 		if (!error.isOk()) {
 			auto err = error.getMessage();
 			return genericError(
-				string(err.getPtr(), err.getLength()));
+				string(err.getCPtr(), err.getLength()));
 		}
 		auto bin = binary(size);
 		memcpy(bin.data(), block.more(), size);
@@ -504,7 +503,7 @@ namespace gold {
 		if (!error.isOk()) {
 			auto err = error.getMessage();
 			return genericError(
-				string(err.getPtr(), err.getLength()));
+				string(err.getCPtr(), err.getLength()));
 		}
 		auto bin = binary(size);
 		memcpy(bin.data(), block.more(), size);
@@ -522,7 +521,7 @@ namespace gold {
 		if (!error.isOk()) {
 			auto err = error.getMessage();
 			return genericError(
-				string(err.getPtr(), err.getLength()));
+				string(err.getCPtr(), err.getLength()));
 		}
 		auto bin = binary(size);
 		memcpy(bin.data(), block.more(), size);
@@ -538,7 +537,7 @@ namespace gold {
 		if (!error.isOk()) {
 			auto err = error.getMessage();
 			return genericError(
-				string(err.getPtr(), err.getLength()));
+				string(err.getCPtr(), err.getLength()));
 		}
 		auto bin = binary(size);
 		memcpy(bin.data(), block.more(), size);
@@ -554,7 +553,7 @@ namespace gold {
 		if (!error.isOk()) {
 			auto err = error.getMessage();
 			return genericError(
-				string(err.getPtr(), err.getLength()));
+				string(err.getCPtr(), err.getLength()));
 		}
 		auto bin = binary(size);
 		memcpy(bin.data(), block.more(), size);

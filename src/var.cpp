@@ -2139,11 +2139,11 @@ namespace gold {
 							 getFloat(5), getFloat(6), getFloat(7),
 							 getFloat(8), getFloat(9), getFloat(10),
 							 getFloat(11), getFloat(15)});
-						bx::mtxQuat(
-							(float*)x.getPtr(),
-							bx::Quaternion(
-								{b.getFloat(0), b.getFloat(1), b.getFloat(2),
-								 b.getFloat(3)}));
+bx::mtxFromQuaternion(
+						(float*)x.getPtr(),
+						bx::Quaternion(
+							{b.getFloat(0), b.getFloat(1), b.getFloat(2),
+							 b.getFloat(3)}));
 						return x;
 					}
 					break;

@@ -1,23 +1,93 @@
 #include "graphics.hpp"
 
 #include <bgfx/bgfx.h>
+#if __has_include(<bgfx/platform.h>)
 #include <bgfx/platform.h>
+#endif
 #include <bimg/bimg.h>
-#include <brtshaderc.h>
 #include <bx/math.h>
 #include <bx/os.h>
+#ifndef GOLD_USE_SYSTEM_BGFX
+#include <brtshaderc.h>
+#endif
 
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <cstring>
 #include <file.hpp>
+#include <filesystem>
 #include <game/renderBackend.hpp>
 #include <game/windowSystem.hpp>
 #include <image.hpp>
 #include <iostream>
+#ifdef GOLD_USE_SYSTEM_BGFX
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 namespace gold {
 	using namespace std;
+
+#ifdef GOLD_USE_SYSTEM_BGFX
+	// Compile a .sc shader with the system bgfx-shaderc tool (dlopen-friendly:
+	// the compiler is an external program instead of a statically linked
+	// brtshaderc library). The compiled .bin is read back from stdout.
+	static const bgfx::Memory* compileShaderSource(
+		char type, const char* filePath, const char* defines,
+		const char* varyingPath, const char* profile) {
+		const char* typeName = type == 'v' ? "vertex"
+			: type == 'f' ? "fragment" : "compute";
+		string prof = (profile && *profile) ? string(profile)
+			: (type == 'c' ? string("430") : string("330"));
+		vector<string> args = {
+			"/usr/bin/bgfx-shaderc",
+			"-f", filePath,
+			"--type", typeName,
+			"--platform", "linux",
+			"--profile", prof,
+			"--stdout",
+		};
+		if (defines && *defines) {
+			args.push_back("--define");
+			args.push_back(defines);
+		}
+		if (varyingPath && *varyingPath
+			&& filesystem::exists(filesystem::path(varyingPath))) {
+			args.push_back("--varyingdef");
+			args.push_back(varyingPath);
+		}
+
+		vector<char*> argv;
+		argv.reserve(args.size() + 1);
+		for (auto& a : args) argv.push_back(a.data());
+		argv.push_back(nullptr);
+
+		int fds[2];
+		if (pipe(fds) != 0) return nullptr;
+		pid_t pid = fork();
+		if (pid == 0) {
+			dup2(fds[1], STDOUT_FILENO);
+			close(fds[0]);
+			close(fds[1]);
+			execvp("/usr/bin/bgfx-shaderc", argv.data());
+			_exit(127);
+		}
+		close(fds[1]);
+		vector<uint8_t> out;
+		char buf[65536];
+		ssize_t n;
+		while ((n = read(fds[0], buf, sizeof(buf))) > 0)
+			out.insert(out.end(), buf, buf + n);
+		close(fds[0]);
+		int status = 0;
+		waitpid(pid, &status, 0);
+		if (!WIFEXITED(status) || WEXITSTATUS(status) != 0 || out.empty())
+			return nullptr;
+		return bgfx::copy(out.data(), uint32_t(out.size()));
+	}
+#endif
+
 	bgfx::PlatformData pd = bgfx::PlatformData();
 
 	renderBackend*& gfxBackend::render() {
@@ -78,8 +148,6 @@ namespace gold {
 				[](unsigned char c) { return std::tolower(c); });
 			if (str == "noop")
 				return bgfx::RendererType::Noop;
-			else if (str == "direct3d9")
-				return bgfx::RendererType::Direct3D9;
 			else if (str == "direct3d11")
 				return bgfx::RendererType::Direct3D11;
 			else if (str == "direct3d12")
@@ -107,10 +175,24 @@ namespace gold {
 		nativeWindow nw;
 		if (ws) nw = ws->native();
 
+		// A headless window has no drawable to present to, so there is no
+		// point in creating a windowed GL context. Use the Noop renderer
+		// (offscreen/CI runs) instead of failing at swap time.
+		if (!nw.handle && !nw.display && !nw.window)
+			setString("backend", "noop");
+
 		// Create the render backend through the renderBackend interface.
-		// Defaults to BGFX today; a future Vulkan/OpenGL backend can be
-		// selected via config.
-		auto backend = createRenderBackend(renderBackendType::BGFX);
+		// Defaults to BGFX; a config "renderBackend" of "sdlgpu"/"sdl"
+		// selects the SDL3 GPU backend. Falls back to BGFX when the
+		// requested backend is unavailable.
+		auto backendType = renderBackendType::BGFX;
+		auto rb = getString("renderBackend", "bgfx");
+		if (rb == "sdlgpu" || rb == "sdl")
+			backendType = renderBackendType::SDLGPU;
+		else if (rb == "vulkan")
+			backendType = renderBackendType::Vulkan;
+		auto backend = createRenderBackend(backendType);
+		if (!backend) backend = createRenderBackend(renderBackendType::BGFX);
 		if (!backend) return genericError("No render backend available");
 		render() = backend;
 
@@ -122,6 +204,7 @@ namespace gold {
 			{"debug", getBool("debug")},
 			{"width", win.getUInt32("width")},
 			{"height", win.getUInt32("height")},
+			{"rgba", win.getUInt32("rgba", 0x6ab0deff)},
 		});
 		if (!backend->initialize(nw, cfg))
 			return genericError("Render backend failed to initialize");
@@ -436,8 +519,12 @@ namespace gold {
 			setUInt16("idx", handle.idx);
 		} else if (s.isString()) {
 			// Compile from source
+#ifdef GOLD_USE_SYSTEM_BGFX
+			auto type = char(getUInt8("type", uint8_t('c')));
+#else
 			auto type = shaderc::ShaderType(
 				getUInt8("type", shaderc::ShaderType::ST_COMPUTE));
+#endif
 			auto path = filesystem::path(s.getString());
 			auto defines = getString("defines");
 			auto varDef = filesystem::path(path).replace_filename(
@@ -484,9 +571,15 @@ namespace gold {
 				path = tempPath;
 			}
 			// TODO: Add profile from backend
+#ifdef GOLD_USE_SYSTEM_BGFX
+			auto mem = compileShaderSource(
+				type, (const char*)path.c_str(), defines.c_str(),
+				varying.c_str(), nullptr);
+#else
 			auto mem = shaderc::compileShader(
 				type, (const char*)path.c_str(), defines.c_str(),
 				varying.c_str(), nullptr);
+#endif
 			if (mem) {
 				auto strData = string_view((char*)mem->data, mem->size);
 				auto h = std::hash<string_view>();
@@ -923,7 +1016,7 @@ namespace gold {
 	}
 
 	void shaderProgram::defaultStencil() {
-		bgfx::setStencil(BGFX_STENCIL_DEFAULT);
+		bgfx::setStencil(BGFX_STENCIL_NONE);
 	}
 
 	void shaderProgram::setDiscard(string state) {
@@ -1259,16 +1352,19 @@ namespace gold {
 			s[0] = size.getUInt16(0);
 			s[1] = size.getUInt16(1);
 		}
-		bgfx::blit(
-			viewId,
-			dstHandle,
-			dstP.getUInt16(0),
-			dstP.getUInt16(1),
-			srcHandle,
-			srcP.getUInt16(0),
-			srcP.getUInt16(1),
-			s[0],
-			s[1]);
+		bgfx::TextureRegion dst;
+		dst.handle = dstHandle;
+		dst.x = dstP.getUInt16(0);
+		dst.y = dstP.getUInt16(1);
+		dst.width = s[0];
+		dst.height = s[1];
+		bgfx::TextureRegion srcRegion;
+		srcRegion.handle = srcHandle;
+		srcRegion.x = srcP.getUInt16(0);
+		srcRegion.y = srcP.getUInt16(1);
+		srcRegion.width = s[0];
+		srcRegion.height = s[1];
+		bgfx::blit(viewId, dst, srcRegion);
 	}
 	void gpuTexture::blit(
 		uint8_t viewId, uint8_t dstMip, var dstP, gpuTexture src,
@@ -1285,17 +1381,34 @@ namespace gold {
 			s[1] = size.getUInt16(1);
 			s[2] = size.getUInt16(2);
 		}
-		bgfx::blit(
-			viewId, dstHandle, dstMip, dstP.getUInt16(0),
-			dstP.getUInt16(1), dstP.getUInt16(2), srcHandle, srcMip,
-			srcP.getUInt16(0), srcP.getUInt16(1), srcP.getUInt16(2),
-			s[0], s[1], s[2]);
+		bgfx::TextureRegion dst;
+		dst.handle = dstHandle;
+		dst.mip = dstMip;
+		dst.x = dstP.getUInt16(0);
+		dst.y = dstP.getUInt16(1);
+		dst.z = dstP.getUInt16(2);
+		dst.width = s[0];
+		dst.height = s[1];
+		dst.depth = s[2];
+		bgfx::TextureRegion srcRegion;
+		srcRegion.handle = srcHandle;
+		srcRegion.mip = srcMip;
+		srcRegion.x = srcP.getUInt16(0);
+		srcRegion.y = srcP.getUInt16(1);
+		srcRegion.z = srcP.getUInt16(2);
+		srcRegion.width = s[0];
+		srcRegion.height = s[1];
+		srcRegion.depth = s[2];
+		bgfx::blit(viewId, dst, srcRegion);
 	}
 
 	uint32_t gpuTexture::readTexture(void* bin, uint8_t mip) {
 		auto handle = bgfx::TextureHandle{
 			getUInt16("idx", bgfx::kInvalidHandle)};
-		return bgfx::readTexture(handle, bin, mip);
+		bgfx::TextureRegion region;
+		region.handle = handle;
+		region.mip = mip;
+		return bgfx::read(region, bin);
 	}
 	void* gpuTexture::getDirectAccessPtr() {
 		auto handle = bgfx::TextureHandle{

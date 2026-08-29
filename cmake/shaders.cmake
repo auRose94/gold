@@ -1,4 +1,8 @@
 
+if(GOLD_USE_SYSTEM_BGFX)
+	include(cmake/shadercParse.cmake)
+endif()
+
 get_filename_component(
 	SHADERS_ROOT
 	"${CMAKE_CURRENT_BINARY_DIR}/bin"
@@ -34,7 +38,7 @@ function( add_bgfx_shader FILE RETURN)
 	endif()
 
 	if( NOT "${TYPE}" STREQUAL "" )
-		set( COMMON FILE ${FILE} ${TYPE} INCLUDES ${BGFX_DIR}/src )
+		set( COMMON FILE ${FILE} ${TYPE} INCLUDES ${GOLD_BGFX_SHADER_INCLUDE} )
 		set( OUTPUTS "" )
 		set( OUTPUTS_PRETTY "" )
 
@@ -69,7 +73,7 @@ function( add_bgfx_shader FILE RETURN)
 		# essl
 		if( NOT "${TYPE}" STREQUAL "COMPUTE" )
 			set( ESSL_OUTPUT ${SHADERS_ROOT}/essl/${FILENAME}.bin )
-			shaderc_parse( ESSL ${COMMON} ANDROID OUTPUT ${ESSL_OUTPUT} )
+			shaderc_parse( ESSL ${COMMON} ANDROID PROFILE 300_es OUTPUT ${ESSL_OUTPUT} )
 			list( APPEND OUTPUTS "ESSL" )
 			set( OUTPUTS_PRETTY "${OUTPUTS_PRETTY}ESSL, " )
 		endif()
@@ -77,7 +81,7 @@ function( add_bgfx_shader FILE RETURN)
 		# glsl
 		set( GLSL_OUTPUT ${SHADERS_ROOT}/glsl/${FILENAME}.bin )
 		if( NOT "${TYPE}" STREQUAL "COMPUTE" )
-			shaderc_parse( GLSL ${COMMON} LINUX PROFILE 120 OUTPUT ${GLSL_OUTPUT} )
+			shaderc_parse( GLSL ${COMMON} LINUX PROFILE 330 OUTPUT ${GLSL_OUTPUT} )
 		else()
 			shaderc_parse( GLSL ${COMMON} LINUX PROFILE 430 OUTPUT ${GLSL_OUTPUT} )
 		endif()
@@ -96,7 +100,7 @@ function( add_bgfx_shader FILE RETURN)
 
 		foreach( OUT ${OUTPUTS} )
 			list( APPEND OUTPUT_FILES ${${OUT}_OUTPUT} )
-			list( APPEND COMMANDS COMMAND "$<TARGET_FILE:shaderc>" ${${OUT}} )
+			list( APPEND COMMANDS COMMAND "${GOLD_SHADER_COMPILER}" ${${OUT}} )
 			get_filename_component( OUT_DIR ${${OUT}_OUTPUT} DIRECTORY )
 			file( MAKE_DIRECTORY ${OUT_DIR} )
 		endforeach()

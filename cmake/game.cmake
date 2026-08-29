@@ -7,6 +7,8 @@ add_library(
 	goldGame
 	SHARED
 		shaderSprite.hpp
+		src/game/audioSystem.cpp
+		src/game/audioSystemSDL.cpp
 		src/game/boxShape.cpp
 		src/game/camera.cpp
 		src/game/component.cpp
@@ -16,12 +18,14 @@ add_library(
 		src/game/graphics.cpp
 		src/game/inputSystem.cpp
 		src/game/inputSystemEvdev.cpp
+		src/game/inputSystemSDL.cpp
 		src/game/light.cpp
 		src/game/mesh.cpp
 		src/game/meshRenderer.cpp
 		src/game/meshShape.cpp
 		src/game/physicsBody.cpp
 		src/game/renderBackend.cpp
+		src/game/renderBackendSDL.cpp
 		src/game/renderable.cpp
 		src/game/shape.cpp
 		src/game/sphereShape.cpp
@@ -59,23 +63,34 @@ target_include_directories(
 		"include"
 		"include/game"
 		${CMAKE_CURRENT_BINARY_DIR}
-		${CMAKE_CURRENT_BINARY_DIR}/3rdParty/SDL/include
 		${CMAKE_CURRENT_SOURCE_DIR}/3rdParty/generated/wayland
 		3rdParty/bullet3/src
 )
 
+if(NOT GOLD_USE_SYSTEM_BGFX)
+	target_include_directories(
+		goldGame
+		PUBLIC
+			${CMAKE_CURRENT_SOURCE_DIR}/3rdParty/bgfx/include
+	)
+endif()
+
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
+	pkg_check_modules(SDL3 QUIET IMPORTED_TARGET sdl3)
 	pkg_check_modules(WAYLAND_CLIENT QUIET IMPORTED_TARGET wayland-client)
+	pkg_check_modules(WAYLAND_EGL QUIET IMPORTED_TARGET wayland-egl)
 	pkg_check_modules(LIBEVDEV QUIET IMPORTED_TARGET libevdev)
+endif()
+if(NOT SDL3_FOUND)
+	message(FATAL_ERROR "gold::game requires SDL3 (sdl3 pkg-config module)")
 endif()
 
 target_link_libraries (
 	goldGame 
 	PUBLIC 
 		gold::shared
-		brtshaderc
-		bgfx
+		${GOLD_BGFX_TARGET}
 		Bullet3Common
 		BulletSoftBody 
 		BulletDynamics 
@@ -83,22 +98,32 @@ target_link_libraries (
 		BulletInverseDynamicsUtils 
 		BulletInverseDynamics 
 		LinearMath
-		SDL2-static
+		PkgConfig::SDL3
 		${OPENGL_LIBRARIES}
 )
 if(PkgConfig_FOUND AND WAYLAND_CLIENT_FOUND)
 	target_link_libraries(goldGame PUBLIC PkgConfig::WAYLAND_CLIENT)
+endif()
+if(PkgConfig_FOUND AND WAYLAND_EGL_FOUND)
+	target_link_libraries(goldGame PUBLIC PkgConfig::WAYLAND_EGL)
 endif()
 if(PkgConfig_FOUND AND LIBEVDEV_FOUND)
 	target_link_libraries(goldGame PUBLIC PkgConfig::LIBEVDEV)
 endif()
 target_link_directories(goldGame PUBLIC ${LIBRARY_OUTPUT_DIRECTORY})
 
-# SDL ships a minimal SDL_config.h in its source tree that shadows the
-# CMake-generated one (which enables the X11/Wayland syswm backends).
-# Force the X11 backend here so SDL_syswm.h exposes the x11 union member.
-if(UNIX AND NOT APPLE)
-	target_compile_definitions(goldGame PUBLIC SDL_VIDEO_DRIVER_X11=1)
+# Mirror the Bullet build configuration so goldGame compiles Bullet
+# headers with the same ABI as the Bullet static libraries. The bundled
+# Bullet CMake enables double precision (BT_USE_DOUBLE_PRECISION); without
+# this define the sizes of btScalar/btVector3 differ between goldGame and
+# the lib, corrupting the heap on any btDbvtBroadphase/btDiscreteDynamicsWorld
+# construction.
+target_compile_definitions(goldGame PUBLIC BT_USE_DOUBLE_PRECISION)
+
+# In system-bgfx mode the shader compiler is the external bgfx-shaderc
+# tool instead of the statically linked brtshaderc library.
+if(GOLD_USE_SYSTEM_BGFX)
+	target_compile_definitions(goldGame PUBLIC GOLD_USE_SYSTEM_BGFX=1)
 endif()
 
 target_compile_features(
@@ -112,5 +137,5 @@ target_compile_features(
 		cxx_variable_templates
 		cxx_variadic_macros
 		cxx_template_template_parameters
-		cxx_std_20
+		cxx_std_26
 )

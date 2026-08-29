@@ -13,6 +13,7 @@ namespace gold {
 		void* handle = nullptr;   // X11 Window / HWND / NSWindow / wl_surface
 		void* display = nullptr;  // X11 Display / EGLDisplay / wl_display
 		void* context = nullptr;  // GL context / EGL context
+		void* window = nullptr;   // SDL_Window* (SDL backends)
 	};
 
 	/** Backend-agnostic window/input event produced by a windowSystem. */

@@ -1,7 +1,9 @@
 
 #include "engine.hpp"
 
+#include <chrono>
 #include <iostream>
+#include <thread>
 
 #include "camera.hpp"
 #include "component.hpp"
@@ -186,6 +188,17 @@ namespace gold {
 
 		setBool("running", true);
 		auto ws = win.getBackend();
+
+		// Frame-rate cap (config "frameTime", ms). bgfx::frame() already
+		// throttles to vsync when a compositor presents; this keeps the loop
+		// from pegging the CPU when it does not.
+		auto config = getObject("config");
+		auto frameTime = config.getFloat("frameTime", 16.0);
+		using clock = std::chrono::steady_clock;
+		auto frameInterval =
+			std::chrono::duration<double, std::milli>(frameTime);
+		auto last = clock::now();
+
 		while (getBool("running")) {
 			if (ws) {
 				object ev;
@@ -209,6 +222,12 @@ namespace gold {
 			callMethod("draw");
 			phys.debugDraw();
 			gfx.renderFrame();
+
+			auto now = clock::now();
+			auto elapsed = now - last;
+			if (elapsed < frameInterval)
+				std::this_thread::sleep_for(frameInterval - elapsed);
+			last = clock::now();
 		}
 		cleanUp();
 		return var();

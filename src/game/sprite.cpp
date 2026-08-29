@@ -256,16 +256,6 @@ namespace gold {
 						break;
 				}
 			}
-			case bgfx::RendererType::Direct3D9: {
-				switch (stype) {
-					case VertexShaderType:
-						return dx9_vs_sprite;
-					case FragmentShaderType:
-						return dx9_fs_sprite;
-					default:
-						break;
-				}
-			}
 			case bgfx::RendererType::Metal: {
 				switch (stype) {
 					case VertexShaderType:

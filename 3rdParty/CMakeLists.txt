@@ -17,12 +17,16 @@ set(BGFX_DIR "${CMAKE_CURRENT_SOURCE_DIR}/bgfx" CACHE STRING "Location of bgfx."
 
 # ---------------------------------------------------------------- core deps
 # goldShared depends on: json, bx, bimg. (Crypto via system OpenSSL.)
+# With GOLD_USE_SYSTEM_BGFX the bx/bimg targets come from the system bgfx
+# package (bgfx::bx / bgfx::bimg); otherwise build the bundled submodules.
 add_subdirectory(json)
-if(NOT TARGET bx)
-	include(cmake/bx.cmake)
-endif()
-if(NOT TARGET bimg)
-	include(cmake/bimg.cmake)
+if(NOT GOLD_USE_SYSTEM_BGFX)
+	if(NOT TARGET bx)
+		include(cmake/bx.cmake)
+	endif()
+	if(NOT TARGET bimg)
+		include(cmake/bimg.cmake)
+	endif()
 endif()
 
 # ------------------------------------------------------------ web module deps
@@ -58,17 +62,9 @@ endif()
 # ------------------------------------------------------------ game module deps
 if(GOLD_BUILD_GAME)
 	add_subdirectory(freetype2)
-	# SDL's Wayland driver uses dynamic loading, but its generated protocol
-	# stubs reference wl_proxy_marshal_flags directly, which breaks static
-	# linking. gold's own backend uses the X11 path, so build SDL with X11.
-	set(VIDEO_WAYLAND OFF CACHE BOOL "Use Wayland video driver" FORCE)
-	set(VIDEO_X11 ON CACHE BOOL "Use X11 video driver" FORCE)
-	# goldGame is a shared library, so SDL2-static must be built with PIC.
-	set(SDL_STATIC_PIC ON CACHE BOOL "Build static SDL with PIC" FORCE)
-	add_subdirectory(SDL)
-	add_subdirectory(SDL_image)
-	add_subdirectory(SDL_ttf)
 	include(cmake/bullet.cmake)
-	include(cmake/brtshaderc.cmake)
-	include(cmake/bgfxConfig.cmake)
+	if(NOT GOLD_USE_SYSTEM_BGFX)
+		include(cmake/brtshaderc.cmake)
+		include(cmake/bgfxConfig.cmake)
+	endif()
 endif()

@@ -43,6 +43,33 @@ option(GOLD_BUILD_WEB "Build the gold web server module" ON)
 option(GOLD_BUILD_TESTS "Build the gold test suite" ON)
 option(GOLD_BUILD_EXAMPLES "Build the gold example projects" OFF)
 
+# bgfx/bx/bimg: prefer an installed system bgfx (shared lib + headers +
+# the bgfx-shaderc tool) over building the bundled submodules. Using the
+# system install cuts a lot of compile time (amalgamated bgfx plus the
+# shader-compiler stack glslang/spirv-tools/glsl-optimizer/fcpp). When no
+# system bgfx is found the bundled sources are built instead.
+find_package(bgfx QUIET)
+option(GOLD_USE_SYSTEM_BGFX
+	"Use the system bgfx install (libbgfx.so + bgfx-shaderc) instead of the bundled submodules"
+	${bgfx_FOUND})
+if(GOLD_USE_SYSTEM_BGFX AND NOT bgfx_FOUND)
+	message(FATAL_ERROR "GOLD_USE_SYSTEM_BGFX=ON but find_package(bgfx) found no system install")
+endif()
+if(GOLD_USE_SYSTEM_BGFX)
+	set(GOLD_BGFX_TARGET bgfx::bgfx)
+	set(GOLD_BX_TARGET bgfx::bx)
+	set(GOLD_BIMG_TARGET bgfx::bimg)
+	set(GOLD_SHADER_COMPILER "/usr/bin/bgfx-shaderc")
+	# bgfx's shader header includes (bgfx_shader.sh, bgfx_compute.sh).
+	set(GOLD_BGFX_SHADER_INCLUDE "/usr/include/bgfx")
+else()
+	set(GOLD_BGFX_TARGET bgfx)
+	set(GOLD_BX_TARGET bx)
+	set(GOLD_BIMG_TARGET bimg)
+	set(GOLD_SHADER_COMPILER "$<TARGET_FILE:shaderc>")
+	set(GOLD_BGFX_SHADER_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/3rdParty/bgfx/src")
+endif()
+
 set(GOLD_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 
 add_subdirectory(3rdParty)
@@ -51,7 +78,7 @@ add_subdirectory(3rdParty)
 unset(_MSC_VER CACHE)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 26)
 
 include(cmake/shared.cmake)
 if(GOLD_BUILD_GAME)
