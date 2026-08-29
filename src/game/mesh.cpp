@@ -121,6 +121,45 @@ namespace gold {
 				}
 				if (!imageData.empty()) imageObj.setBinary("data", imageData);
 			}
+			auto textures = getList("textures");
+			auto samplers = getList("samplers");
+			for (auto it = textures.begin(); it != textures.end(); ++it) {
+				auto textureObj = it->getObject();
+				if (!textureObj || textureObj.getType("source") == typeNull)
+					continue;
+				auto sourceIndex = textureObj.getUInt64("source");
+				if (sourceIndex >= images.size()) {
+					setString("error", "Invalid glTF texture image reference");
+					return;
+				}
+				textureObj.setObject("image", images.getObject(sourceIndex));
+				if (textureObj.getType("sampler") != typeNull) {
+					auto samplerIndex = textureObj.getUInt64("sampler");
+					if (samplerIndex >= samplers.size()) {
+						setString("error", "Invalid glTF texture sampler reference");
+						return;
+					}
+					textureObj.setObject("sampler", samplers.getObject(samplerIndex));
+				}
+			}
+			auto materials = getList("materials");
+			auto resolveTextureInfo = [&](object material, string key) {
+				auto info = material.getObject(key);
+				if (!info || info.getType("index") == typeNull) return;
+				auto textureIndex = info.getUInt64("index");
+				if (textureIndex >= textures.size()) return;
+				info.setObject("resolvedTexture", textures.getObject(textureIndex));
+			};
+			for (auto it = materials.begin(); it != materials.end(); ++it) {
+				auto material = it->getObject();
+				resolveTextureInfo(material, "baseColorTexture");
+				auto pbr = material.getObject("pbrMetallicRoughness");
+				resolveTextureInfo(pbr, "baseColorTexture");
+				resolveTextureInfo(pbr, "metallicRoughnessTexture");
+				resolveTextureInfo(material, "normalTexture");
+				resolveTextureInfo(material, "occlusionTexture");
+				resolveTextureInfo(material, "emissiveTexture");
+			}
 			auto bufferLists = list();
 			for (auto it = accessors.begin(); it != accessors.end();
 					 ++it) {
