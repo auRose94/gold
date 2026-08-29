@@ -100,3 +100,15 @@ if(GOLD_BUILD_GAME)
 	)
 	add_test(NAME goldGameTests COMMAND goldGameTests)
 endif()
+
+if(GOLD_BUILD_WEB)
+	add_executable(
+		goldWebTests
+		tests/webTest.cpp
+	)
+	target_include_directories(
+		goldWebTests PRIVATE "include" "include/web" "tests")
+	target_link_libraries(goldWebTests PRIVATE gold::web)
+	target_compile_features(goldWebTests PRIVATE cxx_std_26)
+	add_test(NAME goldWebTests COMMAND goldWebTests)
+endif()

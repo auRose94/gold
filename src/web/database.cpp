@@ -84,6 +84,7 @@ namespace gold {
 	var database::createCollection(list args) {
 		auto store = (dataStore*)getPtr("store");
 		if (!store) return genericError("Not connected");
+		if (args.size() == 0) return genericError("Missing collection name");
 		auto name = args[0].getString();
 		if (name.empty()) return genericError("Missing collection name");
 		if (!store->createCollection(name))
@@ -94,7 +95,9 @@ namespace gold {
 	var database::getCollection(list args) {
 		auto store = (dataStore*)getPtr("store");
 		if (!store) return genericError("Not connected");
+		if (args.size() == 0) return genericError("Missing collection name");
 		auto name = args[0].getString();
+		if (name.empty()) return genericError("Missing collection name");
 		return var(collection(*this, store, name));
 	}
 
@@ -130,6 +133,7 @@ namespace gold {
 	var collection::addIndexes(list args) {
 		auto store = (dataStore*)getPtr("store");
 		if (!store) return genericError("Not connected");
+		if (args.size() < 2) return genericError("Expected collection name and keys");
 		auto cName = args[0].getString();
 		auto keys = args[1].getObject();
 		if (cName.size() == 0)
@@ -143,6 +147,7 @@ namespace gold {
 	var collection::dropIndex(list args) {
 		auto store = (dataStore*)getPtr("store");
 		if (!store) return genericError("Not connected");
+		if (args.size() == 0) return genericError("Missing collection name");
 		auto indexName = args[0].getString();
 		if (!store->dropIndex(indexName))
 			return genericError("Failed to drop index");
@@ -152,6 +157,7 @@ namespace gold {
 	var collection::deleteOne(list args) {
 		auto store = (dataStore*)getPtr("store");
 		if (!store) return genericError("Not connected");
+		if (args.size() == 0) return genericError("Missing selector");
 		auto selObj = args[0].getObject();
 		if (!selObj) return genericError("Missing selector for first arg");
 		return store->deleteOne(getString("name"), selObj);
@@ -160,6 +166,7 @@ namespace gold {
 	var collection::deleteMany(list args) {
 		auto store = (dataStore*)getPtr("store");
 		if (!store) return genericError("Not connected");
+		if (args.size() == 0) return genericError("Missing selector");
 		auto selObj = args[0].getObject();
 		if (!selObj) return genericError("Missing selector for first arg");
 		return store->deleteMany(getString("name"), selObj);
@@ -168,6 +175,7 @@ namespace gold {
 	var collection::findOne(list args) {
 		auto store = (dataStore*)getPtr("store");
 		if (!store) return genericError("Not connected");
+		if (args.size() == 0) return genericError("Missing selector");
 		auto selObj = args[0].getObject();
 		if (!selObj) return genericError("Missing selector for first arg");
 		auto found = store->findOne(getString("name"), selObj);
@@ -178,6 +186,7 @@ namespace gold {
 	var collection::findMany(list args) {
 		auto store = (dataStore*)getPtr("store");
 		if (!store) return genericError("Not connected");
+		if (args.size() == 0) return genericError("Missing selector");
 		auto selObj = args[0].getObject();
 		if (!selObj) return genericError("Missing selector for first arg");
 		uint64_t limit = 0;
@@ -192,6 +201,7 @@ namespace gold {
 	var collection::updateOne(list args) {
 		auto store = (dataStore*)getPtr("store");
 		if (!store) return genericError("Not connected");
+		if (args.size() < 2) return genericError("Expected selector and update");
 		auto selObj = args[0].getObject();
 		auto upObj = args[1].getObject();
 		if (!selObj) return genericError("Missing selector for first arg");
@@ -202,6 +212,7 @@ namespace gold {
 	var collection::updateMany(list args) {
 		auto store = (dataStore*)getPtr("store");
 		if (!store) return genericError("Not connected");
+		if (args.size() < 2) return genericError("Expected selector and update");
 		auto selObj = args[0].getObject();
 		auto upObj = args[1].getObject();
 		if (!selObj) return genericError("Missing selector for first arg");
@@ -212,6 +223,7 @@ namespace gold {
 	var collection::insert(list args) {
 		auto store = (dataStore*)getPtr("store");
 		if (!store) return genericError("Not connected");
+		if (args.size() == 0) return genericError("Missing document");
 		auto objData = args[0].getObject();
 		if (!objData) return genericError("Missing object for first arg");
 		return store->insert(getString("name"), objData);
@@ -220,6 +232,7 @@ namespace gold {
 	var collection::replace(list args) {
 		auto store = (dataStore*)getPtr("store");
 		if (!store) return genericError("Not connected");
+		if (args.size() < 2) return genericError("Expected selector and document");
 		auto selObj = args[0].getObject();
 		auto upObj = args[1].getObject();
 		if (!selObj) return genericError("Missing selector for first arg");
@@ -230,7 +243,9 @@ namespace gold {
 	var collection::rename(list args) {
 		auto store = (dataStore*)getPtr("store");
 		if (!store) return genericError("Not connected");
+		if (args.size() == 0) return genericError("Missing collection name");
 		auto newName = args[0].getString();
+		if (newName.empty()) return genericError("Missing collection name");
 		if (!store->renameCollection(getString("name"), newName))
 			return genericError("Failed to rename collection");
 		setString("name", newName);

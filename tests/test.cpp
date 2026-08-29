@@ -3,6 +3,7 @@
 #include "file.hpp"
 #include "goldjs.hpp"
 #include "module.hpp"
+#include "promise.hpp"
 #include "types.hpp"
 #include "goldtest.hpp"
 
@@ -355,6 +356,15 @@ TEST(generic_error) {
 	auto err = e.getError();
 	EXPECT_NE(err, (genericError*)nullptr);
 	EXPECT_EQ(err->getString("msg"), "boom");
+}
+
+TEST(promise_synchronous_execution) {
+	auto callback = func([](list args) -> var {
+		return var(args.getInt64(1) * 2);
+	});
+	promise task(object(), callback, list({int64_t(21)}));
+	EXPECT_EQ(task.await().getInt64(), 42);
+	EXPECT_TRUE((bool)task);
 }
 
 TEST(explode_string) {
