@@ -52,7 +52,6 @@ What it's lacking?
 
 What's planned?
 High priority:
-* Error reporting and consistent failure semantics
 * Complete asset handling and the glTF pipeline
 * Expanded game engine stability and rendering coverage
 * Expanded web services and persistence guarantees
