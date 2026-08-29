@@ -95,7 +95,7 @@ namespace gold {
 	}
 
 	void meshRenderer::setMaterial(
-		camera cam, object primitive, object meshObj) {
+		camera, object primitive, object) {
 		auto meshD = getObject<mesh>("mesh");
 		auto materials = meshD.getList("materials");
 		auto matId = primitive.getUInt64("material", UINT64_MAX);
@@ -304,7 +304,7 @@ namespace gold {
 	}
 
 	object meshRenderer::configureVertex(
-		object primitive, object mesh) {
+		object primitive, object) {
 		auto matId = primitive.getUInt64("material");
 		auto mat = getList("materials").getObject(matId);
 		auto atts = primitive.getObject("primitive");
@@ -576,7 +576,7 @@ namespace gold {
 	}
 
 	object meshRenderer::configureFragment(
-		object primitive, object mesh) {
+		object, object) {
 		auto ret = object();
 		auto defines = string();
 

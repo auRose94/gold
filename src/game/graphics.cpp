@@ -333,8 +333,9 @@ namespace gold {
 				auto mip = attachment.getUInt16("mip", 0);
 				auto resolve = attachment.getUInt8(
 					"resolve", BGFX_RESOLVE_AUTO_GEN_MIPS);
-				attachments.push_back(bgfx::Attachment{
-					access, texHandle, mip, layer, resolve});
+				bgfx::Attachment bgfxAttachment;
+				bgfxAttachment.init(texHandle, access, layer, mip, resolve);
+				attachments.push_back(bgfxAttachment);
 			}
 
 			handle = bgfx::createFrameBuffer(
@@ -550,6 +551,7 @@ namespace gold {
 				auto tmpf = fopen(tempPath.c_str(), "w");
 				if (!tmpf) {
 					empty();
+					setString("error", "Could not create temporary shader file");
 					return;
 				}
 				// Wrtie inputs
@@ -596,6 +598,7 @@ namespace gold {
 			} else {
 				cerr << "Failed to build: " << path << endl;
 				empty();
+				setString("error", "Failed to compile shader: " + path.string());
 			}
 		}
 		if (getType("name") == typeString)
