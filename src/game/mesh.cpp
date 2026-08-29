@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include <fstream>
+#include <filesystem>
 
 #include "graphics.hpp"
 
@@ -43,14 +44,34 @@ namespace gold {
 			auto meshes = getList("meshes");
 			for (auto it = buffers.begin(); it != buffers.end();
 					 ++it) {
-				auto bufferObj = it->getObject();
-				if (bufferObj.getType("uri") == typeString) {
-					auto uri = bufferObj.getString("uri");
-					auto view = string_view(uri.data(), uri.size());
-					auto type = string();
-					auto bin = file::decodeDataURL(view, type);
-					bufferObj.setBinary("data", bin);
-					erase("uri");
+					auto bufferObj = it->getObject();
+					if (bufferObj.getType("uri") == typeString) {
+						auto uri = bufferObj.getString("uri");
+						auto byteLength = bufferObj.getUInt64("byteLength");
+						binary bin;
+						if (uri.rfind("data:", 0) == 0) {
+							auto type = string();
+							bin = file::decodeDataURL(uri, type);
+						} else {
+							auto base = filesystem::path(getString("path"))
+								.parent_path();
+							auto external = file::readFile(base / uri);
+							if (external.isError()) {
+								setString("error", "Failed to load external glTF buffer: " + uri);
+								return;
+							}
+							bin = external.getObject<file>().getBinary("data");
+							if (bin.empty() && byteLength != 0) {
+								setString("error", "Failed to load external glTF buffer: " + uri);
+								return;
+							}
+						}
+						if (bin.empty() || (byteLength != 0 && bin.size() < byteLength)) {
+							setString("error", "Invalid glTF buffer data: " + uri);
+							return;
+						}
+						bufferObj.setBinary("data", bin);
+						bufferObj.erase("uri");
 				}
 			}
 			auto bufferLists = list();
@@ -61,14 +82,41 @@ namespace gold {
 					section.getUInt64("bufferView"));
 				auto bufferObj =
 					buffers.getObject(section.getUInt64("buffer"));
-				auto offset = view.getUInt64("byteOffset");
+				auto offset = view.getUInt64("byteOffset") +
+					section.getUInt64("byteOffset");
 				auto scalarType = section.getUInt32("componentType");
 				auto count = section.getUInt64("count");
 				auto type = section.getString("type");
+				auto normalized = section.getBool("normalized", false);
 				auto data = bufferObj.getBinary("data");
 				auto parsed = list();
 				parseGLTFBuffer(
 					type, scalarType, offset, count, data.data(), parsed);
+				if (normalized) {
+					auto scale = scalarType == 5121 ? 255.0
+						: scalarType == 5123 ? 65535.0
+						: scalarType == 5125 ? 4294967295.0
+						: scalarType == 5120 ? 127.0
+						: scalarType == 5122 ? 32767.0 : 1.0;
+					auto normalize = [&](var value) -> var {
+						if (value.isVec2())
+							return vec2f(float(value.getDouble(0) / scale),
+								float(value.getDouble(1) / scale));
+						if (value.isVec3())
+							return vec3f(float(value.getDouble(0) / scale),
+								float(value.getDouble(1) / scale),
+								float(value.getDouble(2) / scale));
+						if (value.isVec4())
+							return vec4f(float(value.getDouble(0) / scale),
+								float(value.getDouble(1) / scale),
+								float(value.getDouble(2) / scale),
+								float(value.getDouble(3) / scale));
+						return float(value.getDouble() / scale);
+				};
+					auto normalizedValues = list();
+					for (auto value : parsed) normalizedValues.pushVar(normalize(value));
+					parsed = normalizedValues;
+				}
 				section.setList("parsed", parsed);
 			}
 			for (auto it = nodes.begin(); it != nodes.end(); ++it) {

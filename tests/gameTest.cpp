@@ -1,4 +1,6 @@
 #include <iostream>
+#include <filesystem>
+#include <fstream>
 
 #include "game/inputSystem.hpp"
 #include "game/window.hpp"
@@ -8,6 +10,7 @@
 #include "game/camera.hpp"
 #include "game/transform.hpp"
 #include "game/world.hpp"
+#include "game/mesh.hpp"
 #include "image.hpp"
 #include "goldtest.hpp"
 
@@ -174,6 +177,37 @@ TEST(camera_and_transform_setters_report_missing_arguments) {
 TEST(world_debug_draw_reports_uninitialized_world) {
 	world scene;
 	EXPECT_TRUE(scene.debugDraw().isError());
+}
+
+TEST(gltf_external_buffers_and_normalized_accessors) {
+	auto root = std::filesystem::temp_directory_path() / "gold_gltf_test";
+	std::error_code ec;
+	std::filesystem::remove_all(root, ec);
+	std::filesystem::create_directories(root);
+	{
+		std::ofstream bin(root / "data.bin", std::ios::binary);
+		const unsigned char bytes[] = {0x78, 0x56, 0x34, 0x12, 0, 128, 255};
+		bin.write(reinterpret_cast<const char*>(bytes), sizeof(bytes));
+	}
+	std::ofstream gltf(root / "scene.gltf");
+	gltf << R"({"buffers":[{"uri":"data.bin","byteLength":7}],"bufferViews":[{"buffer":0,"byteOffset":0}],"accessors":[{"bufferView":0,"componentType":5125,"count":1,"type":"SCALAR"},{"bufferView":0,"byteOffset":4,"componentType":5121,"count":1,"type":"VEC3","normalized":true}]})";
+	gltf.close();
+
+	mesh loaded(root / "scene.gltf");
+	EXPECT_EQ(loaded.getString("error"), "");
+	auto accessors = loaded.getList("accessors");
+	EXPECT_EQ(accessors.getObject(0).getList("parsed").getUInt32(0), 0x12345678u);
+	auto color = accessors.getObject(1).getList("parsed").getVar(0);
+	EXPECT_NEAR(color.getFloat(0), 0.0f, 1e-6);
+	EXPECT_NEAR(color.getFloat(1), 128.0f / 255.0f, 1e-6);
+	EXPECT_NEAR(color.getFloat(2), 1.0f, 1e-6);
+
+	std::ofstream missing(root / "missing.gltf");
+	missing << R"({"buffers":[{"uri":"no.bin","byteLength":1}]})";
+	missing.close();
+	mesh invalid(root / "missing.gltf");
+	EXPECT_TRUE(invalid.getString("error").find("external glTF buffer") != string::npos);
+	std::filesystem::remove_all(root, ec);
 }
 
 int main() {
