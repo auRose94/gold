@@ -10,7 +10,6 @@
 #include <map>
 #include <memory>
 #include <mutex>
-#include <nlohmann/json.hpp>
 #include <ostream>
 #include <string>
 #include <string_view>
@@ -27,7 +26,6 @@ namespace gold {
 	using std::string;
 	using std::string_view;
 	using std::vector;
-	using json = nlohmann::json;
 	/* <Types> */
 	struct object;
 	struct list;

@@ -16,7 +16,6 @@
 namespace gold {
 	using namespace std;
 	static mutex cryptoMutex;
-	using value_t = nlohmann::detail::value_t;
 	struct objData {
 		object::omap items;
 		gold::object parent;

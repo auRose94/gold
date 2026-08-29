@@ -1,3 +1,4 @@
+#include <cstring>
 #include "image.hpp"
 
 #include <bx/allocator.h>

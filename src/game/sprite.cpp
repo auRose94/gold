@@ -1,3 +1,4 @@
+#include <cstring>
 #include "sprite.hpp"
 
 #include <bgfx/bgfx.h>

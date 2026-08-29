@@ -240,9 +240,11 @@ against Vulkan and swap it in.
 
 ## Submodule policy
 
-The `3rdParty` submodules track upstream branches. `nlohmann/json`, `zlib`
-and `libuv` are kept at their latest releases, and `bullet3`, `freetype2`
-and `mongo-c-driver` are updated to their latest master commits. The
+The `3rdParty` submodules track upstream branches. `zlib` and `libuv` are
+kept at their latest releases, and `bullet3`, `freetype2`
+and `mongo-c-driver` are updated to their latest master commits. JSON and
+the binary data formats (BSON/CBOR/MsgPack/UBJSON) are implemented in-tree
+(`src/goldjson.cpp`) — the nlohmann/json submodule was removed. The
 `bgfx`/`bx`/`bimg`/`brtshaderc` sources are only built as a fallback when no
 system bgfx is installed (`GOLD_USE_SYSTEM_BGFX`). `uSockets`/`uWebSockets`
 are pinned to a version matching the web module's usage (their latest

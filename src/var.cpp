@@ -1,6 +1,7 @@
 #include <bx/math.h>
 
 #include <cmath>
+#include <cstring>
 #include <string>
 
 #include "types.hpp"

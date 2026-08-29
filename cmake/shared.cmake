@@ -8,6 +8,7 @@ add_library(
 	STATIC
 		src/list.cpp
 		src/file.cpp
+		src/goldjson.cpp
 		src/image.cpp
 		src/module.cpp
 		src/object.cpp
@@ -41,7 +42,6 @@ target_link_libraries (
 		OpenSSL::Crypto
 		${GOLD_BX_TARGET}
 		${GOLD_BIMG_TARGET}
-		nlohmann_json::nlohmann_json
 )
 
 if(MSVC)

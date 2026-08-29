@@ -4,7 +4,6 @@
 
 namespace gold {
 	using namespace std;
-	using value_t = nlohmann::detail::value_t;
 	void list::initMemory() {
 		if (!data)
 			data = shared_ptr<arrData>(new arrData{avec(), mutex()});

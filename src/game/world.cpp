@@ -1,3 +1,4 @@
+#include <cstring>
 #include "world.hpp"
 
 #include <BulletDynamics/ConstraintSolver/btSequentialImpulseConstraintSolver.h>

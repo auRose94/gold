@@ -4,6 +4,8 @@
 #include <bx/math.h>
 #include <bx/timer.h>
 
+#include <cstring>
+
 #include "entity.hpp"
 #include "envMap.hpp"
 #include "graphics.hpp"

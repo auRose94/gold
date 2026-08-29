@@ -16,10 +16,9 @@ set(BIMG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/bimg" CACHE STRING "Location of bimg."
 set(BGFX_DIR "${CMAKE_CURRENT_SOURCE_DIR}/bgfx" CACHE STRING "Location of bgfx.")
 
 # ---------------------------------------------------------------- core deps
-# goldShared depends on: json, bx, bimg. (Crypto via system OpenSSL.)
-# With GOLD_USE_SYSTEM_BGFX the bx/bimg targets come from the system bgfx
-# package (bgfx::bx / bgfx::bimg); otherwise build the bundled submodules.
-add_subdirectory(json)
+# goldShared depends on bx/bimg (from the system bgfx package when
+# GOLD_USE_SYSTEM_BGFX, else the bundled submodules) and ships its own
+# JSON/BSON/CBOR/MsgPack/UBJSON codecs (src/goldjson.cpp).
 if(NOT GOLD_USE_SYSTEM_BGFX)
 	if(NOT TARGET bx)
 		include(cmake/bx.cmake)
