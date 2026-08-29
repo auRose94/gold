@@ -462,7 +462,8 @@ namespace gold {
 					return genericError("No attributes object");
 				if (attributes.size() == 0)
 					return genericError("No attributes");
-				size_t count = -1;
+				size_t count = 0;
+				bool countSet = false;
 
 				auto bin = binary();
 				auto pushBack = [&bin](auto v) {
@@ -473,15 +474,20 @@ namespace gold {
 				};
 				size_t vit = 0;
 				auto accessor = object();
-				while (count == (size_t)(-1) || vit == count) {
-					for (auto ait = attributes.begin();
-							 ait != attributes.end();
-							 ++ait) {
+				while (!countSet || vit < count) {
+					bool foundAccessor = false;
+					for (auto attributeName : {"POSITION", "NORMAL", "TANGENT",
+						"TEXCOORD_0", "TEXCOORD_1", "COLOR_0", "JOINTS_0",
+						"JOINTS_1", "WEIGHTS_0", "WEIGHTS_1"}) {
+						auto attributeIndex = attributes.getVar(attributeName);
+						if (!attributeIndex.isNumber()) continue;
 						if ((accessor = accessors.getObject(
-									 ait->second.getUInt64()))) {
-							count = (count == (size_t)(-1))
-												? accessor.getUInt64("count")
-												: count;
+								attributeIndex.getUInt64()))) {
+							foundAccessor = true;
+							if (!countSet) {
+								count = accessor.getUInt64("count");
+								countSet = true;
+							}
 							auto parsed = accessor.getList("parsed");
 							auto pit = parsed.begin();
 							advance(pit, vit);
@@ -535,6 +541,7 @@ namespace gold {
 							}
 						}
 					}
+					if (!foundAccessor || !countSet) return genericError("No valid vertex accessors");
 					vit++;
 				}
 				primitive.setBinary("packed", bin);
