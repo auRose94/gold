@@ -47,7 +47,7 @@ TEST(window_gold_events) {
 	auto sys = createWindowSystem("headless");
 	object ev;
 	EXPECT_FALSE(sys->poll(ev));
-	EXPECT_EQ(ev.size(), 0);
+	EXPECT_EQ(ev.size(), uint64_t(0));
 	delete sys;
 
 	// The window facade dispatches gold-object events through its on*

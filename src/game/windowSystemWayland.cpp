@@ -35,7 +35,7 @@ namespace gold {
 		// ---- registry / global interface listeners -------------------
 
 		void registryGlobal(void* data, wl_registry* reg, uint32_t name,
-			const char* interface, uint32_t version) {
+			const char* interface, uint32_t) {
 			auto* st = (waylandState*)data;
 			if (strcmp(interface, wl_compositor_interface.name) == 0)
 				st->compositor = (wl_compositor*)wl_registry_bind(
@@ -132,11 +132,12 @@ namespace gold {
 		};
 		const wl_pointer_listener pointerListener = {
 			pointerEnter, pointerLeave, pointerMotion, pointerButton,
-			pointerAxis,
+			pointerAxis, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+			nullptr,
 		};
 
 		const xdg_toplevel_listener toplevelListener = {
-			xdgTopLevelConfigure, xdgTopLevelClose,
+			xdgTopLevelConfigure, xdgTopLevelClose, nullptr, nullptr,
 		};
 		const xdg_surface_listener xdgSurfaceListener = {
 			xdgSurfaceConfigure,

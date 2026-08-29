@@ -64,7 +64,7 @@ namespace gold {
 
 	var light::drawScene(list args) {
 		auto comps = args.getList(0);
-		auto scene = args.getUInt16(1);
+		(void)args.getUInt16(1);
 		return var();
 	}
 

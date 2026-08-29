@@ -52,15 +52,12 @@ namespace gold {
 
 			void scanNumber() {
 				size_t start = pos;
-				bool isFloat = false;
 				while (isdigit((unsigned char)peek())) next();
 				if (peek() == '.') {
-					isFloat = true;
 					next();
 					while (isdigit((unsigned char)peek())) next();
 				}
 				if (peek() == 'e' || peek() == 'E') {
-					isFloat = true;
 					next();
 					if (peek() == '+' || peek() == '-') next();
 					while (isdigit((unsigned char)peek())) next();
@@ -596,7 +593,7 @@ namespace gold {
 			return params;
 		}
 
-		object Parser::parseFunction(bool named) {
+			object Parser::parseFunction([[maybe_unused]] bool named) {
 			i++;  // function
 			string name;
 			if (toks[i].type == Tok::Ident) name = advance().lex;
@@ -954,7 +951,6 @@ namespace gold {
 				bool paramsLike = (inner.type == Tok::Ident) ||
 					(inner.type == Tok::Punc && inner.lex == ")");
 				if (!paramsLike) return var();
-				auto save2 = i;
 				params = parseParams();
 				if (!(toks[i].type == Tok::Op && toks[i].lex == "=>")) {
 					i = save;  // restore: not an arrow, it's grouping

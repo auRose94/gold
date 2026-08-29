@@ -20,7 +20,7 @@ set_target_properties(Shaders PROPERTIES LINKER_LANGUAGE CXX)
 
 source_group( "Shader Files" FILES "${GLOB_SHADERS}")
 
-set(SHADERS "" PARENT_SCOPE)
+set(SHADERS "")
 function( add_bgfx_shader FILE RETURN)
 	get_filename_component( FILENAME "${FILE}" NAME_WE )
 	string( SUBSTRING "${FILENAME}" 0 2 TYPE )
@@ -275,13 +275,13 @@ function(link_symbolic_shaders BUILD_PATH)
 endfunction()
 
 
-set(spriteBuffer "" PARENT_SCOPE)
+set(spriteBuffer "")
 inline_shader(
 	"sprite" 
 	"${CMAKE_CURRENT_BINARY_DIR}/shaderSprite.hpp" 
 	spriteBuffer)
 
-set(wfBuffer "" PARENT_SCOPE)
+set(wfBuffer "")
 inline_shader(
 	"wireframe" 
 	"${CMAKE_CURRENT_BINARY_DIR}/shaderWireframe.hpp" 

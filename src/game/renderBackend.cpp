@@ -17,10 +17,6 @@ namespace gold {
 		bgfx::TextureFormat::Enum toBGFX(texFormat f) {
 			return (bgfx::TextureFormat::Enum)uint8_t(f);
 		}
-		texFormat fromBGFX(bgfx::TextureFormat::Enum f) {
-			return (texFormat)uint8_t(f);
-		}
-
 		renderUniformType fromBGFXUniform(bgfx::UniformType::Enum t) {
 			return (renderUniformType)uint8_t(t);
 		}
@@ -100,7 +96,7 @@ namespace gold {
 
 			bool initialize(nativeWindow nw, object config) override {
 				if (nw.handle || nw.display) {
-					memset(&_pd, 0, sizeof(_pd));
+					_pd = bgfx::PlatformData();
 					_pd.nwh = nw.handle;
 					_pd.ndt = nw.display;
 					_pd.context = nw.context;
@@ -248,17 +244,17 @@ namespace gold {
 					size, BGFX_BUFFER_INDEX32).idx)};
 			}
 			void updateVertexBuffer(renderHandle h, const void* data,
-				uint32_t size, uint32_t start, uint32_t num) override {
+				uint32_t size, uint32_t start, uint32_t) override {
 				bgfx::DynamicVertexBufferHandle dh{h.idx};
 				bgfx::update(dh, start, mem(data, size));
 			}
 			void updateIndexBuffer(renderHandle h, const void* data,
-				uint32_t size, uint32_t start, uint32_t num) override {
+				uint32_t size, uint32_t start, uint32_t) override {
 				bgfx::DynamicIndexBufferHandle dh{h.idx};
 				bgfx::update(dh, start, mem(data, size));
 			}
 			void setVertexBuffer(uint8_t stream, renderHandle h,
-				uint32_t start, uint32_t num, const void* layout) override {
+				uint32_t start, uint32_t num, const void*) override {
 				bgfx::setVertexBuffer(stream, vb(h), start, num);
 			}
 			void setIndexBuffer(renderHandle h, uint32_t start,
@@ -332,7 +328,7 @@ namespace gold {
 			void setCondition(renderHandle h, bool visible) override {
 				bgfx::setCondition(oq(h), visible);
 			}
-			renderHandle createIndirectBuffer(const void* data,
+			renderHandle createIndirectBuffer(const void*,
 				uint32_t size) override {
 				return toHandle(
 					bgfx::createIndirectBuffer(size));

@@ -7,6 +7,16 @@ set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
 project(gold VERSION 0.1.0)
 
+# Keep legacy bundled dependency behavior explicit when its nested
+# CMakeLists.txt resets the policy scope.
+set(CMAKE_POLICY_DEFAULT_CMP0160 OLD)
+set(CMAKE_POLICY_DEFAULT_CMP0115 OLD)
+if(POLICY CMP0218)
+	cmake_policy(SET CMP0218 NEW)
+	set(CMAKE_WARN_DEPRECATED OFF CACHE BOOL
+		"Suppress deprecation noise from bundled legacy projects" FORCE)
+endif()
+
 
 set(JSON_BuildTests OFF CACHE INTERNAL "")
 set(JSON_Install OFF CACHE INTERNAL "")

@@ -1246,4 +1246,3 @@ set_target_properties(BulletInverseDynamicsUtils PROPERTIES SOURCE_DIR ${Inverse
 SET_TARGET_PROPERTIES(BulletInverseDynamicsUtils PROPERTIES VERSION ${BULLET_VERSION})
 SET_TARGET_PROPERTIES(BulletInverseDynamicsUtils PROPERTIES SOVERSION ${BULLET_VERSION})
 TARGET_LINK_LIBRARIES(BulletInverseDynamicsUtils PUBLIC BulletInverseDynamics BulletDynamics BulletCollision Bullet3Common LinearMath)
-

@@ -45,12 +45,13 @@ namespace gold {
 					any = true;
 					const char* type = evType(ev.type, ev.code, ev.value);
 					if (!type) continue;
+					std::string_view typeName(type);
 					object out;
 					out.setString("type", type);
-					if (type == "key_down" || type == "key_up") {
+					if (typeName == "key_down" || typeName == "key_up") {
 						out.setInt32("keyCode", ev.code);
 						pending.push_back(out);
-					} else if (type == "mouse_move") {
+					} else if (typeName == "mouse_move") {
 						if (ev.type == EV_REL) {
 							if (ev.code == REL_X) absX += ev.value;
 							else if (ev.code == REL_Y) absY += ev.value;
@@ -64,7 +65,7 @@ namespace gold {
 							out.setInt32("y", absY);
 							pending.push_back(out);
 						}
-					} else if (type == "mouse_wheel") {
+					} else if (typeName == "mouse_wheel") {
 						out.setInt32("scrollX", ev.code == REL_HWHEEL ? ev.value : 0);
 						out.setInt32("scrollY", ev.code == REL_WHEEL ? ev.value : 0);
 						pending.push_back(out);

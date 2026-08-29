@@ -197,7 +197,7 @@ TEST(list_basics) {
 
 TEST(list_set_get) {
 	list li;
-	li.setString(2, "foo");
+	li.setString(2, string("foo"));
 	EXPECT_EQ(li.size(), (uint64_t)3);
 	EXPECT_EQ(li.getString(2), "foo");
 	EXPECT_EQ(li.getType(0), typeNull);
@@ -311,7 +311,7 @@ TEST(object_get_cookie_string) {
 
 TEST(object_prototype_inheritance) {
 	auto proto = object({
-		{"greet", func([](list args) -> var {
+		{"greet", func([](list) -> var {
 			 return string("hello");
 		 })}
 	});
@@ -541,7 +541,7 @@ TEST(file_missing_write_time_is_error) {
 }
 
 TEST(list_functions) {
-	auto fn = func([](list args) -> var { return var(int64_t(99)); });
+		auto fn = func([](list) -> var { return var(int64_t(99)); });
 	list li;
 	li.pushFunc(fn);
 	EXPECT_EQ(li.getFunction(0)({}).getInt64(), 99);

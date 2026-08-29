@@ -257,6 +257,7 @@ namespace gold {
 					default:
 						break;
 				}
+				break;
 			}
 			case bgfx::RendererType::Metal: {
 				switch (stype) {
@@ -267,6 +268,7 @@ namespace gold {
 					default:
 						break;
 				}
+				break;
 			}
 			case bgfx::RendererType::OpenGLES: {
 				switch (stype) {
@@ -277,6 +279,7 @@ namespace gold {
 					default:
 						break;
 				}
+				break;
 			}
 			case bgfx::RendererType::OpenGL: {
 				switch (stype) {
@@ -287,6 +290,7 @@ namespace gold {
 					default:
 						break;
 				}
+				break;
 			}
 			case bgfx::RendererType::Vulkan: {
 				switch (stype) {

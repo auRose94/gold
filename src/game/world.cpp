@@ -79,21 +79,21 @@ namespace gold {
 			const btVector3& color) {
 			lines.push_back(DebugLine{
 				{
-					from.x(),
-					from.y(),
-					from.z(),
-					color.x(),
-					color.y(),
-					color.z(),
+					float(from.x()),
+					float(from.y()),
+					float(from.z()),
+					float(color.x()),
+					float(color.y()),
+					float(color.z()),
 					1.0f,
 				},
 				{
-					to.x(),
-					to.y(),
-					to.z(),
-					color.x(),
-					color.y(),
-					color.z(),
+					float(to.x()),
+					float(to.y()),
+					float(to.z()),
+					float(color.x()),
+					float(color.y()),
+					float(color.z()),
 					1.0f,
 				},
 			});
@@ -130,16 +130,13 @@ namespace gold {
 		}
 
 		void drawContactPoint(
-			const btVector3& PointOnB,
-			const btVector3& normalOnB,
-			btScalar distance,
-			int lifeTime,
-			const btVector3& color) {}
+			const btVector3&, const btVector3&, btScalar, int,
+			const btVector3&) {}
 
-		void reportErrorWarning(const char* warningString) {}
+		void reportErrorWarning(const char*) {}
 
 		void draw3dText(
-			const btVector3& location, const char* textString) {}
+			const btVector3&, const char*) {}
 
 		void setDebugMode(int debugMode) { mode = debugMode; }
 
