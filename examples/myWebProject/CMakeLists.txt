@@ -13,12 +13,6 @@ get_filename_component(
 )
 
 get_filename_component(
-	ASSETS_ABS
-	"./assets/"
-	ABSOLUTE
-)
-
-get_filename_component(
 	JS_ABS
 	"./js/"
 	ABSOLUTE
@@ -30,15 +24,9 @@ get_filename_component(
 	ABSOLUTE
 )
 
-if(NOT (IS_SYMLINK ${BUILD_ROOT}/assets))
-	file(
-		CREATE_LINK 
-		${ASSETS_ABS} 
-		${BUILD_ROOT}/assets
-		SYMBOLIC
-	)
-endif()
-
+# js/, css/ and their subfolders are symlinked into the build tree.
+# ./assets is a writable upload/data directory: the server creates it at
+# runtime (server::setMountPoint), so there is no symlink for it here.
 if(NOT (IS_SYMLINK ${BUILD_ROOT}/js/main))
 	file(
 		CREATE_LINK 

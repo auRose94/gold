@@ -402,6 +402,10 @@ namespace gold {
 		auto mounts = getObject("mounts");
 		for (auto it = args.begin(); it != args.end(); ++it) {
 			try {
+				// Mount points may be writable data directories (e.g.
+				// uploads) that do not exist yet; create them so
+				// canonical()/recursiveReadDirectory succeed.
+				fs::create_directories(it->getString());
 				auto url = fs::canonical(it->getString());
 				file::recursiveReadDirectory(url, mounts);
 			} catch (fs::filesystem_error e) {

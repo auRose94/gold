@@ -32,28 +32,6 @@ endif()
 if(GOLD_BUILD_WEB)
 	add_subdirectory(zlib)
 	add_subdirectory(libuv)
-	# CMake 4.x rejects the mongo driver's TRY_COMPILE hack that smuggles
-	# a fake linker through "-Werror -DCMAKE_CXX_LINK_EXECUTABLE=...".
-	# Patch that one flag pair at configure time (then restore) so the
-	# vendored driver configures cleanly without dirtying the submodule.
-	set(_MONGOC_CMAKE_SRC
-		"${CMAKE_CURRENT_SOURCE_DIR}/mongo-c-driver/src/libmongoc/CMakeLists.txt")
-	if(EXISTS "${_MONGOC_CMAKE_SRC}")
-		file(READ "${_MONGOC_CMAKE_SRC}" _MONGOC_CMAKE)
-		string(REPLACE
-			"-Werror -DCMAKE_CXX_LINK_EXECUTABLE='echo not linking now...'"
-			"COMPILE_DEFINITIONS -Werror CMAKE_FLAGS -DCMAKE_CXX_LINK_EXECUTABLE=echo"
-			_MONGOC_PATCHED "${_MONGOC_CMAKE}")
-		if(NOT "${_MONGOC_PATCHED}" STREQUAL "${_MONGOC_CMAKE}")
-			file(WRITE "${_MONGOC_CMAKE_SRC}" "${_MONGOC_PATCHED}")
-			set(_MONGOC_RESTORE "${_MONGOC_CMAKE}")
-		endif()
-	endif()
-	add_subdirectory(mongo-c-driver)
-	if(DEFINED _MONGOC_RESTORE)
-		file(WRITE "${_MONGOC_CMAKE_SRC}" "${_MONGOC_RESTORE}")
-		unset(_MONGOC_RESTORE)
-	endif()
 	include(cmake/uSockets.cmake)
 	include(cmake/uWebSockets.cmake)
 endif()

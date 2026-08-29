@@ -3,6 +3,7 @@
 #include "types.hpp"
 
 namespace gold {
+	class dataStore;
 	using std::string;
 	using std::string_view;
 	struct database : public object {
@@ -30,7 +31,7 @@ namespace gold {
 
 	 public:
 		collection();
-		collection(database db, struct _mongoc_collection_t*);
+		collection(database db, dataStore* store, string name);
 
 		var addIndexes(list args);
 		var dropIndex(list args);

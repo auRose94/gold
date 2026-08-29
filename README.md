@@ -16,7 +16,8 @@ What's in the box?
 * JSON/BSON/CBOR/MsgPack/UBJSON/URLForm serialization
 * Express.JS "like" HTTP(S)/WebSocket server
 * HTML5 rendering (with form handling/pragmatic templating)
-* MongoDB driver and basic MVC system 
+* Embedded document store ("file" backend: JSON files on disk; pluggable
+  via the dataStore interface) and basic MVC system 
 * Server-side image loading (not connected to game).
 * Object & component based game engine
 * Basic window handling
@@ -147,6 +148,18 @@ Because the game/web modules are shared libraries, example executables link
 dynamically instead of statically baking in the entire framework (the game
 example dropped from ~240MB to under 1MB).
 
+### Data store
+
+The web module's persistence is a `dataStore` backend behind the
+`database`/`collection`/`model` facade (config `"backend"`):
+* `"file"` — the default: each database is a directory, each collection a
+  subdirectory, and each document a JSON file named by `"_id"`. Filters
+  support equality and `{"$in", [...]}`; writes are atomic (temp+rename).
+  Point it at a directory with `{"path", "./data"}`.
+
+This replaces the MongoDB driver entirely (no server, no driver), keeping
+the same document-oriented API.
+
 ### Window system backends
 
 Window creation is abstracted behind `windowSystem` (a pure interface with no
@@ -241,10 +254,13 @@ against Vulkan and swap it in.
 ## Submodule policy
 
 The `3rdParty` submodules track upstream branches. `zlib` and `libuv` are
-kept at their latest releases, and `bullet3`, `freetype2`
-and `mongo-c-driver` are updated to their latest master commits. JSON and
+kept at their latest releases, and `bullet3` and `freetype2`
+are updated to their latest master commits. JSON and
 the binary data formats (BSON/CBOR/MsgPack/UBJSON) are implemented in-tree
-(`src/goldjson.cpp`) — the nlohmann/json submodule was removed. The
+(`src/goldjson.cpp`) — the nlohmann/json submodule was removed. The web
+module's document store is implemented in-tree too (`dataStore` interface
+with a "file" backend in `src/web/dataStoreFile.cpp`), so the
+mongo-c-driver is no longer built. The
 `bgfx`/`bx`/`bimg`/`brtshaderc` sources are only built as a fallback when no
 system bgfx is installed (`GOLD_USE_SYSTEM_BGFX`). `uSockets`/`uWebSockets`
 are pinned to a version matching the web module's usage (their latest

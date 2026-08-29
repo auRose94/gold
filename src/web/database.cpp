@@ -1,62 +1,20 @@
 #include "database.hpp"
 
-#include <mongoc.h>
-#include <string.h>
-
 #include <chrono>
 #include <cstdint>
 #include <file.hpp>
 #include <iostream>
 #include <sstream>
-#include <vector>
+#include <string>
+#include <web/dataStore.hpp>
 
 namespace gold {
 	using namespace std;
 
-	typedef struct {
-		union {
-			struct {
-				uint32_t stamp;
-				uint32_t inc;
-			} pair;
-			uint64_t data;
-		} u;
-	} timeStamp;
-
-	bson_t* newBSONFromObject(obj& obj) {
-		auto data = obj.getBSON();
-		auto reader =
-			bson_reader_new_from_data(data.data(), data.size());
-		bool eof;
-		auto doc = bson_reader_read(reader, &eof);
-		if (doc) return bson_copy(doc);
-		return nullptr;
-	}
-
-	list listFromBSON(bson_t* b) {
-		auto view = string_view((char*)bson_get_data(b), b->len);
-		auto res = file::parseBSON(view);
-		if (res.isList()) return res.getList();
-		return list();
-	}
-
-	obj objectFromBSON(bson_t* b) {
-		auto view = string_view((char*)bson_get_data(b), b->len);
-		auto res = file::parseBSON(view);
-		if (res.isObject()) return res.getObject();
-		return obj();
-	}
-
-	var varFromBSON(bson_t* b) {
-		if (bson_has_field(b, "0")) {
-			// List?
-			return var(listFromBSON(b));
-		}
-		return var(objectFromBSON(b));
-	}
-
 	obj& database::getPrototype() {
 		static auto proto = obj{
+			{"backend", "file"},
+			{"path", "./data"},
 			{"host", "mongodb://localhost:27017"},
 			{"appName", "gold-app"},
 			{"name", "db_name"},
@@ -77,112 +35,67 @@ namespace gold {
 	}
 
 	var database::connect(list) {
-		static bool inited = false;
-		if (inited == false) {
-			inited = true;
-			mongoc_init();
-		}
-		bson_error_t error;
-		auto uriString = getString("host");
-		auto uri =
-			mongoc_uri_new_with_error(uriString.c_str(), &error);
-		if (!uri) {
-			cerr << "failed to parse URI:	" << uriString << endl
-					 << "error message:				" << error.message << endl;
-			return genericError(error.message);
-		}
+		auto backend = getString("backend", "file");
+		auto store = createDataStore(backend);
+		if (!store)
+			return genericError("Unknown data store backend: " + backend);
 		auto dbName = getString("name");
-		mongoc_uri_set_database(uri, dbName.c_str());
-		mongoc_uri_set_option_as_bool(uri, "retryreads", true);
-		auto pool = mongoc_client_pool_new(uri);
-		if (!pool) return genericError("failed to create pool");
-		auto appName = getString("appName");
-		mongoc_client_pool_set_appname(pool, appName.c_str());
-		setPtr("pool", pool);
-		auto namesReturn = getDatabaseNames();
-		if (namesReturn.isList()) {
-			auto dbNames = namesReturn.getList();
-			cout << "connection made: " << uriString << endl
-					 << "databases: " << dbNames.getJSON() << endl;
-		} else {
-			cerr << namesReturn << endl;
+		auto path = getString("path", "./data");
+		if (!store->open(dbName, path)) {
+			delete store;
+			return genericError("Failed to open data store");
 		}
-		auto client = mongoc_client_pool_pop(pool);
-		auto db =
-			mongoc_client_get_database(client, dbName.c_str());
-		mongoc_client_pool_push(pool, client);
-		setPtr("handle", db);
-		mongoc_uri_destroy(uri);
+		setPtr("store", store);
+		setString("backend", store->name());
+		auto names = store->getDatabaseNames();
+		cout << "data store '" << backend << "' ready at " << path << endl;
+		if (!names.empty()) {
+			auto namesList = list();
+			for (auto& n : names) namesList.pushString(n);
+			cout << "databases: " << namesList.getJSON() << endl;
+		}
 		return var();
 	}
 
 	var database::disconnect(list) {
-		auto pool = (mongoc_client_pool_t*)getPtr("pool");
-		auto db = (mongoc_database_t*)getPtr("handle");
-		mongoc_database_destroy(db);
-		mongoc_client_pool_destroy(pool);
+		auto store = (dataStore*)getPtr("store");
+		if (store) {
+			store->close();
+			delete store;
+			setPtr("store", nullptr);
+		}
 		return var();
 	}
 
 	var database::destroy(list) {
 		disconnect();
-		mongoc_cleanup();
 		return var();
 	}
 
-	var database::getDatabaseNames(list args) {
-		auto pool = (mongoc_client_pool_t*)getPtr("pool");
-		auto client = mongoc_client_pool_pop(pool);
-		bson_t* opts = nullptr;
-		if (args.size() > 1) {
-			auto optsObj = args[0].getObject();
-			opts = newBSONFromObject(optsObj);
-		}
-		bson_error_t error;
-		auto strV = mongoc_client_get_database_names_with_opts(
-			client, opts, &error);
-		mongoc_client_pool_push(pool, client);
-		if (opts) bson_destroy(opts);
-		if (strV) {
-			auto strings = list();
-			auto i = 0;
-			auto str = strV[i];
-			while (str != nullptr) {
-				auto found = strings.find(str);
-				if (found == strings.end()) strings.pushString(str);
-				str = strV[i++];
-			}
-			bson_strfreev(strV);
-			return strings;
-		}
-		return genericError(error.message);
+	var database::getDatabaseNames(list) {
+		auto store = (dataStore*)getPtr("store");
+		if (!store) return genericError("Not connected");
+		auto names = store->getDatabaseNames();
+		auto out = list();
+		for (auto& n : names) out.pushString(n);
+		return out;
 	}
 
 	var database::createCollection(list args) {
-		auto db = (mongoc_database_t*)getPtr("handle");
+		auto store = (dataStore*)getPtr("store");
+		if (!store) return genericError("Not connected");
 		auto name = args[0].getString();
-		auto optsObj = args[1].getObject();
-		bson_t* opts =
-			optsObj ? newBSONFromObject(optsObj) : nullptr;
-		bson_error_t error;
-		auto col = (struct _mongoc_collection_t*)
-			mongoc_database_create_collection(
-				db, name.c_str(), opts, &error);
-		if (col) return var(collection(*this, col));
-		return genericError(error.message);
+		if (name.empty()) return genericError("Missing collection name");
+		if (!store->createCollection(name))
+			return genericError("Failed to create collection");
+		return var(collection(*this, store, name));
 	}
 
 	var database::getCollection(list args) {
-		auto pool = (mongoc_client_pool_t*)getPtr("pool");
-		auto client = mongoc_client_pool_pop(pool);
+		auto store = (dataStore*)getPtr("store");
+		if (!store) return genericError("Not connected");
 		auto name = args[0].getString();
-		auto dbName = getString("name");
-		auto col = (struct _mongoc_collection_t*)
-			mongoc_client_get_collection(
-				client, dbName.c_str(), name.c_str());
-		mongoc_client_pool_push(pool, client);
-		if (col) return collection(*this, col);
-		return var();
+		return var(collection(*this, store, name));
 	}
 
 	obj& collection::getPrototype() {
@@ -206,296 +119,126 @@ namespace gold {
 
 	collection::collection() : obj() {}
 
-	collection::collection(
-		database d, struct _mongoc_collection_t* c)
+	collection::collection(database d, dataStore* store, string name)
 		: obj() {
 		setParent(getPrototype());
-		setPtr("handle", c);
+		setPtr("store", store);
 		setObject("database", d);
-		setString(
-			"name",
-			mongoc_collection_get_name((mongoc_collection_t*)c));
+		setString("name", name);
 	}
 
 	var collection::addIndexes(list args) {
-		auto handle = (mongoc_collection_t*)getPtr("handle");
+		auto store = (dataStore*)getPtr("store");
+		if (!store) return genericError("Not connected");
 		auto cName = args[0].getString();
 		auto keys = args[1].getObject();
-		auto optsObj = args[2].getObject();
 		if (cName.size() == 0)
-			return genericError(
-				"Missing collection name for first arg");
-		if (!keys)
-			return genericError("Missing keys from second arg");
-		auto bKeys = newBSONFromObject(keys);
-		auto indexName =
-			mongoc_collection_keys_to_index_string(bKeys);
-		auto indexObj = obj{
-			{"key", (keys)},
-			{"name", (indexName)},
-		};
-		if (optsObj) indexObj.copy(optsObj);
-		auto command = obj({
-			{"createIndexes", cName},
-			{
-				"indexes",
-				var(list{
-					indexObj,
-				}),
-			},
-		});
-		bson_error_t error;
-		auto cBson = newBSONFromObject(command);
-		bson_t replyBson;
-		auto success = mongoc_collection_write_command_with_opts(
-			handle, cBson, 0, &replyBson, &error);
-		bson_destroy(cBson);
-		if (!success) return genericError(error.message);
-		auto reply = varFromBSON(&replyBson);
-		return reply;
+			return genericError("Missing collection name for first arg");
+		if (!keys) return genericError("Missing keys from second arg");
+		if (!store->addIndexes(cName, keys))
+			return genericError("Failed to create indexes");
+		return true;
 	}
 
 	var collection::dropIndex(list args) {
-		auto handle = (mongoc_collection_t*)getPtr("handle");
+		auto store = (dataStore*)getPtr("store");
+		if (!store) return genericError("Not connected");
 		auto indexName = args[0].getString();
-		bson_error_t err;
-		if (mongoc_collection_drop_index(
-					handle, indexName.c_str(), &err))
-			return true;
-		return var(genericError(err.message));
+		if (!store->dropIndex(indexName))
+			return genericError("Failed to drop index");
+		return true;
 	}
 
 	var collection::deleteOne(list args) {
-		auto handle = (mongoc_collection_t*)getPtr("handle");
+		auto store = (dataStore*)getPtr("store");
+		if (!store) return genericError("Not connected");
 		auto selObj = args[0].getObject();
-		auto optObj = args[1].getObject();
-		if (!selObj)
-			return genericError("Missing selector for first arg");
-		bson_t* opts = optObj ? newBSONFromObject(optObj) : nullptr;
-		auto sel = newBSONFromObject(selObj);
-		bson_t replyBson;
-		bson_error_t err;
-		auto success = mongoc_collection_delete_one(
-			handle, sel, opts, &replyBson, &err);
-		bson_destroy(sel);
-		if (opts) bson_destroy(opts);
-		if (!success) {
-			return genericError(err.message);
-		}
-		auto reply = varFromBSON(&replyBson);
-		return reply;
+		if (!selObj) return genericError("Missing selector for first arg");
+		return store->deleteOne(getString("name"), selObj);
 	}
 
 	var collection::deleteMany(list args) {
-		auto handle = (mongoc_collection_t*)getPtr("handle");
+		auto store = (dataStore*)getPtr("store");
+		if (!store) return genericError("Not connected");
 		auto selObj = args[0].getObject();
-		auto optObj = args[1].getObject();
-		if (!selObj)
-			return genericError("Missing selector for first arg");
-		bson_t* opts = optObj ? newBSONFromObject(optObj) : nullptr;
-		auto sel = newBSONFromObject(selObj);
-		bson_t replyBson;
-		bson_error_t err;
-		auto success = mongoc_collection_delete_many(
-			handle, sel, opts, &replyBson, &err);
-		bson_destroy(sel);
-		if (opts) bson_destroy(opts);
-		if (!success) return genericError(err.message);
-		auto reply = varFromBSON(&replyBson);
-		return reply;
+		if (!selObj) return genericError("Missing selector for first arg");
+		return store->deleteMany(getString("name"), selObj);
 	}
 
 	var collection::findOne(list args) {
-		static auto def = obj(initList{{"limit", int32_t(1)}});
-		auto handle = (mongoc_collection_t*)getPtr("handle");
+		auto store = (dataStore*)getPtr("store");
+		if (!store) return genericError("Not connected");
 		auto selObj = args[0].getObject();
-		auto optObj = obj();
-		if (args.size() >= 2) optObj = args[1].getObject();
-		if (optObj)
-			optObj.copy(def);
-		else
-			optObj = def;
-		if (!selObj)
-			return genericError("Missing selector for first arg");
-		bson_t* opts = newBSONFromObject(optObj);
-		auto sel = newBSONFromObject(selObj);
-		bson_error_t err;
-		auto cursor = mongoc_collection_find_with_opts(
-			handle, sel, opts, nullptr);
-		bson_destroy(sel);
-		bson_destroy(opts);
-		const bson_t* doc = nullptr;
-		var resp;
-		while (mongoc_cursor_next(cursor, &doc)) {
-			auto resi = varFromBSON((bson_t*)doc);
-			if (resi.isObject()) {
-				auto respObj = resi.getObject();
-				resp = respObj;
-			}
-		}
-		if (mongoc_cursor_error(cursor, &err)) {
-			mongoc_cursor_destroy(cursor);
-			return genericError(err.message);
-		}
-		mongoc_cursor_destroy(cursor);
-		return resp;
+		if (!selObj) return genericError("Missing selector for first arg");
+		auto found = store->findOne(getString("name"), selObj);
+		if (found) return var(found);
+		return var();
 	}
 
 	var collection::findMany(list args) {
-		auto handle = (mongoc_collection_t*)getPtr("handle");
+		auto store = (dataStore*)getPtr("store");
+		if (!store) return genericError("Not connected");
 		auto selObj = args[0].getObject();
-		auto optObj = args[1].getObject();
-		if (!selObj)
-			return genericError("Missing selector for first arg");
-		bson_t* opts = optObj ? newBSONFromObject(optObj) : nullptr;
-		auto sel = newBSONFromObject(selObj);
-		bson_error_t err;
-		auto cursor = mongoc_collection_find_with_opts(
-			handle, sel, opts, nullptr);
-		bson_destroy(sel);
-		if (opts) bson_destroy(opts);
-		const bson_t* doc = nullptr;
-		auto response = list();
-		while (mongoc_cursor_next(cursor, &doc)) {
-			auto resi = varFromBSON((bson_t*)doc);
-			if (resi.isList()) {
-				auto arr = resi.getList();
-				response.pushList(arr);
-			} else if (resi.isObject()) {
-				auto o = resi.getObject();
-				response.pushObject(o);
-			}
+		if (!selObj) return genericError("Missing selector for first arg");
+		uint64_t limit = 0;
+		if (args.size() >= 2 && args[1].isObject()) {
+			auto optObj = args[1].getObject();
+			limit = optObj.getUInt64("limit", 0);
 		}
-		if (mongoc_cursor_error(cursor, &err)) {
-			mongoc_cursor_destroy(cursor);
-			auto msg = string(err.message);
-			return genericError(msg);
-		}
-		mongoc_cursor_destroy(cursor);
-		return response;
+		auto found = store->find(getString("name"), selObj, limit);
+		return var(found);
 	}
 
 	var collection::updateOne(list args) {
-		auto handle = (mongoc_collection_t*)getPtr("handle");
+		auto store = (dataStore*)getPtr("store");
+		if (!store) return genericError("Not connected");
 		auto selObj = args[0].getObject();
 		auto upObj = args[1].getObject();
-		auto optObj = args[2].getObject();
-
-		if (!selObj)
-			return genericError("Missing selector for first arg");
-		if (!upObj)
-			return genericError(
-				"Missing update object for second arg");
-		bson_t* opts = optObj ? newBSONFromObject(optObj) : nullptr;
-		auto sel = newBSONFromObject(selObj);
-		auto up = newBSONFromObject(upObj);
-		bson_t replyBson;
-		bson_error_t err;
-		auto success = mongoc_collection_update_one(
-			handle, sel, up, opts, &replyBson, &err);
-		bson_destroy(sel);
-		bson_destroy(up);
-		if (opts) bson_destroy(opts);
-		if (!success) {
-			return genericError(err.message);
-		}
-		auto reply = varFromBSON(&replyBson);
-		return reply;
+		if (!selObj) return genericError("Missing selector for first arg");
+		if (!upObj) return genericError("Missing update object for second arg");
+		return store->updateOne(getString("name"), selObj, upObj);
 	}
 
 	var collection::updateMany(list args) {
-		auto handle = (mongoc_collection_t*)getPtr("handle");
+		auto store = (dataStore*)getPtr("store");
+		if (!store) return genericError("Not connected");
 		auto selObj = args[0].getObject();
 		auto upObj = args[1].getObject();
-		auto optObj = args[2].getObject();
-		if (!selObj)
-			return genericError("Missing selector for first arg");
-		if (!upObj)
-			return genericError(
-				"Missing update object for second arg");
-		bson_t* opts = optObj ? newBSONFromObject(optObj) : nullptr;
-		auto sel = newBSONFromObject(selObj);
-		auto up = newBSONFromObject(upObj);
-		bson_t replyBson;
-		bson_error_t err;
-		auto success = mongoc_collection_update_many(
-			handle, sel, up, opts, &replyBson, &err);
-		bson_destroy(sel);
-		bson_destroy(up);
-		if (opts) bson_destroy(opts);
-		if (!success) {
-			return genericError(err.message);
-		}
-		auto reply = varFromBSON(&replyBson);
-		return reply;
+		if (!selObj) return genericError("Missing selector for first arg");
+		if (!upObj) return genericError("Missing update object for second arg");
+		return store->updateMany(getString("name"), selObj, upObj);
 	}
 
 	var collection::insert(list args) {
-		auto handle = (mongoc_collection_t*)getPtr("handle");
+		auto store = (dataStore*)getPtr("store");
+		if (!store) return genericError("Not connected");
 		auto objData = args[0].getObject();
-		auto optObj = obj();
-		if (args.size() >= 2) optObj = args[1].getObject();
-		if (!objData)
-			return genericError("Missing object for first arg");
-		auto obj = newBSONFromObject(objData);
-		bson_t* opts = optObj ? newBSONFromObject(optObj) : nullptr;
-		bson_t replyBson;
-		bson_error_t err;
-		auto success = mongoc_collection_insert_one(
-			handle, obj, opts, &replyBson, &err);
-		bson_destroy(obj);
-		if (opts) bson_destroy(opts);
-		if (!success) return genericError(err.message);
-		auto reply = varFromBSON(&replyBson);
-		return reply;
+		if (!objData) return genericError("Missing object for first arg");
+		return store->insert(getString("name"), objData);
 	}
 
 	var collection::replace(list args) {
-		auto handle = (mongoc_collection_t*)getPtr("handle");
+		auto store = (dataStore*)getPtr("store");
+		if (!store) return genericError("Not connected");
 		auto selObj = args[0].getObject();
 		auto upObj = args[1].getObject();
-		auto optObj = args[2].getObject();
-		if (!selObj)
-			return genericError("Missing selector for first arg");
-		if (!upObj)
-			return genericError(
-				"Missing update object for second arg");
-		bson_t* opts = optObj ? newBSONFromObject(optObj) : nullptr;
-		auto sel = newBSONFromObject(selObj);
-		auto up = newBSONFromObject(upObj);
-		bson_t replyBson;
-		bson_error_t err;
-		auto success = mongoc_collection_replace_one(
-			handle, sel, up, opts, &replyBson, &err);
-		bson_destroy(sel);
-		bson_destroy(up);
-		if (opts) bson_destroy(opts);
-		if (!success) {
-			return genericError(err.message);
-		}
-		auto reply = varFromBSON(&replyBson);
-		return reply;
+		if (!selObj) return genericError("Missing selector for first arg");
+		if (!upObj) return genericError("Missing update object for second arg");
+		return store->replace(getString("name"), selObj, upObj);
 	}
 
 	var collection::rename(list args) {
-		auto handle = (mongoc_collection_t*)getPtr("handle");
-		auto db = database();
-		getDatabase(db);
-		auto dbName = db.getString("name");
+		auto store = (dataStore*)getPtr("store");
+		if (!store) return genericError("Not connected");
 		auto newName = args[0].getString();
-		bson_error_t err;
-		auto success = mongoc_collection_rename(
-			handle, dbName.c_str(), newName.c_str(), false, &err);
-		if (!success) {
-			return genericError(err.message);
-		}
+		if (!store->renameCollection(getString("name"), newName))
+			return genericError("Failed to rename collection");
 		setString("name", newName);
 		return newName;
 	}
 
 	var collection::destroy(list) {
-		auto handle = (mongoc_collection_t*)getPtr("handle");
-		mongoc_collection_destroy(handle);
+		setPtr("store", nullptr);
 		return var();
 	}
 
@@ -544,7 +287,7 @@ namespace gold {
 		auto id = getString("_id");
 		setUInt64("updated", getMonoTime());
 		if (id.empty()) {
-			id = newID();
+			id = dataStoreNewID();
 			setString("_id", id);
 			setUInt64("created", getMonoTime());
 			auto res = col.insert({*this});
@@ -661,14 +404,7 @@ namespace gold {
 		return false;
 	}
 
-	string model::newID() {
-		bson_oid_t oid;
-		auto ss = stringstream();
-		bson_oid_init(&oid, nullptr);
-		for (uint64_t i = 0; i < 12; ++i)
-			ss << hex << (int)oid.bytes[i];
-		return ss.str();
-	}
+	string model::newID() { return dataStoreNewID(); }
 
 	bool model::validID(string_view id) {
 		if (id.length() > 24) return false;

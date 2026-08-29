@@ -225,6 +225,10 @@ namespace gg {
 							return res.end({obj{{"error", "invalid login"}}});
 						}
 					}
+				} else {
+					// Unknown Accept header (e.g. curl's "*/*"): default to
+					// the HTML login page instead of never responding.
+					return res.end({getTemplate(req, user::userLogin())});
 				}
 				return gold::var();
 			};

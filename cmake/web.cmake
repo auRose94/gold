@@ -7,6 +7,7 @@ add_library(
 	goldWeb
 	SHARED
 		src/web/database.cpp
+		src/web/dataStoreFile.cpp
 		src/web/html.cpp
 		src/web/server.cpp
 )
@@ -33,9 +34,6 @@ target_include_directories(
 	PUBLIC
 		"include"
 		"include/web"
-		3rdParty/mongo-c-driver/src/libmongoc/src/mongoc
-		${CMAKE_CURRENT_BINARY_DIR}/3rdParty/mongo-c-driver/src/libmongoc/src/mongoc
-		${MONGOC_INCLUDE_DIRS}
 		3rdParty/uWebSockets/src
 )
 
@@ -43,8 +41,6 @@ target_link_libraries (
 	goldWeb
 	PUBLIC 
 		gold::shared
-		mongoc_static
-		bson_static
 		uWebSockets
 )
 
