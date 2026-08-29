@@ -20,7 +20,7 @@ using namespace gold;
 int main() {
 	using list = gold::list;
 	engine main =
-		engine("MountainAndValley", "ConwaysGameOfLife");
+		engine("GoldRoseCode", "ConwaysGameOfLife");
 	auto cam = main.getPrimaryCamera().getObject<camera>();
 	auto camTrans = cam.getComponent({transform::getPrototype()})
 										.getObject<gold::transform>();
