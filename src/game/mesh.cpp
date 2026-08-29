@@ -17,6 +17,31 @@ namespace gold {
 		map<string, binary> assetCache;
 		mutex assetCacheMutex;
 
+		bool resolveExternalAsset(const filesystem::path& base,
+			const string& uri, filesystem::path& resolved) {
+			if (uri.empty() || uri.find('\\') != string::npos) return false;
+			filesystem::path relative(uri);
+			if (relative.is_absolute() || relative.has_root_name() ||
+				relative.has_root_directory())
+				return false;
+			for (const auto& part : relative) {
+				if (part == "..") return false;
+			}
+
+			std::error_code ec;
+			auto canonicalBase = filesystem::weakly_canonical(base, ec);
+			if (ec) return false;
+			resolved = filesystem::weakly_canonical(canonicalBase / relative, ec);
+			if (ec) return false;
+			auto withinBase = resolved.lexically_relative(canonicalBase);
+			if (withinBase.empty() || withinBase == ".." ||
+				withinBase.begin()->string() == "..") {
+				resolved.clear();
+				return false;
+			}
+			return true;
+		}
+
 		bool loadCachedAsset(const filesystem::path& path, binary& out) {
 			std::error_code ec;
 			auto absolute = filesystem::absolute(path, ec);
@@ -105,7 +130,12 @@ namespace gold {
 						} else {
 							auto base = filesystem::path(getString("path"))
 								.parent_path();
-							if (!loadCachedAsset(base / uri, bin)) {
+							filesystem::path resolved;
+							if (!resolveExternalAsset(base, uri, resolved)) {
+								setString("error", "Invalid external glTF buffer URI: " + uri);
+								return;
+							}
+							if (!loadCachedAsset(resolved, bin)) {
 								setString("error", "Failed to load external glTF buffer: " + uri);
 								return;
 							}
@@ -116,7 +146,7 @@ namespace gold {
 						}
 						bufferObj.setBinary("data", bin);
 						bufferObj.erase("uri");
-				}
+					}
 			}
 			for (auto it = images.begin(); it != images.end(); ++it) {
 				auto imageObj = it->getObject();
@@ -131,7 +161,12 @@ namespace gold {
 					} else {
 						auto base = filesystem::path(getString("path"))
 							.parent_path();
-						if (!loadCachedAsset(base / uri, imageData)) {
+						filesystem::path resolved;
+						if (!resolveExternalAsset(base, uri, resolved)) {
+							setString("error", "Invalid external glTF image URI: " + uri);
+							return;
+						}
+						if (!loadCachedAsset(resolved, imageData)) {
 							setString("error", "Failed to load external glTF image: " + uri);
 							return;
 						}

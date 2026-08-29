@@ -16,6 +16,11 @@ add_library(uSockets
 target_compile_definitions( uSockets PUBLIC LIBUS_USE_OPENSSL=1)
 target_compile_definitions( uSockets PUBLIC LIBUS_USE_LIBUV=1)
 
+if(NOT MSVC)
+	# uSockets still uses OpenSSL 1.x DH helpers; isolate its deprecation noise.
+	target_compile_options(uSockets PRIVATE -Wno-deprecated-declarations)
+endif()
+
 if(MSVC)
 	target_compile_definitions(uSockets PUBLIC _WIN32=1)
 endif(MSVC)

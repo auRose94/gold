@@ -78,6 +78,7 @@ namespace gold {
 		auto str = ofstream(path, ios::binary);
 		if (str.is_open()) {
 			str.write((char*)bin.data(), bin.size());
+			if (!str) return genericError("failed to write file");
 			str.close();
 			auto writeTime = fs::last_write_time(path);
 			auto wtms =
@@ -88,7 +89,7 @@ namespace gold {
 			setUInt64("writeTime", wtms);
 			return true;
 		}
-		return false;
+		return genericError("failed to open file for writing");
 	}
 
 	var file::load(list args) {
@@ -99,29 +100,29 @@ namespace gold {
 				return genericError(
 					"path is empty, supply as argument or set path on "
 					"object");
-			if (fs::exists(path)) {
-				auto bin = getStringView("data");
-				auto writeTime = fs::last_write_time(path);
-				auto wtms = (uint64_t)std::chrono::duration_cast<
-											std::chrono::nanoseconds>(
-											writeTime.time_since_epoch())
-											.count();
-				auto lastWriteTime = getUInt64("writeTime");
-				if (bin.size() > 0 && wtms == lastWriteTime) return bin;
-				auto str = ifstream(path, ios::binary);
-				if (str.is_open()) {
-					str.seekg(0, str.end);
-					auto size = size_t(str.tellg());
-					auto read = binary(size);
-					str.seekg(0, str.beg);
-					str.read((char*)read.data(), read.size());
-					str.close();
-					setUInt64("writeTime", wtms);
-					setBinary("data", read);
-					return getStringView("data");
-				}
+			if (!fs::exists(path))
+				return genericError("file does not exist");
+			auto bin = getStringView("data");
+			auto writeTime = fs::last_write_time(path);
+			auto wtms = (uint64_t)std::chrono::duration_cast<
+									std::chrono::nanoseconds>(
+									writeTime.time_since_epoch())
+									.count();
+			auto lastWriteTime = getUInt64("writeTime");
+			if (bin.size() > 0 && wtms == lastWriteTime) return bin;
+			auto str = ifstream(path, ios::binary);
+			if (str.is_open()) {
+				str.seekg(0, str.end);
+				auto size = size_t(str.tellg());
+				auto read = binary(size);
+				str.seekg(0, str.beg);
+				str.read((char*)read.data(), read.size());
+				str.close();
+				setUInt64("writeTime", wtms);
+				setBinary("data", read);
+				return getStringView("data");
 			}
-			return gold::var();
+			return genericError("failed to open file for reading");
 		} catch (const exception& e) {
 			return genericError(e.what());
 		}
@@ -134,8 +135,13 @@ namespace gold {
 			return genericError(
 				"path is empty, supply as argument or set path on "
 				"object");
+		std::error_code ec;
+		if (!fs::remove(fs::path(path), ec)) {
+			if (ec) return genericError(ec.message());
+			return genericError("file does not exist");
+		}
 		setNull("writeTime");
-		return remove(fs::path(path));
+		return true;
 	}
 
 	var file::getWriteTime(list args) {

@@ -6,6 +6,11 @@ add_executable(
 	tests/test_file_decode.cpp
 )
 
+add_executable(
+	goldFileErrorTests
+	tests/test_file_errors.cpp
+)
+
 if(MSVC)
 	target_compile_options(goldTests PRIVATE /W4)
 else()
@@ -25,6 +30,9 @@ target_link_libraries(
 		gold::shared
 )
 
+target_include_directories(goldFileErrorTests PRIVATE "include" "tests")
+target_link_libraries(goldFileErrorTests PRIVATE gold::shared)
+
 target_compile_features(
 	goldTests
 	PRIVATE
@@ -40,6 +48,22 @@ target_compile_features(
 )
 
 add_test(NAME goldTests COMMAND goldTests)
+
+add_executable(
+	goldSubsystemTests
+	tests/subsystem_test.cpp
+	src/worker.cpp
+)
+if(MSVC)
+	target_compile_options(goldSubsystemTests PRIVATE /W4)
+else()
+	target_compile_options(goldSubsystemTests PRIVATE -Wall -Wextra -pedantic)
+endif()
+target_include_directories(goldSubsystemTests PRIVATE "include" "tests")
+target_link_libraries(goldSubsystemTests PRIVATE gold::shared)
+target_compile_features(goldSubsystemTests PRIVATE cxx_std_26)
+add_test(NAME goldSubsystemTests COMMAND goldSubsystemTests)
+add_test(NAME goldFileErrorTests COMMAND goldFileErrorTests)
 
 if(GOLD_BUILD_LANG)
 	add_executable(
@@ -75,6 +99,7 @@ if(GOLD_BUILD_GAME)
 	add_executable(
 		goldGameTests
 		tests/gameTest.cpp
+		tests/gameMeshAssetTest.cpp
 	)
 	if(MSVC)
 		target_compile_options(goldGameTests PRIVATE /W4)
@@ -99,6 +124,34 @@ if(GOLD_BUILD_GAME)
 			cxx_std_26
 	)
 	add_test(NAME goldGameTests COMMAND goldGameTests)
+
+	add_executable(
+		goldRenderBackendTests
+		tests/renderBackendTest.cpp
+	)
+	if(MSVC)
+		target_compile_options(goldRenderBackendTests PRIVATE /W4)
+	else()
+		target_compile_options(goldRenderBackendTests PRIVATE -Wall -Wextra -pedantic)
+	endif()
+	target_include_directories(
+		goldRenderBackendTests
+		PUBLIC
+			"include"
+			"include/game"
+			"tests"
+	)
+	target_link_libraries(
+		goldRenderBackendTests
+		PRIVATE
+			gold::game
+	)
+	target_compile_features(
+		goldRenderBackendTests
+		PRIVATE
+			cxx_std_26
+	)
+	add_test(NAME goldRenderBackendTests COMMAND goldRenderBackendTests)
 endif()
 
 if(GOLD_BUILD_WEB)
@@ -111,4 +164,14 @@ if(GOLD_BUILD_WEB)
 	target_link_libraries(goldWebTests PRIVATE gold::web)
 	target_compile_features(goldWebTests PRIVATE cxx_std_26)
 	add_test(NAME goldWebTests COMMAND goldWebTests)
+
+	add_executable(
+		goldWebPersistenceTests
+		tests/webPersistenceTest.cpp
+	)
+	target_include_directories(
+		goldWebPersistenceTests PRIVATE "include" "include/web" "tests")
+	target_link_libraries(goldWebPersistenceTests PRIVATE gold::web)
+	target_compile_features(goldWebPersistenceTests PRIVATE cxx_std_26)
+	add_test(NAME goldWebPersistenceTests COMMAND goldWebPersistenceTests)
 endif()

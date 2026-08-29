@@ -51,20 +51,23 @@ What it's lacking?
 * A website
 
 What's planned?
-* Documentation
-* More bug testing
-* In-depth complex examples
-* Expanded game engine
-* Expanded web services
-* Asset handling
-* Game editor
-* GUI handling
-* Audio handling
+High priority:
+* More bug testing and subsystem coverage
+* Error reporting and consistent failure semantics
+* Complete asset handling and the glTF pipeline
+* Expanded game engine stability and rendering coverage
+* Expanded web services and persistence guarantees
+
+Medium priority:
+* Audio handling and resource lifecycle support
 * Controller handling
 * Async event handling
-* Asset packing
-* Error reporting
-* Scripting language interface
+* GUI handling
+* In-depth complex examples
+* Documentation
+
+Lower priority:
+* Game editor
 * Compile to WebAssembly/ASM.JS?
 
 # Getting Started

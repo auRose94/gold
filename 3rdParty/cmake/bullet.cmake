@@ -1125,11 +1125,11 @@ SET(Bullet3Common_HDRS
 	${Bullet3Common_SRC_DIR}/b3Transform.h
 	${Bullet3Common_SRC_DIR}/b3TransformUtil.h
 	${Bullet3Common_SRC_DIR}/b3Vector3.h
-	${Bullet3Common_SRC_DIR}/shared/b3Float4
+	${Bullet3Common_SRC_DIR}/shared/b3Float4.h
 	${Bullet3Common_SRC_DIR}/shared/b3Int2.h
 	${Bullet3Common_SRC_DIR}/shared/b3Int4.h
 	${Bullet3Common_SRC_DIR}/shared/b3Mat3x3.h
-	${Bullet3Common_SRC_DIR}/shared/b3PlatformDefinitions
+	${Bullet3Common_SRC_DIR}/shared/b3PlatformDefinitions.h
 	${Bullet3Common_SRC_DIR}/shared/b3Quat.h
 )
 

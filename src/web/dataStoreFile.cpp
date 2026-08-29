@@ -40,6 +40,12 @@ namespace gold {
 				return true;
 			}
 
+			// Database and collection names become directory components. Keep
+			// them as simple names so callers cannot escape the configured root.
+			static bool nameSafe(const string& name) {
+				return filenameSafe(name);
+			}
+
 			static bool writeJSON(const string& path, const object& doc) {
 				auto json = jsonStringify(var(doc));
 				string tmp = path + ".tmp";
@@ -122,6 +128,7 @@ namespace gold {
 			bool open(const std::string& dbName_,
 				const std::string& path) override {
 				lock_guard<mutex> guard(mtx);
+				if (!nameSafe(dbName_) || path.empty()) return false;
 				dbName = dbName_;
 				root = path;
 				fs::create_directories(dbDir());
@@ -142,6 +149,7 @@ namespace gold {
 
 			bool createCollection(const std::string& cname) override {
 				lock_guard<mutex> guard(mtx);
+				if (!nameSafe(cname)) return false;
 				fs::create_directories(colDir(cname));
 				return fs::is_directory(colDir(cname));
 			}
@@ -159,6 +167,7 @@ namespace gold {
 			bool renameCollection(const std::string& oldName,
 				const std::string& newName) override {
 				lock_guard<mutex> guard(mtx);
+				if (!nameSafe(oldName) || !nameSafe(newName)) return false;
 				std::error_code ec;
 				fs::rename(colDir(oldName), colDir(newName), ec);
 				return !ec;
@@ -167,6 +176,7 @@ namespace gold {
 			object findOne(const std::string& cname,
 				const object& filter) override {
 				lock_guard<mutex> guard(mtx);
+				if (!nameSafe(cname)) return object();
 				object f = filter;
 				list matches;
 				collectMatches(cname, f, 1, matches);
@@ -177,6 +187,7 @@ namespace gold {
 			list find(const std::string& cname, const object& filter,
 				uint64_t limit) override {
 				lock_guard<mutex> guard(mtx);
+				if (!nameSafe(cname)) return list();
 				object f = filter;
 				list out;
 				collectMatches(cname, f, limit, out);
@@ -186,6 +197,7 @@ namespace gold {
 			var insert(const std::string& cname,
 				const object& doc) override {
 				lock_guard<mutex> guard(mtx);
+				if (!nameSafe(cname)) return genericError("invalid collection name");
 				auto toStore = doc;
 				auto id = toStore.getString("_id");
 				if (!filenameSafe(id)) {
@@ -202,6 +214,7 @@ namespace gold {
 			var updateOne(const std::string& cname, const object& filter,
 				const object& update) override {
 				lock_guard<mutex> guard(mtx);
+				if (!nameSafe(cname)) return var();
 				object f = filter;
 				object u = update;
 				auto dir = colDir(cname);
@@ -225,6 +238,7 @@ namespace gold {
 			var updateMany(const std::string& cname, const object& filter,
 				const object& update) override {
 				lock_guard<mutex> guard(mtx);
+				if (!nameSafe(cname)) return var(object{{"modifiedCount", uint64_t(0)}});
 				object f = filter;
 				object u = update;
 				uint64_t count = 0;
@@ -251,6 +265,7 @@ namespace gold {
 			var deleteOne(const std::string& cname,
 				const object& filter) override {
 				lock_guard<mutex> guard(mtx);
+				if (!nameSafe(cname)) return var(object{{"deletedCount", uint64_t(0)}});
 				object f = filter;
 				auto dir = colDir(cname);
 				if (!fs::is_directory(dir))
@@ -273,6 +288,7 @@ namespace gold {
 			var deleteMany(const std::string& cname,
 				const object& filter) override {
 				lock_guard<mutex> guard(mtx);
+				if (!nameSafe(cname)) return var(object{{"deletedCount", uint64_t(0)}});
 				object f = filter;
 				uint64_t count = 0;
 				auto dir = colDir(cname);
@@ -296,6 +312,7 @@ namespace gold {
 			var replace(const std::string& cname, const object& filter,
 				const object& doc) override {
 				lock_guard<mutex> guard(mtx);
+				if (!nameSafe(cname)) return var();
 				object f = filter;
 				auto dir = colDir(cname);
 				if (!fs::is_directory(dir)) return var();
@@ -318,6 +335,7 @@ namespace gold {
 				const object& keys) override {
 				// Advisory for the file backend: record the index request.
 				lock_guard<mutex> guard(mtx);
+				if (!nameSafe(cname)) return false;
 				auto dir = colDir(cname);
 				fs::create_directories(dir);
 				auto meta = object({
@@ -329,6 +347,7 @@ namespace gold {
 
 			bool dropIndex(const std::string& cname) override {
 				lock_guard<mutex> guard(mtx);
+				if (!nameSafe(cname)) return false;
 				fs::remove(colDir(cname) + "/.index.json");
 				return true;
 			}

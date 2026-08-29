@@ -136,10 +136,16 @@ namespace gold {
 			bool isValid() const override { return _valid; }
 
 			bool beginFrame() override {
-				bgfx::frame(false);
+				// beginFrame only opens the submission window. Advancing bgfx
+				// here would present the previous frame before the caller has
+				// finished submitting the current one.
 				return _valid;
 			}
-			bool endFrame() override { return _valid; }
+			bool endFrame() override {
+				if (!_valid) return false;
+				bgfx::frame(false);
+				return true;
+			}
 
 			void viewRect(uint8_t view, uint16_t x, uint16_t y, uint16_t w,
 				uint16_t h) override {
