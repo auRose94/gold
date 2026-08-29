@@ -169,6 +169,8 @@ namespace gold {
 	}
 
 	var gfxBackend::initialize(list args) {
+		if (args.size() == 0 || !args[0].isObject())
+			return genericError("Graphics initialization requires a window");
 		auto win = args[0].getObject<window>();
 		setObject("window", win);
 		auto ws = win.getBackend();

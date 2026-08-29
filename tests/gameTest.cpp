@@ -258,6 +258,19 @@ TEST(gpu_texture_cleanup_is_idempotent) {
 	EXPECT_EQ(texture.getUInt16("idx"), bgfx::kInvalidHandle);
 }
 
+TEST(headless_graphics_lifecycle) {
+	gfxBackend gfx;
+	EXPECT_TRUE(gfx.initialize(list()).isError());
+	auto win = window(obj({{"backend", "headless"}}));
+	EXPECT_FALSE(win.create().isError());
+	EXPECT_FALSE(gfx.initialize({win}).isError());
+	EXPECT_FALSE(gfx.preFrame().isError());
+	EXPECT_FALSE(gfx.renderFrame().isError());
+	EXPECT_FALSE(gfx.destroy().isError());
+	EXPECT_FALSE(gfx.destroy().isError());
+	win.destroy();
+}
+
 int main() {
 	return goldtest::runAll();
 }
