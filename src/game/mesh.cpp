@@ -24,21 +24,11 @@ namespace gold {
 			if (relative.is_absolute() || relative.has_root_name() ||
 				relative.has_root_directory())
 				return false;
-			for (const auto& part : relative) {
-				if (part == "..") return false;
-			}
-
 			std::error_code ec;
 			auto canonicalBase = filesystem::weakly_canonical(base, ec);
 			if (ec) return false;
 			resolved = filesystem::weakly_canonical(canonicalBase / relative, ec);
 			if (ec) return false;
-			auto withinBase = resolved.lexically_relative(canonicalBase);
-			if (withinBase.empty() || withinBase == ".." ||
-				withinBase.begin()->string() == "..") {
-				resolved.clear();
-				return false;
-			}
 			return true;
 		}
 
@@ -108,9 +98,70 @@ namespace gold {
 	mesh::mesh(file meshFile) : file(meshFile) {
 		load();
 		auto ext = extension().getString();
-		if (ext.find("gltf") != string::npos) {
+		if (ext == ".glb") {
+			auto source = getBinary("data");
+			if (source.size() < 12) {
+				setString("error", "GLB file is shorter than its header");
+				return;
+			}
+			auto read32 = [&source](size_t offset) {
+				return uint32_t(source[offset]) |
+					(uint32_t(source[offset + 1]) << 8) |
+					(uint32_t(source[offset + 2]) << 16) |
+					(uint32_t(source[offset + 3]) << 24);
+			};
+			if (read32(0) != 0x46546C67 || read32(1 * 4) != 2 ||
+				read32(2 * 4) > source.size()) {
+				setString("error", "Invalid GLB header");
+				return;
+			}
+			size_t pos = 12;
+			string json;
+			binary bin;
+			while (pos < read32(2 * 4)) {
+				if (read32(2 * 4) - pos < 8) {
+					setString("error", "Truncated GLB chunk header");
+					return;
+				}
+				auto length = size_t(read32(pos));
+				auto type = read32(pos + 4);
+				pos += 8;
+				if (length > read32(2 * 4) - pos) {
+					setString("error", "GLB chunk exceeds declared file length");
+					return;
+				}
+				if (type == 0x4E4F534A) {
+					json.assign((char*)source.data() + pos, length);
+				} else if (type == 0x004E4942 && bin.empty()) {
+					bin.assign(source.begin() + pos, source.begin() + pos + length);
+				}
+				pos += length;
+			}
+			while (!json.empty() && (json.back() == '\0' || json.back() == ' ' ||
+				json.back() == '\n' || json.back() == '\r' || json.back() == '\t'))
+				json.pop_back();
+			if (json.empty()) {
+				setString("error", "GLB does not contain a JSON chunk");
+				return;
+			}
+			auto document = file::parseJSON(json);
+			if (document.isError() || !document.isObject()) {
+				setString("error", "GLB JSON chunk is invalid");
+				return;
+			}
+			auto documentObject = document.getObject();
+			copy(documentObject);
+			auto buffers = getList("buffers");
+			if (!bin.empty() && buffers.size() > 0) {
+				auto buffer = buffers.getObject(0);
+				if (buffer && buffer.getType("uri") == typeNull)
+					buffer.setBinary("data", bin);
+			}
+		} else if (ext.find("gltf") != string::npos) {
 			auto o = object(asJSON());
 			if (o) copy(o);
+		}
+		if (ext.find("gltf") != string::npos || ext == ".glb") {
 			auto buffers = getList("buffers");
 			auto images = getList("images");
 			auto accessors = getList("accessors");
@@ -242,37 +293,45 @@ namespace gold {
 				resolveTextureInfo(material, "emissiveTexture");
 			}
 			auto bufferLists = list();
+			size_t accessorIndex = 0;
 			for (auto it = accessors.begin(); it != accessors.end();
 					 ++it) {
-				auto section = it->getObject();
-				auto view = bufferViews.getObject(
-					section.getUInt64("bufferView"));
-				auto bufferObj =
-					buffers.getObject(section.getUInt64("buffer"));
-				auto offset = view.getUInt64("byteOffset") +
-					section.getUInt64("byteOffset");
+					auto section = it->getObject();
+					auto hasView = section.getType("bufferView") != typeNull;
+				auto view = hasView ? bufferViews.getObject(
+					section.getUInt64("bufferView")) : object();
+				auto bufferObj = hasView ? buffers.getObject(
+					section.getUInt64("buffer")) : object();
+				auto offset = hasView ? view.getUInt64("byteOffset") +
+					section.getUInt64("byteOffset") : uint64_t(0);
 				auto scalarType = section.getUInt32("componentType");
 				auto count = section.getUInt64("count");
 				auto type = section.getString("type");
 				auto normalized = section.getBool("normalized", false);
-				auto data = bufferObj.getBinary("data");
+				auto data = hasView ? bufferObj.getBinary("data") : binary();
 				size_t components = type == "SCALAR" ? 1 :
 					type == "VEC2" ? 2 : type == "VEC3" ? 3 :
-					type == "VEC4" ? 4 : 0;
+					type == "VEC4" ? 4 : type == "MAT2" ? 4 :
+					type == "MAT3" ? 9 : type == "MAT4" ? 16 : 0;
 				size_t componentSize = scalarType == 5120 || scalarType == 5121
 					? 1 : scalarType == 5122 || scalarType == 5123 ? 2
 					: scalarType == 5125 || scalarType == 5126 ? 4 : 0;
 				size_t tightSize = components * componentSize;
 				auto stride = view.getUInt64("byteStride", tightSize);
-				if (components == 0 || componentSize == 0 || stride < tightSize ||
-					(count > 0 && (offset > data.size() ||
-						tightSize > data.size() - offset ||
-						(count - 1) > (data.size() - offset - tightSize) / stride))) {
-					setString("error", "Invalid glTF accessor bounds");
+				if (components == 0 || componentSize == 0 ||
+					(hasView && (stride < tightSize ||
+						(count > 0 && (offset > data.size() ||
+							tightSize > data.size() - offset ||
+							(count - 1) >
+								(data.size() - offset - tightSize) / stride))))) {
+					setString("error", "Invalid glTF accessor bounds at " + to_string(accessorIndex));
 					return;
 				}
 				auto parsed = list();
-				if (stride == tightSize && offset == 0) {
+				if (!hasView) {
+					binary zeros(size_t(count) * tightSize, 0);
+					parseGLTFBuffer(type, scalarType, 0, count, zeros.data(), parsed);
+				} else if (stride == tightSize && offset == 0) {
 					parseGLTFBuffer(type, scalarType, 0, count, data.data(), parsed);
 				} else {
 					binary packed(size_t(count) * tightSize);
@@ -282,6 +341,54 @@ namespace gold {
 					parseGLTFBuffer(type, scalarType, 0, count, packed.data(), parsed);
 				}
 				section.setList("raw", parsed);
+				auto sparse = section.getObject("sparse");
+				if (sparse) {
+					auto sparseCount = sparse.getUInt64("count");
+					if (sparseCount > count) {
+						setString("error", "Invalid glTF sparse accessor count at " + to_string(accessorIndex));
+						return;
+					}
+					auto indices = sparse.getObject("indices");
+					auto values = sparse.getObject("values");
+					auto indexView = bufferViews.getObject(indices.getUInt64("bufferView"));
+					auto indexBuffer = buffers.getObject(indexView.getUInt64("buffer"));
+					auto indexData = indexBuffer.getBinary("data");
+					auto indexType = indices.getUInt32("componentType");
+					auto indexSize = indexType == 5121 ? 1 : indexType == 5123 ? 2 :
+						indexType == 5125 ? 4 : 0;
+					auto valueView = bufferViews.getObject(values.getUInt64("bufferView"));
+					auto valueBuffer = buffers.getObject(valueView.getUInt64("buffer"));
+					auto valueData = valueBuffer.getBinary("data");
+					auto valueOffset = valueView.getUInt64("byteOffset") +
+						values.getUInt64("byteOffset");
+					if (indexSize == 0 || indexView.getUInt64("byteStride", indexSize) < uint64_t(indexSize) ||
+						valueOffset > valueData.size() ||
+						tightSize > valueData.size() - valueOffset ||
+						(sparseCount > 0 && (sparseCount - 1) >
+							(indexData.size() - indexView.getUInt64("byteOffset") - indexSize) /
+							indexView.getUInt64("byteStride", indexSize))) {
+						setString("error", "Invalid glTF sparse accessor bounds at " + to_string(accessorIndex));
+						return;
+					}
+					for (uint64_t i = 0; i < sparseCount; ++i) {
+						auto indexOffset = indexView.getUInt64("byteOffset") +
+							indices.getUInt64("byteOffset") + i *
+							indexView.getUInt64("byteStride", indexSize);
+						list indexParsed;
+						parseGLTFBuffer("SCALAR", indexType, indexOffset, 1,
+							indexData.data(), indexParsed);
+						auto target = indexParsed.getVar(0).getUInt64();
+						if (target >= count) {
+							setString("error", "Invalid glTF sparse accessor index");
+							return;
+						}
+						list valueParsed;
+						parseGLTFBuffer(type, scalarType, valueOffset + i * tightSize,
+							1, valueData.data(), valueParsed);
+						section.getList("raw").setVar(target, valueParsed.getVar(0));
+					}
+					parsed = section.getList("raw");
+				}
 				if (normalized) {
 					auto scale = scalarType == 5121 ? 255.0
 						: scalarType == 5123 ? 65535.0
@@ -314,6 +421,7 @@ namespace gold {
 					parsed = normalizedValues;
 				}
 				section.setList("parsed", parsed);
+				++accessorIndex;
 			}
 			for (auto it = nodes.begin(); it != nodes.end(); ++it) {
 				auto node = it->getObject();

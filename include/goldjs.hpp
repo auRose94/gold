@@ -6,10 +6,10 @@
 // (varRef, via v["key"] / v[i]). This header adds small helpers that make
 // gold objects read like JS literals and pipelines:
 //
-//   auto user = o(
+//   auto user = jo(
 //     "name", "bob",
-//     "tags", a("admin", "dev"),
-//     "stats", o("age", 30, "score", 9.5)
+//     "tags", ja("admin", "dev"),
+//     "stats", jo("age", 30, "score", 9.5)
 //   );
 //   user["score"] = 10;                 // write through
 //   tpl("Hello $0, you scored $1", user["name"], user["score"]);  // "Hello bob, ..."

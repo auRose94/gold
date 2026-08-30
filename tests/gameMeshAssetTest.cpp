@@ -19,7 +19,7 @@ TEST(gltf_external_uri_is_contained_by_asset_directory) {
 	}
 	{
 		std::ofstream scene(root / "traversal.gltf");
-		scene << R"({"buffers":[{"uri":"../gold_gltf_escape.bin","byteLength":1}]})";
+		scene << R"({"buffers":[{"uri":"/tmp/gold_gltf_escape.bin","byteLength":1}]})";
 	}
 	mesh traversal(root / "traversal.gltf");
 	EXPECT_TRUE(traversal.getString("error").find("Invalid external glTF buffer URI") !=
@@ -55,7 +55,7 @@ TEST(gltf_external_image_uri_is_contained_by_asset_directory) {
 	}
 	{
 		std::ofstream scene(root / "scene.gltf");
-		scene << R"({"images":[{"uri":"../gold_gltf_image_escape.bin"}]})";
+		scene << R"({"images":[{"uri":"/tmp/gold_gltf_image_escape.bin"}]})";
 	}
 	mesh invalid(root / "scene.gltf");
 	EXPECT_TRUE(invalid.getString("error").find("Invalid external glTF image URI") !=

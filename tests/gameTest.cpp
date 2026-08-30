@@ -286,6 +286,44 @@ TEST(public_game_entrypoints_report_invalid_calls) {
 	EXPECT_TRUE(renderer.draw(list()).isError());
 }
 
+TEST(glb_embedded_json_and_binary_chunks) {
+	auto root = std::filesystem::temp_directory_path() / "gold_glb_test";
+	std::error_code ec;
+	std::filesystem::remove_all(root, ec);
+	std::filesystem::create_directories(root);
+	auto json = std::string(
+		R"({"buffers":[{"byteLength":4}],"bufferViews":[{"buffer":0,"byteLength":4}],"accessors":[{"bufferView":0,"componentType":5125,"count":1,"type":"SCALAR"}]})");
+	while (json.size() % 4 != 0) json.push_back(' ');
+	std::vector<uint8_t> glb;
+	auto put32 = [&glb](uint32_t value) {
+		for (int i = 0; i < 4; ++i) glb.push_back(uint8_t(value >> (i * 8)));
+	};
+	put32(0x46546C67);
+	put32(2);
+	put32(uint32_t(12 + 8 + json.size() + 8 + 4));
+	put32(uint32_t(json.size()));
+	put32(0x4E4F534A);
+	glb.insert(glb.end(), json.begin(), json.end());
+	put32(4);
+	put32(0x004E4942);
+	put32(0x12345678);
+	std::ofstream output(root / "scene.glb", std::ios::binary);
+	output.write(reinterpret_cast<const char*>(glb.data()), glb.size());
+	output.close();
+
+	mesh loaded(root / "scene.glb");
+	EXPECT_EQ(loaded.getString("error"), "");
+	EXPECT_EQ(loaded.getList("accessors").getObject(0).getList("parsed")
+		.getUInt32(0), 0x12345678u);
+
+	std::ofstream bad(root / "bad.glb", std::ios::binary);
+	bad.write("bad", 3);
+	bad.close();
+	mesh invalid(root / "bad.glb");
+	EXPECT_TRUE(invalid.getString("error").find("GLB") != string::npos);
+	std::filesystem::remove_all(root, ec);
+}
+
 int main() {
 	return goldtest::runAll();
 }

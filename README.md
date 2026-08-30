@@ -1,7 +1,7 @@
-# [gold](https://github.com/CoryNull/gold) - Generic Object Linked Development 
+# [gold](https://github.com/auRose94/gold) - Generic Object Linked Development 
 ### A high level app framework
 
-[![License](https://img.shields.io/badge/license-Apache%202-blue)](https://github.com/CoryNull/gold/LICENSE)
+[![License](https://img.shields.io/badge/license-Apache%202-blue)](https://github.com/auRose94/gold/LICENSE)
 
 What is this?
 
@@ -119,6 +119,14 @@ To build the example projects in-tree:
 ```sh
 cmake -S . -B build -DGOLD_BUILD_EXAMPLES=ON
 cmake --build build --target ConwaysGameOfLife MyWebProject
+```
+
+To inspect a KoboldKare Blahaj glTF asset (or another glTF/GLB file):
+
+```sh
+cmake --build build --target BlahajExample
+./build/examples/blahajExample/BlahajExample \
+  /home/rose/kodot-kare/Output/models/props/Blahaj/Blahaj_Low_poly_blahaj1_Low_poly_blahaj1.gltf
 ```
 
 > Crypto (PBKDF2 password hashing, URL-safe base64) is provided by the system

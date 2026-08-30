@@ -7,11 +7,11 @@ conventions.
 
 ## JS-style ergonomics (the default way to write gold code)
 
-- **Build objects/arrays with `o(...)` / `a(...)`** (`include/goldjs.hpp`)
+- **Build objects/arrays with `jo(...)` / `ja(...)`** (`include/goldjs.hpp`)
   instead of `obj({{"k", v}, ...})` / `list({...})`:
 
   ```cpp
-  auto user = o("name", "bob", "age", 30, "tags", a("admin", "dev"));
+  auto user = jo("name", "bob", "age", 30, "tags", ja("admin", "dev"));
   ```
 
 - **Read/write through `varRef` (`v["key"]`, `v[i]`, `obj["key"]`,
@@ -22,7 +22,7 @@ conventions.
   string n = user["name"];     // was: auto n = user.getString("name")
   ```
 
-- **Template strings** with `t("...$0...$1", a, b)` instead of manual
+- **Template strings** with `tpl("...$0...$1", a, b)` instead of manual
   concatenation.
 
 - **Use `var` + `auto`** for locals; let `var` hold strings, numbers,
@@ -67,3 +67,10 @@ host via the `script` facade (`setGlobal`/`getGlobal`/`eval`/`call`).
 - Full: `./build.sh` (modules, tests, examples).
 - New behavior ships with tests in `tests/test.cpp` / `tests/gameTest.cpp` /
   `tests/langTest.cpp`.
+
+<!-- lean-ctx -->
+## lean-ctx
+
+lean-ctx is active — the MCP tools replace native equivalents.
+Full rules: LEAN-CTX.md (open on demand — do not auto-load).
+<!-- /lean-ctx -->

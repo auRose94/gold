@@ -158,6 +158,27 @@ TEST(lang_script_facade) {
 	EXPECT_EQ(access.getString(), "gold-3");
 }
 
+TEST(lang_logical_operands) {
+	// `||`/`&&` return the deciding operand (JS semantics), enabling the
+	// `x || default` idiom rather than collapsing to a boolean.
+	EXPECT_EQ(langRun("\"\" || \"default\";", object(), false).getString(), "default");
+	EXPECT_EQ(langRun("0 || 42;", object(), false).getInt64(), 42);
+	EXPECT_EQ(langRun("\"hi\" && \"there\";", object(), false).getString(), "there");
+	// falsy left operand is returned for `&&`
+	EXPECT_TRUE(langRun("null && 5;", object(), false).getType() == typeNull);
+	// still valid as a boolean condition
+	EXPECT_TRUE(langRun("1 && 2;", object(), false).getBool());
+	EXPECT_FALSE(langRun("0 || 0;", object(), false).getBool());
+}
+
+TEST(lang_postfix_update) {
+	// Postfix `i++`/`i--` yield the OLD value, then update the variable.
+	EXPECT_EQ(langRun("let i = 5; let x = i++; x;", object(), false).getInt64(), 5);
+	EXPECT_EQ(langRun("let i = 5; let x = i++; i;", object(), false).getInt64(), 6);
+	EXPECT_EQ(langRun("let i = 5; let x = i--; x;", object(), false).getInt64(), 5);
+	EXPECT_EQ(langRun("let i = 5; let x = i--; i;", object(), false).getInt64(), 4);
+}
+
 int main() {
 	return goldtest::runAll();
 }

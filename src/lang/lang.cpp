@@ -1730,8 +1730,8 @@ bool truthy(const var& v) {
 							return var(l.getUInt64() < r.getList().size());
 						return var(false);
 					}
-					if (op == "&&") return var(truthy(l) && truthy(r));
-					if (op == "||") return var(truthy(l) || truthy(r));
+					if (op == "&&") return var(truthy(l) ? r : l);
+					if (op == "||") return var(truthy(l) ? l : r);
 					if (op == "==" || op == "===")
 						return var((l == r));
 					if (op == "!=" || op == "!==")
@@ -1767,7 +1767,9 @@ bool truthy(const var& v) {
 					auto target = o.getVar("a").getObject();
 					if (target.getString("t") == "ident")
 						assignIdent(target.getString("n"), v, env);
-					return v;
+					// Postfix semantics: return the OLD value (the update
+					// still happened). `i++` yields i, then i becomes i+1.
+					return a;
 				}
 				if (t == "tern") {
 					auto c = evalNode(o.getVar("c"), env);

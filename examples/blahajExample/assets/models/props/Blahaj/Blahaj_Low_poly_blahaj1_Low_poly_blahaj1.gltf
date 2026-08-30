@@ -1,0 +1,141 @@
+{
+  "asset": {
+    "version": "2.0",
+    "generator": "UnityMCP"
+  },
+  "scene": 0,
+  "scenes": [
+    {
+      "nodes": [
+        0
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "name": "Low_poly_blahaj1",
+      "mesh": 0
+    }
+  ],
+  "meshes": [
+    {
+      "name": "",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+            "TEXCOORD_0": 2
+          },
+          "indices": 3,
+          "material": 0
+        }
+      ]
+    }
+  ],
+  "materials": [
+    {
+      "name": "Shark",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "metallicFactor": 0,
+        "roughnessFactor": 0.5527864,
+        "baseColorTexture": {
+          "index": 0
+        }
+      }
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5126,
+      "count": 1423,
+      "type": "VEC3",
+      "min": [
+        -0.2113193,
+        -0.1835608,
+        -0.689553
+      ],
+      "max": [
+        0.2066541,
+        0.3216731,
+        0.4560235
+      ]
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 1423,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "componentType": 5126,
+      "count": 1423,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 3,
+      "componentType": 5123,
+      "count": 6810,
+      "type": "SCALAR"
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteOffset": 0,
+      "byteLength": 17076,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 17076,
+      "byteLength": 17076,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 34152,
+      "byteLength": 11384,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 45536,
+      "byteLength": 13620,
+      "target": 34963
+    }
+  ],
+  "buffers": [
+    {
+      "uri": "Blahaj_Low_poly_blahaj1_Low_poly_blahaj1.bin",
+      "byteLength": 59156
+    }
+  ],
+  "textures": [
+    {
+      "sampler": 0,
+      "source": 0
+    }
+  ],
+  "images": [
+    {
+      "uri": "../../textures/Blahaj_lowpoly_blahaj_BaseColor.tga.png"
+    }
+  ],
+  "samplers": [
+    {
+      "magFilter": 9729,
+      "minFilter": 9987,
+      "wrapS": 10497,
+      "wrapT": 10497
+    }
+  ]
+}

@@ -24,7 +24,6 @@ BinPackArguments: 'true'
 BinPackParameters: 'true'
 ConstructorInitializerIndentWidth: '2'
 ContinuationIndentWidth: '2'
-ExperimentalAutoDetectBinPacking: 'true'
 IncludeBlocks: Regroup
 AlwaysBreakTemplateDeclarations: MultiLine
 AlignAfterOpenBracket: AlwaysBreak

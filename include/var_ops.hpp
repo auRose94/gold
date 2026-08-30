@@ -36,7 +36,6 @@ inline bool equalVec(const var& a, const var& b) {
     size_t n = vecSize(a.getType());
     if (n == 0) return false;
     for (size_t i = 0; i < n; ++i) {
-        // Use generic getters; they convert as needed
         if (a.getType() == typeVec2Float || a.getType() == typeVec3Float || a.getType() == typeVec4Float ||
             a.getType() == typeQuatFloat || a.getType() == typeMat3x3Float || a.getType() == typeMat4x4Float) {
             if (a.getFloat(i) != b.getFloat(i)) return false;
@@ -49,6 +48,32 @@ inline bool equalVec(const var& a, const var& b) {
     }
     return true;
 }
+
+// Generic element-wise comparison for vectors
+inline bool compareVec(const var& a, const var& b, std::function<bool(double,double)> cmp) {
+    if (a.getType() != b.getType()) return false;
+    size_t n = vecSize(a.getType());
+    if (n == 0) return false;
+    for (size_t i = 0; i < n; ++i) {
+        double av, bv;
+        if (a.getType() == typeVec2Float || a.getType() == typeVec3Float || a.getType() == typeVec4Float ||
+            a.getType() == typeQuatFloat || a.getType() == typeMat3x3Float || a.getType() == typeMat4x4Float) {
+            av = a.getFloat(i); bv = b.getFloat(i);
+        } else if (a.getType() == typeVec2Double || a.getType() == typeVec3Double || a.getType() == typeVec4Double ||
+                   a.getType() == typeQuatDouble || a.getType() == typeMat3x3Double || a.getType() == typeMat4x4Double) {
+            av = a.getDouble(i); bv = b.getDouble(i);
+        } else {
+            av = a.getInt64(i); bv = b.getInt64(i);
+        }
+        if (!cmp(av, bv)) return false;
+    }
+    return true;
+}
+
+inline bool lessEqualVec(const var& a, const var& b) { return compareVec(a,b, [](double x,double y){ return x <= y; }); }
+inline bool greaterEqualVec(const var& a, const var& b) { return compareVec(a,b, [](double x,double y){ return x >= y; }); }
+inline bool lessVec(const var& a, const var& b) { return compareVec(a,b, [](double x,double y){ return x < y; }); }
+inline bool greaterVec(const var& a, const var& b) { return compareVec(a,b, [](double x,double y){ return x > y; }); }
 
 } // namespace var_ops
 } // namespace gold
