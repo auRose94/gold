@@ -121,7 +121,7 @@ cmake -S . -B build -DGOLD_BUILD_EXAMPLES=ON
 cmake --build build --target ConwaysGameOfLife MyWebProject
 ```
 
-To inspect a KoboldKare Blahaj glTF asset (or another glTF/GLB file):
+To inspect a glTF asset (or another glTF/GLB file):
 
 ```sh
 cmake --build build --target BlahajExample

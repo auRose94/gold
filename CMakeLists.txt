@@ -91,6 +91,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD 26)
 
+# Export a full compile_commands.json (all C++ targets, not just the C
+# files that libuv's nested scope exports) so clangd/LSP resolves the
+# correct standard and include paths.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 include(cmake/shared.cmake)
 if(GOLD_BUILD_LANG)
 	include(cmake/lang.cmake)

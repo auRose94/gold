@@ -11,6 +11,7 @@
 #include <memory>
 #include <mutex>
 #include <ostream>
+#include <shared_mutex>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -23,6 +24,7 @@ namespace gold {
 	using std::map;
 	using std::mutex;
 	using std::ostream;
+	using std::shared_mutex;
 	using std::shared_ptr;
 	using std::string;
 	using std::string_view;
@@ -145,6 +147,23 @@ namespace gold {
 				int16_t* i16;
 				int8_t* i8;
 				bool* b;
+			};
+			// Inline storage for scalar values. The pointer members above
+			// point here for scalar types, so no separate heap allocation is
+			// needed for ints/floats/bools. Vector/matrix types still use
+			// heap arrays via the pointer members.
+			union {
+				int64_t i64s;
+				int32_t i32s;
+				int16_t i16s;
+				int8_t i8s;
+				uint64_t u64s;
+				uint32_t u32s;
+				uint16_t u16s;
+				uint8_t u8s;
+				double ds;
+				float fs;
+				bool bs;
 			};
 			types type;
 			~varContainer();
@@ -337,7 +356,7 @@ namespace gold {
 		typedef std::vector<var> avec;
 		struct arrData {
 			avec items;
-			mutex amutex;
+			shared_mutex amutex;
 		};
 		shared_ptr<arrData> data;
 

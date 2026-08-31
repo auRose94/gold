@@ -6,6 +6,9 @@ add_library(
 	goldLang
 	SHARED
 		src/lang/lang.cpp
+		src/lang/lexer.cpp
+		src/lang/parser.cpp
+		src/lang/interpreter.cpp
 )
 
 add_library(

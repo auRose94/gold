@@ -35,7 +35,7 @@ jobs:
           -DGOLD_BUILD_WEB=OFF
 
       - name: Build
-        run: cmake --build build --target goldTests
+        run: cmake --build build
 
       - name: Test
         run: ctest --test-dir build --output-on-failure

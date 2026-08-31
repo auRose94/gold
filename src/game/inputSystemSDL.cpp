@@ -1,4 +1,5 @@
 #include "game/inputSystem.hpp"
+#include "goldjs.hpp"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_gamepad.h>
@@ -41,42 +42,36 @@ namespace gold {
 				switch (e.type) {
 					case SDL_EVENT_GAMEPAD_ADDED:
 						openConnectedGamepads();
-						out = object({{"type", "gamepad_added"},
-							{"id", (int64_t)e.gdevice.which}});
+						out = jo("type", "gamepad_added",
+							"id", (int64_t)e.gdevice.which);
 						return true;
 					case SDL_EVENT_GAMEPAD_REMOVED:
 						closeGamepad(e.gdevice.which);
-						out = object({{"type", "gamepad_removed"},
-							{"id", (int64_t)e.gdevice.which}});
+						out = jo("type", "gamepad_removed",
+							"id", (int64_t)e.gdevice.which);
 						return true;
 					case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
 					case SDL_EVENT_GAMEPAD_BUTTON_UP:
-						out = object({
-							{"type", "gamepad_button"},
-							{"id", (int64_t)e.gbutton.which},
-							{"button", (int64_t)e.gbutton.button},
-							{"down", e.gbutton.down},
-						});
+						out = jo("type", "gamepad_button",
+							"id", (int64_t)e.gbutton.which,
+							"button", (int64_t)e.gbutton.button,
+							"down", e.gbutton.down);
 						return true;
 					case SDL_EVENT_GAMEPAD_AXIS_MOTION:
-						out = object({
-							{"type", "gamepad_axis"},
-							{"id", (int64_t)e.gaxis.which},
-							{"axis", (int64_t)e.gaxis.axis},
-							{"value", (int64_t)e.gaxis.value},
-						});
+						out = jo("type", "gamepad_axis",
+							"id", (int64_t)e.gaxis.which,
+							"axis", (int64_t)e.gaxis.axis,
+							"value", (int64_t)e.gaxis.value);
 						return true;
 					case SDL_EVENT_GAMEPAD_TOUCHPAD_DOWN:
 					case SDL_EVENT_GAMEPAD_TOUCHPAD_MOTION:
 					case SDL_EVENT_GAMEPAD_TOUCHPAD_UP:
-						out = object({
-							{"type", "gamepad_touchpad"},
-							{"id", (int64_t)e.gtouchpad.which},
-							{"touchpad", (int64_t)e.gtouchpad.touchpad},
-							{"finger", (int64_t)e.gtouchpad.finger},
-							{"x", e.gtouchpad.x},
-							{"y", e.gtouchpad.y},
-						});
+						out = jo("type", "gamepad_touchpad",
+							"id", (int64_t)e.gtouchpad.which,
+							"touchpad", (int64_t)e.gtouchpad.touchpad,
+							"finger", (int64_t)e.gtouchpad.finger,
+							"x", e.gtouchpad.x,
+							"y", e.gtouchpad.y);
 						return true;
 					case SDL_EVENT_FINGER_DOWN:
 					case SDL_EVENT_FINGER_MOTION:
@@ -87,26 +82,22 @@ namespace gold {
 						else if (e.type == SDL_EVENT_FINGER_UP) type = "touch_up";
 						else if (e.type == SDL_EVENT_FINGER_CANCELED)
 							type = "touch_cancel";
-						out = object({
-							{"type", type},
-							{"touchId", (int64_t)e.tfinger.touchID},
-							{"fingerId", (int64_t)e.tfinger.fingerID},
-							{"x", e.tfinger.x},
-							{"y", e.tfinger.y},
-							{"dx", e.tfinger.dx},
-							{"dy", e.tfinger.dy},
-							{"pressure", e.tfinger.pressure},
-						});
+						out = jo("type", type,
+							"touchId", (int64_t)e.tfinger.touchID,
+							"fingerId", (int64_t)e.tfinger.fingerID,
+							"x", e.tfinger.x,
+							"y", e.tfinger.y,
+							"dx", e.tfinger.dx,
+							"dy", e.tfinger.dy,
+							"pressure", e.tfinger.pressure);
 						return true;
 					}
 					case SDL_EVENT_SENSOR_UPDATE:
-						out = object({
-							{"type", "sensor"},
-							{"id", (int64_t)e.sensor.which},
-							{"x", e.sensor.data[0]},
-							{"y", e.sensor.data[1]},
-							{"z", e.sensor.data[2]},
-						});
+						out = jo("type", "sensor",
+							"id", (int64_t)e.sensor.which,
+							"x", e.sensor.data[0],
+							"y", e.sensor.data[1],
+							"z", e.sensor.data[2]);
 						return true;
 					default:
 						// Not an input event; put it back so a window

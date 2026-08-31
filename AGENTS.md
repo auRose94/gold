@@ -68,6 +68,57 @@ host via the `script` facade (`setGlobal`/`getGlobal`/`eval`/`call`).
 - New behavior ships with tests in `tests/test.cpp` / `tests/gameTest.cpp` /
   `tests/langTest.cpp`.
 
+## Repository map
+
+- `include/` — public headers. `goldjs.hpp` (JS sugar), `types.hpp` (`var`),
+  `module.hpp` (runtime loader), `file.hpp`, `image.hpp`, `promise.hpp`,
+  `worker.hpp`. Subdirs: `game/`, `lang/`, `web/`.
+- `src/` — core implementation (`var.cpp`, `object.cpp`, `list.cpp`,
+  `types.cpp`, `goldjson.cpp`, `file.cpp`, `module.cpp`, `image.cpp`,
+  `promise.cpp`, `worker.cpp`). Subdirs: `game/`, `lang/`, `web/`.
+- `cmake/` — build recipes: `shared.cmake`, `lang.cmake`, `game.cmake`,
+  `web.cmake`, `tests.cmake`, `shaders.cmake`, `shadercParse.cmake`.
+- `tests/` — test suite (see below).
+- `examples/` — runnable projects (`langExample`, `blahajExample`,
+  `conwaysGameOfLife`, `myWebProject`).
+- `docs/` — module docs; `docs/index.md` is the entry point.
+- `3rdParty/` — git submodules (SDL, bgfx, bullet3, etc.). Do not edit.
+
+## Test suite
+
+Tests use the `goldtest` micro-framework (`tests/goldtest.hpp`): a `TEST(name)`
+macro registers a group, and `EXPECT` / `EXPECT_EQ` / `EXPECT_NE` /
+`EXPECT_NEAR` / `EXPECT_TRUE` / `EXPECT_FALSE` record checks. Each test
+executable is a separate CTest target:
+
+| Target | File(s) | Module |
+| --- | --- | --- |
+| `goldTests` | `tests/test.cpp`, `tests/test_file_decode.cpp` | core |
+| `goldFileErrorTests` | `tests/test_file_errors.cpp` | core |
+| `goldSubsystemTests` | `tests/subsystem_test.cpp` | core |
+| `goldLangTests` | `tests/langTest.cpp` | lang |
+| `goldGameTests` | `tests/gameTest.cpp`, `tests/gameMeshAssetTest.cpp` | game |
+| `goldRenderBackendTests` | `tests/renderBackendTest.cpp` | game |
+| `goldWebTests` | `tests/webTest.cpp` | web |
+| `goldWebPersistenceTests` | `tests/webPersistenceTest.cpp` | web |
+
+To add a test: put a `TEST(...)` block in the matching file (or add a new
+`.cpp` and register it in `cmake/tests.cmake`). Run the whole suite with
+`ctest --test-dir build --output-on-failure`, or a single target with
+`cmake --build build --target goldTests && ./build/tests/goldTests`.
+
+## Verify your change
+
+Before finishing, run the relevant build + tests and confirm they pass:
+
+1. `./build.sh --core` (fast core + tests) — always.
+2. If you touched `lang/`, `game/`, or `web/` code, run the full
+   `./build.sh` so those module tests build and pass.
+3. If you changed CMake or added a test file, confirm the new target is
+   registered in `cmake/tests.cmake` and appears in `ctest -N`.
+4. Keep the docs in sync: update `docs/index.md` and the relevant module doc
+   when you add or rename a public API or module.
+
 <!-- lean-ctx -->
 ## lean-ctx
 

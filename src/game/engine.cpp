@@ -156,6 +156,28 @@ namespace gold {
 
 	void engine::callMethod(string m, list args) {
 		auto comps = getList("components");
+		// Parallel dispatch of component updates across the promise worker
+		// pool (on by default; disable with config "parallelUpdate": false).
+		// Requires promise::useAllCores() to have been called; otherwise
+		// awaitList() runs each update synchronously (same as the default
+		// path). Draw and other methods stay on the main thread.
+		auto config = getObject("config");
+		if (m == "update" && config.getBool("parallelUpdate", true)) {
+			list jobs;
+			for (auto it = comps.begin(); it != comps.end(); ++it) {
+				auto comp = it->getObject<component>();
+				if (comp) {
+					// func preserves dynamic dispatch through the prototype
+					// chain; the promise prepends self, which we ignore.
+					auto f = func([comp](list) mutable -> var {
+						return comp.callMethod("update");
+					});
+					jobs.pushObject(promise(comp, f, args));
+				}
+			}
+			awaitList(jobs);
+			return;
+		}
 		for (auto it = comps.begin(); it != comps.end(); ++it) {
 			auto comp = it->getObject<component>();
 			comp.callMethod(m, args);

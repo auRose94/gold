@@ -4,6 +4,10 @@
 #include "promise.hpp"
 #include "worker.hpp"
 
+#include <atomic>
+#include <thread>
+#include <vector>
+
 using namespace gold;
 
 TEST(worker_drains_and_clears_jobs) {
@@ -70,6 +74,96 @@ TEST(malformed_inputs_are_errors) {
 	EXPECT_TRUE(file::parseCBOR(bytes).isError());
 	EXPECT_TRUE(file::parseMsgPack(bytes).isError());
 	EXPECT_TRUE(file::parseUBJSON(bytes).isError());
+}
+
+TEST(concurrent_object_reads_and_writes) {
+	// Hammer a shared object from many threads: concurrent readers must not
+	// block each other (shared_mutex), and writers must not corrupt state.
+	object shared;
+	shared.setInt64("counter", 0);
+	shared.setString("name", "gold");
+
+	const int kThreads = 8;
+	const int kIters = 2000;
+	std::atomic<int> errors{0};
+
+	std::vector<std::thread> threads;
+	for (int t = 0; t < kThreads; ++t) {
+		threads.emplace_back([&, t]() {
+			for (int i = 0; i < kIters; ++i) {
+				// Concurrent reads.
+				if (shared.getInt64("counter") < 0) ++errors;
+				if (shared.getString("name") != "gold") ++errors;
+				// Concurrent writes to distinct keys.
+				shared.setInt64("t" + std::to_string(t), i);
+				// Read back what we wrote.
+				if (shared.getInt64("t" + std::to_string(t)) != i) ++errors;
+			}
+		});
+	}
+	for (auto& th : threads) th.join();
+
+	EXPECT_EQ(errors.load(), 0);
+	EXPECT_EQ(shared.getInt64("counter"), 0);
+	EXPECT_EQ(shared.getString("name"), "gold");
+}
+
+TEST(concurrent_list_reads_and_writes) {
+	// Concurrent push + indexed read on a shared list.
+	list shared;
+	const int kThreads = 8;
+	const int kPerThread = 1000;
+	std::atomic<int> errors{0};
+
+	std::vector<std::thread> threads;
+	for (int t = 0; t < kThreads; ++t) {
+		threads.emplace_back([&, t]() {
+			for (int i = 0; i < kPerThread; ++i) {
+				shared.pushInt64(t * kPerThread + i);
+			}
+		});
+	}
+	for (auto& th : threads) th.join();
+
+	EXPECT_EQ(shared.size(), (uint64_t)(kThreads * kPerThread));
+
+	// Verify every element is present exactly once.
+	std::vector<int> seen(kThreads * kPerThread, 0);
+	for (uint64_t i = 0; i < shared.size(); ++i) {
+		auto v = shared.getInt64(i);
+		if (v < 0 || v >= (int64_t)seen.size()) { ++errors; continue; }
+		seen[v]++;
+	}
+	for (auto c : seen)
+		if (c != 1) ++errors;
+
+	EXPECT_EQ(errors.load(), 0);
+}
+
+TEST(concurrent_object_erase_and_owns) {
+	// Concurrent erase/owns on a shared object must not crash or corrupt.
+	// Each thread uses its own key so there is no cross-thread ordering
+	// dependency; we verify set->owns->erase->!owns is consistent per key.
+	object shared;
+	const int kThreads = 8;
+	const int kIters = 2000;
+	std::atomic<int> errors{0};
+
+	std::vector<std::thread> threads;
+	for (int t = 0; t < kThreads; ++t) {
+		threads.emplace_back([&, t]() {
+			auto key = "k" + std::to_string(t);
+			for (int i = 0; i < kIters; ++i) {
+				shared.setInt64(key, i);
+				if (!shared.owns(key)) ++errors;
+				shared.erase(key);
+				if (shared.owns(key)) ++errors;
+			}
+		});
+	}
+	for (auto& th : threads) th.join();
+
+	EXPECT_EQ(errors.load(), 0);
 }
 
 int main() {

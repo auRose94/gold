@@ -355,7 +355,7 @@ TEST(file_asset_pack_roundtrip) {
 }
 
 TEST(file_asset_pack_rejects_unsafe_input) {
-	EXPECT_TRUE(file::pack(list({obj({{"path", "../secret"}})})).isError());
+	EXPECT_TRUE(file::pack(list({jo("path", "../secret")})).isError());
 	auto bad = binary({'G', 'O', 'L', 'D', 'P', 'A', 'K', '1', 1, 0, 0, 0});
 	EXPECT_TRUE(file::unpack(bad).isError());
 }

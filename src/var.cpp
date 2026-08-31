@@ -34,17 +34,6 @@ namespace gold {
 			deleteType(typeObject, obj);
 			deleteType(typeString, str);
 			deleteType(typeBinary, bin);
-			deleteType(typeUInt64, u64);
-			deleteType(typeUInt32, u32);
-			deleteType(typeUInt16, u16);
-			deleteType(typeUInt8, u8);
-			deleteType(typeInt64, i64);
-			deleteType(typeInt32, i32);
-			deleteType(typeInt16, i16);
-			deleteType(typeInt8, i8);
-			deleteType(typeBool, b);
-			deleteType(typeDouble, d);
-			deleteType(typeFloat, f);
 			deleteType(typeMethod, me);
 			deleteType(typeFunction, fu);
 			deleteTypeB(typeVec2Float, f);
@@ -112,6 +101,16 @@ namespace gold {
 	ptr->type = t;                 \
 	sPtr = varPtr(ptr)
 
+// Scalar values are stored inline in the container (no second allocation).
+// The pointer member is set to point at the inline storage so existing
+// accessors (`*con->i64`, etc.) keep working unchanged.
+#define initScalar(v, t, member, ptrMember) \
+	auto ptr = new varContainer();           \
+	ptr->ptrMember = &ptr->member;           \
+	ptr->member = v;                         \
+	ptr->type = t;                           \
+	sPtr = varPtr(ptr)
+
 	var::var(void* v, types t) {
 		auto ptr = new varContainer();
 		ptr->data = v;
@@ -131,25 +130,25 @@ namespace gold {
 		initVar(view, typeStringView, string_view);
 	}
 
-	var::var(int64_t v) { initVar(v, typeInt64, int64_t); }
+	var::var(int64_t v) { initScalar(v, typeInt64, i64s, i64); }
 
-	var::var(int32_t v) { initVar(v, typeInt32, int32_t); }
+	var::var(int32_t v) { initScalar(v, typeInt32, i32s, i32); }
 
-	var::var(int16_t v) { initVar(v, typeInt16, int16_t); }
+	var::var(int16_t v) { initScalar(v, typeInt16, i16s, i16); }
 
-	var::var(int8_t v) { initVar(v, typeInt8, int8_t); }
+	var::var(int8_t v) { initScalar(v, typeInt8, i8s, i8); }
 
-	var::var(uint64_t v) { initVar(v, typeUInt64, uint64_t); }
+	var::var(uint64_t v) { initScalar(v, typeUInt64, u64s, u64); }
 
-	var::var(uint32_t v) { initVar(v, typeUInt32, uint32_t); }
+	var::var(uint32_t v) { initScalar(v, typeUInt32, u32s, u32); }
 
-	var::var(uint16_t v) { initVar(v, typeUInt16, uint16_t); }
+	var::var(uint16_t v) { initScalar(v, typeUInt16, u16s, u16); }
 
-	var::var(uint8_t v) { initVar(v, typeUInt8, uint8_t); }
+	var::var(uint8_t v) { initScalar(v, typeUInt8, u8s, u8); }
 
-	var::var(double v) { initVar(v, typeDouble, double); }
+	var::var(double v) { initScalar(v, typeDouble, ds, d); }
 
-	var::var(float v) { initVar(v, typeFloat, float); }
+	var::var(float v) { initScalar(v, typeFloat, fs, f); }
 
 	var::var(const list& v) { initVar(v, typeList, list); }
 
@@ -163,7 +162,7 @@ namespace gold {
 
 	var::var(func v) { initVar(v, typeFunction, func); }
 
-	var::var(bool v) { initVar(v, typeBool, bool); }
+	var::var(bool v) { initScalar(v, typeBool, bs, b); }
 
 	var::var(const genericError& v) {
 		initVar(v, typeException, genericError);

@@ -22,7 +22,7 @@ ctest --test-dir build --output-on-failure
 - [var / object / list](core/var_object_list.md)
 - [goldjs sugar](core/goldjs.md)
 - [Serialization](core/serialization.md)
-- [gold::lang scripting](lang/overview.md)
+- [gold::lang scripting](lang/scripting.md)
 - [Web module](web/overview.md)
 - [Game module](game/overview.md)
 - [Backends](backends/overview.md)

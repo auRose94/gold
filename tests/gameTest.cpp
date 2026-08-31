@@ -13,10 +13,18 @@
 #include "game/graphics.hpp"
 #include "game/mesh.hpp"
 #include "game/meshRenderer.hpp"
+#include "game/engine.hpp"
 #include "image.hpp"
+#include "goldjs.hpp"
 #include "goldtest.hpp"
+#include "promise.hpp"
 
 using namespace gold;
+
+// Expose the protected component-dispatch path for testing.
+struct testEngine : public engine {
+	using engine::callMethod;
+};
 
 TEST(window_backend_fallback) {
 	// Explicit headless.
@@ -53,50 +61,42 @@ TEST(window_gold_events) {
 
 	// The window facade dispatches gold-object events through its on*
 	// handler slots, updating state with the defaults.
-	auto win = window(obj({{"backend", "headless"}}));
+	auto win = window(jo("backend", "headless"));
 	auto err = win.create();
 	EXPECT_TRUE(err.isEmpty());
 	EXPECT_EQ(string(win.getString("backend")), string("headless"));
 
-	win.handleEvent({obj({
-		{"type", "resized"},
-		{"width", 1024},
-		{"height", 768},
-	})});
+	win.handleEvent({jo("type", "resized", "width", 1024, "height", 768)});
 	EXPECT_EQ(win.getInt32("width"), 1024);
 	EXPECT_EQ(win.getInt32("height"), 768);
 
-	win.handleEvent({obj({
-		{"type", "moved"},
-		{"x", 10},
-		{"y", 20},
-	})});
+	win.handleEvent({jo("type", "moved", "x", 10, "y", 20)});
 	EXPECT_EQ(win.getInt32("x"), 10);
 	EXPECT_EQ(win.getInt32("y"), 20);
 
-	win.handleEvent({obj({{"type", "focus_gained"}})});
+	win.handleEvent({jo("type", "focus_gained")});
 	EXPECT_TRUE(win.getBool("active"));
 
-	win.handleEvent({obj({{"type", "hidden"}})});
+	win.handleEvent({jo("type", "hidden")});
 	EXPECT_TRUE(win.getBool("hidden"));
 
-	win.handleEvent({obj({{"type", "key_down"}, {"keyCode", 42}})});
+	win.handleEvent({jo("type", "key_down", "keyCode", 42)});
 	EXPECT_EQ(win.getInt32("keyCode"), 42);
 
-	win.handleEvent({obj({{"type", "mouse_wheel"}, {"scrollY", -3}})});
+	win.handleEvent({jo("type", "mouse_wheel", "scrollY", -3)});
 	EXPECT_EQ(win.getInt32("scrollY"), -3);
 
 	// onQuit flags the window; unknown event types are ignored.
-	win.handleEvent({obj({{"type", "quit"}})});
+	win.handleEvent({jo("type", "quit")});
 	EXPECT_TRUE(win.getBool("quit"));
-	win.handleEvent({obj({{"type", "completely_made_up"}})});
+	win.handleEvent({jo("type", "completely_made_up")});
 	EXPECT_TRUE(win.getBool("quit"));
 
 	win.destroy();
 }
 
 TEST(window_handler_override) {
-	auto win = window(obj({{"backend", "headless"}}));
+	auto win = window(jo("backend", "headless"));
 	auto err = win.create();
 	EXPECT_TRUE(err.isEmpty());
 
@@ -108,7 +108,7 @@ TEST(window_handler_override) {
 		return var();
 	});
 	win.setFunc("onResized", hResize);
-	win.handleEvent({obj({{"type", "resized"}, {"width", 320}})});
+	win.handleEvent({jo("type", "resized", "width", 320)});
 	EXPECT_EQ(resizedCount, 1);
 
 	// The override replaced the default: window state is NOT updated.
@@ -225,9 +225,8 @@ TEST(gltf_external_buffers_and_normalized_accessors) {
 	EXPECT_NEAR(interleaved.getVar(0).getFloat(2), 1.0f, 1e-6);
 	mesh layoutFixture;
 	layoutFixture.setList("accessors", accessors);
-	layoutFixture.setList("nodes", list({obj({{"name", "node"}, {"mesh", uint64_t(0)}})}));
-	layoutFixture.setList("meshes", list({obj({{"primitives", list({obj({
-		{"attributes", obj({{"POSITION", uint64_t(2)}, {"COLOR_0", uint64_t(1)}})}})})}})}));
+	layoutFixture.setList("nodes", list({jo("name", "node", "mesh", uint64_t(0))}));
+	layoutFixture.setList("meshes", list({jo("primitives", list({jo("attributes", jo("POSITION", uint64_t(2), "COLOR_0", uint64_t(1)))}))}));
 	auto layout = layoutFixture.getVertexLayoutHandle({"node", uint64_t(0)})
 		.getObject<vertexLayout>();
 	EXPECT_TRUE(layout);
@@ -263,7 +262,7 @@ TEST(gpu_texture_cleanup_is_idempotent) {
 TEST(headless_graphics_lifecycle) {
 	gfxBackend gfx;
 	EXPECT_TRUE(gfx.initialize(list()).isError());
-	auto win = window(obj({{"backend", "headless"}}));
+	auto win = window(jo("backend", "headless"));
 	EXPECT_FALSE(win.create().isError());
 	EXPECT_FALSE(gfx.initialize({win}).isError());
 	EXPECT_FALSE(gfx.preFrame().isError());
@@ -322,6 +321,36 @@ TEST(glb_embedded_json_and_binary_chunks) {
 	mesh invalid(root / "bad.glb");
 	EXPECT_TRUE(invalid.getString("error").find("GLB") != string::npos);
 	std::filesystem::remove_all(root, ec);
+}
+
+TEST(engine_parallel_component_update) {
+	// Parallel component updates are on by default (config "parallelUpdate"
+	// defaults to true). With the promise pool active, component updates run
+	// on worker threads; each component's "update" func slot is invoked and
+	// a shared counter must reach the component count.
+	static int count = 0;
+	count = 0;
+	auto bump = func([](list) -> var {
+		count++;
+		return var();
+	});
+
+	testEngine eng;
+	// No explicit config: parallelUpdate defaults to true.
+
+	auto comps = list();
+	for (int i = 0; i < 4; ++i) {
+		component c;
+		c.setFunc("update", bump);
+		comps.pushObject(c);
+	}
+	eng.setList("components", comps);
+
+	promise::useAllCores();
+	eng.callMethod("update");
+	promise::joinThreads();
+
+	EXPECT_EQ(count, 4);
 }
 
 int main() {

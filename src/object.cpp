@@ -20,18 +20,27 @@ namespace gold {
 		object::omap items;
 		gold::object parent;
 		uint64_t id;
-		mutex omutex;
+		shared_mutex omutex;
 	};
 
 	object::ptr object::newObjData(omap m, uint64_t id) {
 		auto obj = object();
-		auto p = new objData{m, obj, id, mutex()};
+		auto p = new objData{m, obj, id, shared_mutex()};
 		p->id = id != 0 ? id : (uint64_t)p;
 		return object::ptr(p);
 	}
 
 	void object::initMemory() {
-		if (!data) data = newObjData();
+		// Lazy allocation is not thread-safe on its own: two threads writing
+		// to a default-constructed object could both see !data and both write
+		// the shared_ptr. Use double-checked locking with atomic load/store
+		// on the shared_ptr (ThreadSanitizer-clean).
+		if (!std::atomic_load(&data)) {
+			static mutex initMtx;
+			lock_guard<mutex> guard(initMtx);
+			if (!std::atomic_load(&data))
+				std::atomic_store(&data, newObjData());
+		}
 	}
 
 	void object::findParent() {
@@ -76,13 +85,13 @@ namespace gold {
 
 	object::omap::iterator object::begin() {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> gaurd(data->omutex);
 		return std::begin(data->items);
 	}
 
 	object::omap::iterator object::end() {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> gaurd(data->omutex);
 		return std::end(data->items);
 	}
 
@@ -98,7 +107,7 @@ namespace gold {
 
 	types object::getType(string name) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> gaurd(data->omutex);
 		auto val = getExpression(name);
 		return val.getType();
 	}
@@ -172,7 +181,7 @@ namespace gold {
 	void object::copy(object& other) {
 		initMemory();
 		if (other) {
-			unique_lock<mutex> gaurd(other.data->omutex);
+			shared_lock<shared_mutex> gaurd(other.data->omutex);
 			auto end = other.data->items.end();
 			for (auto it = other.data->items.begin(); it != end; ++it)
 				data->items[it->first] = it->second;
@@ -186,7 +195,7 @@ namespace gold {
 
 	void object::setParent(object other) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> gaurd(data->omutex);
 		if (other.data) {
 			data->parent.data = other.data;
 		} else
@@ -215,213 +224,215 @@ namespace gold {
 		// from inside objects, recursively.
 		auto varVal = var(value);
 		auto sqIndex = name.find('[');
+		if (sqIndex == string::npos) {
+			// Fast path: plain key, no expression parsing or allocation.
+			data->items[name] = varVal;
+			return;
+		}
 		auto aName = name.substr(0, sqIndex);
-		if (sqIndex != string::npos) {
-			auto end = name.find(']', sqIndex);
-			if (sqIndex + 1 == end) {
-				auto liVal = getExpression(aName);
-				auto li = liVal.getList();
-				if (liVal != varVal) li.pushVar(varVal);
-				varVal = li;
-			} else if (end != string::npos) {
-				auto subKey =
-					name.substr(sqIndex + 1, end - sqIndex - 1) +
-					name.substr(end + 1);
-				auto con = getObject(aName, obj({}));
-				con.setExpression(subKey, varVal);
-				varVal = con;
-			}
+		auto end = name.find(']', sqIndex);
+		if (sqIndex + 1 == end) {
+			auto liVal = getExpression(aName);
+			auto li = liVal.getList();
+			if (liVal != varVal) li.pushVar(varVal);
+			varVal = li;
+		} else if (end != string::npos) {
+			auto subKey =
+				name.substr(sqIndex + 1, end - sqIndex - 1) +
+				name.substr(end + 1);
+			auto con = getObject(aName, obj({}));
+			con.setExpression(subKey, varVal);
+			varVal = con;
 		}
 		data->items[aName] = varVal;
 	}
 
 	var object::getExpression(string name) {
-		auto varVal = var();
 		auto sqIndex = name.find('[');
-		auto aName = name.substr(0, sqIndex);
-		if (sqIndex != string::npos) {
-			auto end = name.find(']', sqIndex);
-			if (sqIndex + 1 == end) {
-				auto con = list();
-				auto it = data->items.find(aName);
-				if (it != data->items.end())
-					con = it->second.getList();
-				else if (!con && data->parent.data)
-					con = data->parent.getExpression(aName).getList();
-				if (con) varVal = con;
-			} else if (end != string::npos) {
-				auto subKey =
-					name.substr(sqIndex + 1, end - sqIndex - 1) +
-					name.substr(end + 1);
-				auto con = obj();
-				auto it = data->items.find(aName);
-				if (it != data->items.end())
-					con = it->second.getObject();
-				else if (!con && data->parent.data)
-					con = data->parent.getExpression(aName).getObject();
-				varVal = con.getExpression(subKey);
-			}
-		} else {
+		if (sqIndex == string::npos) {
+			// Fast path: plain key, no expression parsing or allocation.
 			auto it = data->items.find(name);
 			if (it != data->items.end())
-				varVal = it->second;
-			else if (data->parent.data)
-				varVal = data->parent.getExpression(name);
-			else {
-				// Data-driven prototype: a "proto" key pointing at an
-				// object behaves as a fallback scope even when it has not
-				// been promoted into data->parent by findParent().
-				auto proto = data->items.find("proto");
-				if (proto != data->items.end() &&
-					proto->second.isObject())
-					varVal = proto->second.getObject().getExpression(name);
-			}
+				return it->second;
+			if (data->parent.data)
+				return data->parent.getExpression(name);
+			// Data-driven prototype: a "proto" key pointing at an
+			// object behaves as a fallback scope even when it has not
+			// been promoted into data->parent by findParent().
+			auto proto = data->items.find("proto");
+			if (proto != data->items.end() &&
+				proto->second.isObject())
+				return proto->second.getObject().getExpression(name);
+			return var();
+		}
+		auto varVal = var();
+		auto aName = name.substr(0, sqIndex);
+		auto end = name.find(']', sqIndex);
+		if (sqIndex + 1 == end) {
+			auto con = list();
+			auto it = data->items.find(aName);
+			if (it != data->items.end())
+				con = it->second.getList();
+			else if (!con && data->parent.data)
+				con = data->parent.getExpression(aName).getList();
+			if (con) varVal = con;
+		} else if (end != string::npos) {
+			auto subKey =
+				name.substr(sqIndex + 1, end - sqIndex - 1) +
+				name.substr(end + 1);
+			auto con = obj();
+			auto it = data->items.find(aName);
+			if (it != data->items.end())
+				con = it->second.getObject();
+			else if (!con && data->parent.data)
+				con = data->parent.getExpression(aName).getObject();
+			varVal = con.getExpression(subKey);
 		}
 		return varVal;
 	}
 
 	void object::setString(string name, string value) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> gaurd(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setStringView(string name, string_view value) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> gaurd(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setInt64(string name, int64_t value) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> gaurd(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setInt32(string name, int32_t value) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> gaurd(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setInt16(string name, int16_t value) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> gaurd(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setInt8(string name, int8_t value) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> gaurd(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setUInt64(string name, uint64_t value) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> gaurd(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setUInt32(string name, uint32_t value) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> gaurd(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setUInt16(string name, uint16_t value) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> gaurd(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setUInt8(string name, uint8_t value) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> gaurd(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setDouble(string name, double value) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> gaurd(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setFloat(string name, float value) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> gaurd(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setBool(string name, bool value) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> gaurd(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setList(string name, list value) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> gaurd(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setObject(string name, object value) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> gaurd(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setMethod(string name, method& value) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> gaurd(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setFunc(string name, func& value) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> gaurd(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setPtr(string name, void* value) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> gaurd(data->omutex);
 		setExpression(name, var(value, typePtr));
 	}
 
 	void object::setBinary(string name, binary value) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> gaurd(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setVar(string name, var value) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> gaurd(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setNull(string name) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> gaurd(data->omutex);
 		setExpression(name, var());
 	}
 
 	void object::erase(string name) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> gaurd(data->omutex);
 		data->items.erase(name);
 	}
 
 	bool object::owns(string name) {
 		if (!data) return false;
-		unique_lock<mutex> guard(data->omutex);
+		shared_lock<shared_mutex> guard(data->omutex);
 		return data->items.find(name) != data->items.end();
 	}
 
 	string object::getString(string name, string def) {
 		try {
 			initMemory();
-			unique_lock<mutex> gaurd(data->omutex);
+			shared_lock<shared_mutex> gaurd(data->omutex);
 			auto val = getExpression(name);
 			if (val.isString()) return val.getString();
 			return def;
@@ -463,7 +474,7 @@ namespace gold {
 		string name, string_view def) {
 		try {
 			initMemory();
-			unique_lock<mutex> gaurd(data->omutex);
+			shared_lock<shared_mutex> gaurd(data->omutex);
 			auto val = getExpression(name);
 			if (val.isView()) return val.getStringView();
 			return def;
@@ -474,7 +485,7 @@ namespace gold {
 
 	int64_t object::getInt64(string name, int64_t def) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> gaurd(data->omutex);
 		auto val = getExpression(name);
 		if (val.isNumber()) return val.getInt64();
 		return def;
@@ -482,7 +493,7 @@ namespace gold {
 
 	int32_t object::getInt32(string name, int32_t def) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> gaurd(data->omutex);
 		auto val = getExpression(name);
 		if (val.isNumber()) return val.getInt32();
 		return def;
@@ -490,7 +501,7 @@ namespace gold {
 
 	int16_t object::getInt16(string name, int16_t def) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> gaurd(data->omutex);
 		auto val = getExpression(name);
 		if (val.isNumber()) return val.getInt16();
 		return def;
@@ -498,7 +509,7 @@ namespace gold {
 
 	int8_t object::getInt8(string name, int8_t def) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> gaurd(data->omutex);
 		auto val = getExpression(name);
 		if (val.isNumber()) return val.getInt8();
 		return def;
@@ -506,7 +517,7 @@ namespace gold {
 
 	uint64_t object::getUInt64(string name, uint64_t def) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> gaurd(data->omutex);
 		auto val = getExpression(name);
 		if (val.isNumber()) return val.getUInt64();
 		return def;
@@ -514,7 +525,7 @@ namespace gold {
 
 	uint32_t object::getUInt32(string name, uint32_t def) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> gaurd(data->omutex);
 		auto val = getExpression(name);
 		if (val.isNumber()) return val.getUInt32();
 		return def;
@@ -522,7 +533,7 @@ namespace gold {
 
 	uint16_t object::getUInt16(string name, uint16_t def) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> gaurd(data->omutex);
 		auto val = getExpression(name);
 		if (val.isNumber()) return val.getUInt16();
 		return def;
@@ -530,7 +541,7 @@ namespace gold {
 
 	uint8_t object::getUInt8(string name, uint8_t def) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> gaurd(data->omutex);
 		auto val = getExpression(name);
 		if (val.isNumber()) return val.getUInt8();
 		return def;
@@ -538,7 +549,7 @@ namespace gold {
 
 	double object::getDouble(string name, double def) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> gaurd(data->omutex);
 		auto val = getExpression(name);
 		if (val.isNumber()) return val.getDouble();
 		return def;
@@ -546,7 +557,7 @@ namespace gold {
 
 	float object::getFloat(string name, float def) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> gaurd(data->omutex);
 		auto val = getExpression(name);
 		if (val.isNumber()) return val.getFloat();
 		return def;
@@ -554,7 +565,7 @@ namespace gold {
 
 	bool object::getBool(string name, bool def) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> gaurd(data->omutex);
 		auto val = getExpression(name);
 		if (val.isBool()) return val.getBool();
 		return def;
@@ -562,7 +573,7 @@ namespace gold {
 
 	list object::getList(string name, list def) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> gaurd(data->omutex);
 		auto val = getExpression(name);
 		if (val.isList()) return val.getList();
 		return def;
@@ -570,21 +581,21 @@ namespace gold {
 
 	void object::assignList(string name, list& result) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> gaurd(data->omutex);
 		auto val = getExpression(name);
 		if (val.isList()) result = val.getList();
 	}
 
 	void object::assignObject(string name, object& result) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> gaurd(data->omutex);
 		auto val = getExpression(name);
 		if (val.isObject()) result = val.getObject();
 	}
 
 	object object::getObject(string name, object def) {
 		initMemory();
-		// unique_lock<mutex> gaurd(data->omutex);
+		// unique_lock<shared_mutex> gaurd(data->omutex);
 		auto val = getExpression(name);
 		if (val.isObject()) return val.getObject();
 		return def;
@@ -613,7 +624,7 @@ namespace gold {
 
 	binary object::getBinary(string name, binary def) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> gaurd(data->omutex);
 		auto val = getExpression(name);
 		if (val.isBinary()) return val.getBinary();
 		return def;
@@ -621,14 +632,14 @@ namespace gold {
 
 	void object::assignBinary(string name, binary& result) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> gaurd(data->omutex);
 		auto val = getExpression(name);
 		if (val.isBinary()) result = val.getBinary();
 	}
 
 	var object::getVar(string name) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> gaurd(data->omutex);
 		return getExpression(name);
 	}
 
@@ -639,7 +650,7 @@ namespace gold {
 
 	var object::operator->*(string name) {
 		initMemory();
-		unique_lock<mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> gaurd(data->omutex);
 		return getExpression(name);
 	}
 
