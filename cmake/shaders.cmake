@@ -1,7 +1,5 @@
 
-if(GOLD_USE_SYSTEM_BGFX)
-	include(cmake/shadercParse.cmake)
-endif()
+include(cmake/shadercParse.cmake)
 
 get_filename_component(
 	SHADERS_ROOT

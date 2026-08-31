@@ -33,7 +33,7 @@ target_include_directories(
 		3rdParty/
 		3rdParty/uWebSockets/src
 		# image.cpp uses the stb single-header image loader directly.
-		3rdParty/bimg/3rdparty
+		3rdParty/bgfx.cmake/bimg/3rdparty
 )
 
 target_link_libraries (

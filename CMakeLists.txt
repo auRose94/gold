@@ -22,6 +22,10 @@ set(JSON_BuildTests OFF CACHE INTERNAL "")
 set(JSON_Install OFF CACHE INTERNAL "")
 set(BUILD_TESTING OFF CACHE INTERNAL "")
 set(BGFX_BUILD_EXAMPLES OFF CACHE INTERNAL "")
+# gold builds its own shaderc (cmake/shaderc.cmake) with a link fix for the
+# circular shader-toolchain archives, so disable the bgfx.cmake submodule's
+# built-in shaderc build.
+set(BGFX_BUILD_TOOLS_SHADER OFF CACHE INTERNAL "")
 set(BGFX_CONFIG_DEBUG ON CACHE INTERNAL "")
 set(ENTRY_CONFIG_USE_SDL ON CACHE INTERNAL "")
 set(BGFX_OPENGL_VERSION "46" CACHE INTERNAL "")
@@ -78,7 +82,7 @@ else()
 	set(GOLD_BX_TARGET bx)
 	set(GOLD_BIMG_TARGET bimg)
 	set(GOLD_SHADER_COMPILER "$<TARGET_FILE:shaderc>")
-	set(GOLD_BGFX_SHADER_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/3rdParty/bgfx/src")
+	set(GOLD_BGFX_SHADER_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/3rdParty/bgfx.cmake/bgfx/src")
 endif()
 
 set(GOLD_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")

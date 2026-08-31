@@ -71,7 +71,7 @@ if(NOT GOLD_USE_SYSTEM_BGFX)
 	target_include_directories(
 		goldGame
 		PUBLIC
-			${CMAKE_CURRENT_SOURCE_DIR}/3rdParty/bgfx/include
+			${CMAKE_CURRENT_SOURCE_DIR}/3rdParty/bgfx.cmake/bgfx/include
 	)
 endif()
 
@@ -125,6 +125,10 @@ target_compile_definitions(goldGame PUBLIC BT_USE_DOUBLE_PRECISION)
 if(GOLD_USE_SYSTEM_BGFX)
 	target_compile_definitions(goldGame PUBLIC GOLD_USE_SYSTEM_BGFX=1)
 endif()
+
+# The shader compiler tool path, used at runtime to compile .sc shaders.
+target_compile_definitions(goldGame PUBLIC
+	GOLD_SHADER_COMPILER="${GOLD_SHADER_COMPILER}")
 
 target_compile_features(
 	goldGame

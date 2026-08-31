@@ -9,23 +9,23 @@ if(!MSVC)
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-gnu-zero-variadic-macro-arguments")
 endif(!MSVC)
 
-# Locate the bgfx family of libraries up front so the core (goldShared) can
-# build bx/bimg without pulling in the whole game stack.
-set(BX_DIR "${CMAKE_CURRENT_SOURCE_DIR}/bx" CACHE STRING "Location of bx.")
-set(BIMG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/bimg" CACHE STRING "Location of bimg.")
-set(BGFX_DIR "${CMAKE_CURRENT_SOURCE_DIR}/bgfx" CACHE STRING "Location of bgfx.")
-
 # ---------------------------------------------------------------- core deps
 # goldShared depends on bx/bimg (from the system bgfx package when
-# GOLD_USE_SYSTEM_BGFX, else the bundled submodules) and ships its own
+# GOLD_USE_SYSTEM_BGFX, else the bundled bgfx.cmake port) and ships its own
 # JSON/BSON/CBOR/MsgPack/UBJSON codecs (src/goldjson.cpp).
 if(NOT GOLD_USE_SYSTEM_BGFX)
-	if(NOT TARGET bx)
-		include(cmake/bx.cmake)
-	endif()
-	if(NOT TARGET bimg)
-		include(cmake/bimg.cmake)
-	endif()
+	# bgfx.cmake builds bx, bimg and bgfx from a single add_subdirectory.
+	add_subdirectory(bgfx.cmake)
+	# Build the shader toolchain libs (glslang/tint/spirv-opt/spirv-cross/
+	# webgpu) and gold's own shaderc tool. The submodule's shaderc build is
+	# disabled (BGFX_BUILD_TOOLS_SHADER=OFF); gold's cmake/shaderc.cmake
+	# carries the link fix for the circular toolchain archives.
+	include(${CMAKE_CURRENT_SOURCE_DIR}/bgfx.cmake/cmake/bgfx/3rdparty/spirv-opt.cmake)
+	include(${CMAKE_CURRENT_SOURCE_DIR}/bgfx.cmake/cmake/bgfx/3rdparty/spirv-cross.cmake)
+	include(${CMAKE_CURRENT_SOURCE_DIR}/bgfx.cmake/cmake/bgfx/3rdparty/glslang.cmake)
+	include(${CMAKE_CURRENT_SOURCE_DIR}/bgfx.cmake/cmake/bgfx/3rdparty/webgpu.cmake)
+	include(${CMAKE_CURRENT_SOURCE_DIR}/bgfx.cmake/cmake/bgfx/3rdparty/tint.cmake)
+	include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/shaderc.cmake)
 endif()
 
 # ------------------------------------------------------------ web module deps
@@ -40,8 +40,4 @@ endif()
 if(GOLD_BUILD_GAME)
 	add_subdirectory(freetype2)
 	include(cmake/bullet.cmake)
-	if(NOT GOLD_USE_SYSTEM_BGFX)
-		include(cmake/brtshaderc.cmake)
-		include(cmake/bgfxConfig.cmake)
-	endif()
 endif()

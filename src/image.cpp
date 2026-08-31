@@ -476,9 +476,11 @@ namespace gold {
 			&writer, con->m_width, con->m_height, 0, con->m_data,
 			grayscale, yflip, &error);
 		if (!error.isOk()) {
-			auto err = error.getMessage();
-			return genericError(
-				string(err.getCPtr(), err.getLength()));
+			// getMessage() returns StringLiteral (system bx) or StringView
+			// (bundled bx); both convert to bx::StringView, which exposes
+			// getPtr()/getLength() in every version.
+			bx::StringView msg = error.getMessage();
+			return genericError(string(msg.getPtr(), msg.getLength()));
 		}
 		auto bin = binary(size);
 		memcpy(bin.data(), block.more(), size);
@@ -494,9 +496,11 @@ namespace gold {
 			&writer, con->m_width, con->m_height, 0, con->m_data,
 			con->m_format, yflip, &error);
 		if (!error.isOk()) {
-			auto err = error.getMessage();
-			return genericError(
-				string(err.getCPtr(), err.getLength()));
+			// getMessage() returns StringLiteral (system bx) or StringView
+			// (bundled bx); both convert to bx::StringView, which exposes
+			// getPtr()/getLength() in every version.
+			bx::StringView msg = error.getMessage();
+			return genericError(string(msg.getPtr(), msg.getLength()));
 		}
 		auto bin = binary(size);
 		memcpy(bin.data(), block.more(), size);
@@ -512,9 +516,11 @@ namespace gold {
 			&writer, con->m_width, con->m_height, 0, con->m_data,
 			con->m_format, yflip, &error);
 		if (!error.isOk()) {
-			auto err = error.getMessage();
-			return genericError(
-				string(err.getCPtr(), err.getLength()));
+			// getMessage() returns StringLiteral (system bx) or StringView
+			// (bundled bx); both convert to bx::StringView, which exposes
+			// getPtr()/getLength() in every version.
+			bx::StringView msg = error.getMessage();
+			return genericError(string(msg.getPtr(), msg.getLength()));
 		}
 		auto bin = binary(size);
 		memcpy(bin.data(), block.more(), size);
@@ -530,9 +536,11 @@ namespace gold {
 			&writer, con->m_width, con->m_height, 0, con->m_data,
 			con->m_format, yflip, &error);
 		if (!error.isOk()) {
-			auto err = error.getMessage();
-			return genericError(
-				string(err.getCPtr(), err.getLength()));
+			// getMessage() returns StringLiteral (system bx) or StringView
+			// (bundled bx); both convert to bx::StringView, which exposes
+			// getPtr()/getLength() in every version.
+			bx::StringView msg = error.getMessage();
+			return genericError(string(msg.getPtr(), msg.getLength()));
 		}
 		auto bin = binary(size);
 		memcpy(bin.data(), block.more(), size);
@@ -546,9 +554,11 @@ namespace gold {
 		auto size = bimg::imageWriteDds(
 			&writer, *con, con->m_data, con->m_size, &error);
 		if (!error.isOk()) {
-			auto err = error.getMessage();
-			return genericError(
-				string(err.getCPtr(), err.getLength()));
+			// getMessage() returns StringLiteral (system bx) or StringView
+			// (bundled bx); both convert to bx::StringView, which exposes
+			// getPtr()/getLength() in every version.
+			bx::StringView msg = error.getMessage();
+			return genericError(string(msg.getPtr(), msg.getLength()));
 		}
 		auto bin = binary(size);
 		memcpy(bin.data(), block.more(), size);
@@ -562,9 +572,11 @@ namespace gold {
 		auto size = bimg::imageWriteKtx(
 			&writer, *con, con->m_data, con->m_size, &error);
 		if (!error.isOk()) {
-			auto err = error.getMessage();
-			return genericError(
-				string(err.getCPtr(), err.getLength()));
+			// getMessage() returns StringLiteral (system bx) or StringView
+			// (bundled bx); both convert to bx::StringView, which exposes
+			// getPtr()/getLength() in every version.
+			bx::StringView msg = error.getMessage();
+			return genericError(string(msg.getPtr(), msg.getLength()));
 		}
 		auto bin = binary(size);
 		memcpy(bin.data(), block.more(), size);

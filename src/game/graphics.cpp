@@ -7,9 +7,6 @@
 #include <bimg/bimg.h>
 #include <bx/math.h>
 #include <bx/os.h>
-#ifndef GOLD_USE_SYSTEM_BGFX
-#include <brtshaderc.h>
-#endif
 
 #include <algorithm>
 #include <cctype>
@@ -21,18 +18,15 @@
 #include <game/windowSystem.hpp>
 #include <image.hpp>
 #include <iostream>
-#ifdef GOLD_USE_SYSTEM_BGFX
 #include <sys/wait.h>
 #include <unistd.h>
-#endif
 
 namespace gold {
 	using namespace std;
 
-#ifdef GOLD_USE_SYSTEM_BGFX
-	// Compile a .sc shader with the system bgfx-shaderc tool (dlopen-friendly:
-	// the compiler is an external program instead of a statically linked
-	// brtshaderc library). The compiled .bin is read back from stdout.
+	// Compile a .sc shader with the bgfx shaderc tool (an external program
+	// built by bgfx.cmake, or the system bgfx-shaderc). The compiled .bin is
+	// read back from stdout. GOLD_SHADER_COMPILER is the tool path.
 	static const bgfx::Memory* compileShaderSource(
 		char type, const char* filePath, const char* defines,
 		const char* varyingPath, const char* profile) {
@@ -41,7 +35,7 @@ namespace gold {
 		string prof = (profile && *profile) ? string(profile)
 			: (type == 'c' ? string("430") : string("330"));
 		vector<string> args = {
-			"/usr/bin/bgfx-shaderc",
+			GOLD_SHADER_COMPILER,
 			"-f", filePath,
 			"--type", typeName,
 			"--platform", "linux",
@@ -70,7 +64,7 @@ namespace gold {
 			dup2(fds[1], STDOUT_FILENO);
 			close(fds[0]);
 			close(fds[1]);
-			execvp("/usr/bin/bgfx-shaderc", argv.data());
+			execvp(GOLD_SHADER_COMPILER, argv.data());
 			_exit(127);
 		}
 		close(fds[1]);
@@ -86,7 +80,6 @@ namespace gold {
 			return nullptr;
 		return bgfx::copy(out.data(), uint32_t(out.size()));
 	}
-#endif
 
 	bgfx::PlatformData pd = bgfx::PlatformData();
 
@@ -522,12 +515,7 @@ namespace gold {
 			setUInt16("idx", handle.idx);
 		} else if (s.isString()) {
 			// Compile from source
-#ifdef GOLD_USE_SYSTEM_BGFX
 			auto type = char(getUInt8("type", uint8_t('c')));
-#else
-			auto type = shaderc::ShaderType(
-				getUInt8("type", shaderc::ShaderType::ST_COMPUTE));
-#endif
 			auto path = filesystem::path(s.getString());
 			auto defines = getString("defines");
 			auto varDef = filesystem::path(path).replace_filename(
@@ -580,15 +568,9 @@ namespace gold {
 				path = tempPath;
 			}
 			// The selected shader compiler supplies the backend profile.
-#ifdef GOLD_USE_SYSTEM_BGFX
 			auto mem = compileShaderSource(
 				type, (const char*)path.c_str(), defines.c_str(),
 				varying.c_str(), nullptr);
-#else
-			auto mem = shaderc::compileShader(
-				type, (const char*)path.c_str(), defines.c_str(),
-				varying.c_str(), nullptr);
-#endif
 			if (mem) {
 				auto strData = string_view((char*)mem->data, mem->size);
 				auto h = std::hash<string_view>();
