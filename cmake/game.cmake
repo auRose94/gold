@@ -31,6 +31,7 @@ add_library(
 		src/game/sphereShape.cpp
 		src/game/sprite.cpp
 		src/game/transform.cpp
+		src/game/uiSurface.cpp
 		src/game/window.cpp
 		src/game/windowSystem.cpp
 		src/game/windowSystemHeadless.cpp
@@ -119,6 +120,12 @@ target_link_directories(goldGame PUBLIC ${LIBRARY_OUTPUT_DIRECTORY})
 # the lib, corrupting the heap on any btDbvtBroadphase/btDiscreteDynamicsWorld
 # construction.
 target_compile_definitions(goldGame PUBLIC BT_USE_DOUBLE_PRECISION)
+
+# gold::ui backs the uiSurface component (HTML/CSS rendered to a texture).
+# The include dir is PRIVATE: the header is the only thing game code needs.
+if(TARGET gold::ui)
+	target_link_libraries(goldGame PRIVATE gold::ui)
+endif()
 
 # In system-bgfx mode the shader compiler is the external bgfx-shaderc
 # tool instead of the statically linked brtshaderc library.

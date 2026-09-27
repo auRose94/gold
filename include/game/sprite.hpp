@@ -3,6 +3,13 @@
 #include "renderable.hpp"
 
 namespace gold {
+	/**
+	 * Bytecode of the shared "Sprite" program for the active backend, or an
+	 * empty buffer when the backend has no compiled variant. Exposed so other
+	 * textured quads (see `uiSurface`) can reuse the same program.
+	 */
+	binary getSpriteShaderData(shaderType stype);
+
 	struct sprite : public renderable {
 	 protected:
 		void updateVertexBuffer();

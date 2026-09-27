@@ -72,12 +72,17 @@ host via the `script` facade (`setGlobal`/`getGlobal`/`eval`/`call`).
 
 - `include/` — public headers. `goldjs.hpp` (JS sugar), `types.hpp` (`var`),
   `module.hpp` (runtime loader), `file.hpp`, `image.hpp`, `promise.hpp`,
-  `worker.hpp`. Subdirs: `game/`, `lang/`, `web/`.
+  `worker.hpp`. Subdirs: `game/`, `lang/`, `ui/`, `web/`.
 - `src/` — core implementation (`var.cpp`, `object.cpp`, `list.cpp`,
   `types.cpp`, `goldjson.cpp`, `file.cpp`, `module.cpp`, `image.cpp`,
-  `promise.cpp`, `worker.cpp`). Subdirs: `game/`, `lang/`, `web/`.
+  `promise.cpp`, `worker.cpp`). Subdirs: `game/`, `lang/`, `ui/`, `web/`.
 - `cmake/` — build recipes: `shared.cmake`, `lang.cmake`, `game.cmake`,
-  `web.cmake`, `tests.cmake`, `shaders.cmake`, `shadercParse.cmake`.
+  `ui.cmake`, `web.cmake`, `tests.cmake`, `shaders.cmake`,
+  `shadercParse.cmake`.
+- `src/ui/` — the HTML/CSS renderer: `tree.cpp` (flat DOM), `style.cpp`
+  (cascade + selectors), `layout.cpp` (block/inline, flex, grid), `font.cpp`
+  (FreeType + built-in fallback), `raster.cpp` (SDF rasterizer),
+  `renderer.cpp` (pipeline, dirty tracking, events).
 - `tests/` — test suite (see below).
 - `examples/` — runnable projects (`langExample`, `blahajExample`,
   `conwaysGameOfLife`, `myWebProject`).
@@ -101,6 +106,7 @@ executable is a separate CTest target:
 | `goldRenderBackendTests` | `tests/renderBackendTest.cpp` | game |
 | `goldWebTests` | `tests/webTest.cpp` | web |
 | `goldWebPersistenceTests` | `tests/webPersistenceTest.cpp` | web |
+| `goldUITests` | `tests/uiTest.cpp` | ui |
 
 To add a test: put a `TEST(...)` block in the matching file (or add a new
 `.cpp` and register it in `cmake/tests.cmake`). Run the whole suite with

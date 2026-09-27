@@ -5,17 +5,11 @@
 #include <string>
 
 #include "types.hpp"
+#include "object_impl.hpp"
 #include "var_ops.hpp"
 
 namespace gold {
 	using namespace std;
-
-	struct objData {
-		object::omap items;
-		gold::object parent;
-		uint64_t id;
-		mutex omutex;
-	};
 
 #define deleteType(typeT, address) \
 	case typeT: {                    \
@@ -83,9 +77,6 @@ namespace gold {
 		data = nullptr;
 		type = typeNull;
 	}
-
-	var::varPtr var::autoNull =
-		var::varPtr(nullptr, [](void*) {});
 
 	var::var() : sPtr(autoNull) {}
 
@@ -1074,7 +1065,6 @@ namespace gold {
 							getFloat(3),
 							getFloat(4),
 							getFloat(5),
-							getFloat(5),
 							getFloat(6),
 							getFloat(7),
 							getFloat(8),
@@ -1118,7 +1108,6 @@ namespace gold {
 							getFloat(2),
 							getFloat(3),
 							getFloat(4),
-							getFloat(5),
 							getFloat(5),
 							getFloat(6),
 							getFloat(7),
@@ -2980,6 +2969,14 @@ case typeMat4x4Double:
 	}
 
 	string var::getString() const { return this->operator std::string(); }
+
+	string var::getString(string name, string def) const {
+		auto con = sPtr.get();
+		if (!con) return def;
+		if (con->type == typeObject)
+			return con->obj->getString(name, def);
+		return def;
+	}
 
 	string_view var::getStringView() const {
 		auto con = sPtr.get();

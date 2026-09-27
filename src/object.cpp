@@ -12,16 +12,11 @@
 
 #include "file.hpp"
 #include "types.hpp"
+#include "object_impl.hpp"
 
 namespace gold {
 	using namespace std;
 	static mutex cryptoMutex;
-	struct objData {
-		object::omap items;
-		gold::object parent;
-		uint64_t id;
-		shared_mutex omutex;
-	};
 
 	object::ptr object::newObjData(omap m, uint64_t id) {
 		auto obj = object();
@@ -669,7 +664,7 @@ namespace gold {
 	}
 
 	object& object::operator=(const object& o) {
-		if (data && data.use_count() <= 0) {
+		if (data && data.use_count() <= 1) {
 			data->items.clear();
 			data->parent = object();
 		}

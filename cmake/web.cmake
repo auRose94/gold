@@ -6,6 +6,7 @@ project(gold CXX)
 add_library(
 	goldWeb
 	SHARED
+		src/web/css.cpp
 		src/web/database.cpp
 		src/web/dataStoreFile.cpp
 		src/web/html.cpp
@@ -24,9 +25,9 @@ set_target_properties(
 )
 
 if(MSVC)
-  target_compile_options(goldWeb PRIVATE /W4)
+  target_compile_options(goldWeb PRIVATE /W4 -Wno-unused-function -Wno-unused-variable)
 else()
-  target_compile_options(goldWeb PRIVATE -pedantic)
+  target_compile_options(goldWeb PRIVATE -pedantic -Wno-unused-function -Wno-unused-variable)
 endif()
 
 target_include_directories(

@@ -36,6 +36,14 @@ namespace gold {
 		};
 		using atts = object;
 
+		// Text element for holding text content
+		class text : public iHTML {
+		public:
+			text() : iHTML("text", {}) {}
+			text(const text& copy) : iHTML(copy) {}
+			text(list args) : iHTML("text", args) {}
+		};
+
 		NewElementType(hTemplate);
 		NewElementType(hObject);
 
@@ -152,5 +160,14 @@ namespace gold {
 		NewElementType(iframe);
 
 	}  // namespace HTML
+
+	namespace Parser {
+		list parseHTML(const string& html);
+		const vector<string>& voidTags();
+		bool isVoidTag(const string& tag);
+
+		string trim(const string& s);
+		bool isNumericValue(const string& s);
+	}
 
 }  // namespace gold

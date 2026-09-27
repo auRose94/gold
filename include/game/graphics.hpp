@@ -15,6 +15,13 @@ namespace gold {
 		static renderBackend*& render();
 
 	 public:
+		/**
+		 * The active render backend, or null before `initialize()`. Components
+		 * that own GPU resources themselves (rather than through a gold
+		 * object wrapper) reach the backend through this.
+		 */
+		static renderBackend* backend();
+
 		gfxBackend();
 		gfxBackend(object config);
 

@@ -175,3 +175,19 @@ if(GOLD_BUILD_WEB)
 	target_compile_features(goldWebPersistenceTests PRIVATE cxx_std_26)
 	add_test(NAME goldWebPersistenceTests COMMAND goldWebPersistenceTests)
 endif()
+
+if(GOLD_BUILD_UI AND GOLD_BUILD_WEB)
+	add_executable(
+		goldUITests
+		tests/uiTest.cpp
+	)
+	if(MSVC)
+		target_compile_options(goldUITests PRIVATE /W4 -Wno-unused-function -Wno-unused-variable)
+	else()
+		target_compile_options(goldUITests PRIVATE -Wall -Wextra -pedantic)
+	endif()
+	target_include_directories(goldUITests PRIVATE "include" "include/ui" "tests")
+	target_link_libraries(goldUITests PRIVATE gold::ui)
+	target_compile_features(goldUITests PRIVATE cxx_std_26)
+	add_test(NAME goldUITests COMMAND goldUITests)
+endif()

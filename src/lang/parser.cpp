@@ -106,12 +106,16 @@ namespace lang {
 		if (atKw("break")) {
 			i++;
 			expectPunc(";");
-			return object({{"t", "break"}});
+			auto n = object();
+			n.setString("t", "break");
+			return var(n);
 		}
 		if (atKw("continue")) {
 			i++;
 			expectPunc(";");
-			return object({{"t", "continue"}});
+			auto n = object();
+			n.setString("t", "continue");
+			return var(n);
 		}
 		if (toks[i].type == Tok::Punc && toks[i].lex == "{")
 			return parseBlock();

@@ -88,6 +88,8 @@ namespace gold {
 		return backend;
 	}
 
+	renderBackend* gfxBackend::backend() { return render(); }
+
 	map<string, frameBuffer> frameBuffer::cache =
 		map<string, frameBuffer>();
 	map<string, occlusionQuery> occlusionQuery::cache =

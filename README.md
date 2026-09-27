@@ -28,6 +28,10 @@ What's in the box?
 * Basic window handling
 * 3D matrix transformation hierarchies
 * Texture loading(2D/3D/Cube)
+* HTML/CSS UI renderer: cascade, block/flex/grid layout, anti-aliased CPU
+  rasterizer, text through FreeType — re-renders only when the UI changes,
+  and drives in-world surfaces (`uiSurface`: a CRT on a desk) with pointer
+  picking and click/hover events
 * Auto shader compilation, with inlining
 * CMake utilities
 * Still experimental threading stuff (workers/promises)
@@ -150,13 +154,17 @@ cmake --build build --target BlahajExample
 * `gold::shared` (`libgoldShared.a`) is the core: `var`/`list`/`object`,
   serialization, files, crypto, and the `gold::module` runtime loader.
 * `gold::game` (`libgoldGame.so`) and `gold::web` (`libgoldWeb.so`) are
-  shared libraries built on top of the core. Linking them is optional:
-  * At **build time**, `GOLD_BUILD_GAME` / `GOLD_BUILD_WEB` control whether
-    they are built at all.
-  * At **run time**, `gold::module::load("game")` / `("web")` dlopen's the
-    module on demand, so an app that only needs the core never pulls in the
-    game engine or web stack. Point `module::setLibraryPath()` at the
-    directory containing the `.so` files when they aren't on the loader path.
+  shared libraries built on top of the core, as is `gold::ui`
+  (`libgoldUI.so`), the HTML/CSS renderer the game module's `uiSurface`
+  component draws in-world. Linking them is optional:
+  * At **build time**, `GOLD_BUILD_GAME` / `GOLD_BUILD_WEB` / `GOLD_BUILD_UI`
+    control whether they are built at all (`GOLD_BUILD_UI` needs the web
+    module, for the HTML and CSS parsers).
+  * At **run time**, `gold::module::load("game")` / `("web")` / `("ui")`
+    dlopen's the module on demand, so an app that only needs the core never
+    pulls in the game engine or web stack. Point `module::setLibraryPath()`
+    at the directory containing the `.so` files when they aren't on the
+    loader path.
 
 Because the game/web modules are shared libraries, example executables link
 dynamically instead of statically baking in the entire framework (the game

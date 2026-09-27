@@ -23,9 +23,9 @@ set_target_properties(
 )
 
 if(MSVC)
-  target_compile_options(goldLang PRIVATE /W4)
+  target_compile_options(goldLang PRIVATE /W4 -Wno-unused-function -Wno-unused-variable)
 else()
-  target_compile_options(goldLang PRIVATE -Wall -Wextra -pedantic)
+  target_compile_options(goldLang PRIVATE -Wall -Wextra -pedantic -Wno-unused-function -Wno-unused-variable)
 endif()
 
 target_include_directories(

@@ -21,9 +21,9 @@ add_library(
 )
 
 if(MSVC)
-  target_compile_options(goldShared PRIVATE /W4)
+  target_compile_options(goldShared PRIVATE /W4 -Wno-unused-function -Wno-unused-variable)
 else()
-  target_compile_options(goldShared PRIVATE -Wall -Wextra -pedantic)
+  target_compile_options(goldShared PRIVATE -Wall -Wextra -pedantic -Wno-unused-function -Wno-unused-variable)
 endif()
 
 target_include_directories(

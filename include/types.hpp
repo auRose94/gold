@@ -175,7 +175,14 @@ namespace gold {
 			varContainer& operator=(const varContainer&) = delete;
 		};
 		typedef shared_ptr<varContainer> varPtr;
-		static varPtr autoNull;
+		/**
+		 * The shared "null" payload every default-constructed `var` points
+		 * at. `inline` matters: goldShared is a static library, so without it
+		 * every shared library that links it (goldWeb, goldUI, ...) gets its
+		 * own copy of this symbol, and `var`s handed across module
+		 * boundaries end up pointing at a foreign instance.
+		 */
+		inline static varPtr autoNull = varPtr(nullptr, [](void*) {});
 		varPtr sPtr;
 		friend class varRef;
 
@@ -281,6 +288,7 @@ namespace gold {
 		void setFloat(size_t i, float v);
 
 		string getString() const;
+		string getString(string name, string def = "") const;
 		string_view getStringView() const;
 		int64_t getInt64(size_t i = 0) const;
 		int32_t getInt32(size_t i = 0) const;
@@ -793,6 +801,7 @@ namespace gold {
 		bool isMethod() const { return value().isMethod(); }
 		bool isBinary() const { return value().isBinary(); }
 		string getString() const { return value().getString(); }
+		string getString(string name, string def = "") const { return value().getString(name, def); }
 		string_view getStringView() const { return value().getStringView(); }
 		int64_t getInt64(size_t i = 0) const { return value().getInt64(i); }
 		int32_t getInt32(size_t i = 0) const { return value().getInt32(i); }

@@ -38,6 +38,12 @@ endif()
 
 # ------------------------------------------------------------ game module deps
 if(GOLD_BUILD_GAME)
-	add_subdirectory(freetype2)
 	include(cmake/bullet.cmake)
+endif()
+
+# ------------------------------------------------- ui module deps (freetype)
+# The UI module rasterizes text through the bundled FreeType, so build it
+# whenever the module is enabled (gold::game also uses it via SDL_ttf).
+if(GOLD_BUILD_UI AND GOLD_BUILD_WEB)
+	add_subdirectory(freetype2)
 endif()

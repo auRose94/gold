@@ -519,7 +519,8 @@ namespace gold {
 	var response::end(list args) {
 		auto bin = binary();
 		if (args[0].isObject(HTML::iHTML::getPrototype())) {
-			bin = args[0].getObject<HTML::iHTML>();
+			string htmlStr = string(args[0]);
+			bin.insert(bin.end(), htmlStr.begin(), htmlStr.end());
 			writeHeader({"Content-Type", "text/html"});
 		} else if (args[0].isObject()) {
 			bin = args[0].getObject().getJSONBin();
@@ -576,7 +577,8 @@ namespace gold {
 	var response::tryEnd(list args) {
 		auto bin = binary();
 		if (args[0].isObject(HTML::iHTML::getPrototype())) {
-			bin = args[0].getObject<HTML::iHTML>();
+			string htmlStr = string(args[0]);
+			bin.insert(bin.end(), htmlStr.begin(), htmlStr.end());
 			writeHeader({"Content-Type", "text/html"});
 		} else if (args[0].isObject()) {
 			bin = args[0].getObject().getJSONBin();
@@ -633,7 +635,8 @@ namespace gold {
 	var response::write(list args) {
 		auto bin = binary();
 		if (args[0].isObject(HTML::iHTML::getPrototype())) {
-			bin = args[0].getObject<HTML::iHTML>();
+			string htmlStr = string(args[0]);
+			bin.insert(bin.end(), htmlStr.begin(), htmlStr.end());
 			writeHeader({"Content-Type", "text/html"});
 		} else if (args[0].isView())
 			bin = args[0].getBinary();

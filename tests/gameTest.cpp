@@ -13,6 +13,7 @@
 #include "game/graphics.hpp"
 #include "game/mesh.hpp"
 #include "game/meshRenderer.hpp"
+#include "game/uiSurface.hpp"
 #include "game/engine.hpp"
 #include "image.hpp"
 #include "goldjs.hpp"
@@ -351,6 +352,27 @@ TEST(engine_parallel_component_update) {
 	promise::joinThreads();
 
 	EXPECT_EQ(count, 4);
+}
+
+// The pointer mapping of a UI surface: a world ray is intersected with the
+// quad's plane and turned into a point. Everything downstream (hover, click,
+// :active) is driven by this one step, so it is worth pinning down.
+TEST(ui_surface_ray_hits_the_screen_quad) {
+	float x = 0.0f, y = 0.0f;
+	// Straight down the -Z axis from in front of the quad.
+	EXPECT_TRUE(intersectQuad(0.5f, 0.25f, 1.0f, 0.0f, 0.0f, -1.0f, 0.0f, x, y));
+	EXPECT_NEAR(x, 0.5, 0.0001);
+	EXPECT_NEAR(y, 0.25, 0.0001);
+
+	// An angled ray still lands on the plane at the right place.
+	EXPECT_TRUE(intersectQuad(0.0f, 0.0f, 2.0f, 1.0f, 0.5f, -1.0f, 0.0f, x, y));
+	EXPECT_NEAR(x, 2.0, 0.0001);
+	EXPECT_NEAR(y, 1.0, 0.0001);
+
+	// Parallel to the quad: no hit.
+	EXPECT_FALSE(intersectQuad(0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, x, y));
+	// Pointing away from it: no hit.
+	EXPECT_FALSE(intersectQuad(0.0f, 0.0f, -1.0f, 0.0f, 0.0f, -1.0f, 0.0f, x, y));
 }
 
 int main() {

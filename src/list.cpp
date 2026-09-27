@@ -124,7 +124,7 @@ namespace gold {
 	}
 
 	list::~list() {
-		if (data && data.use_count() <= 0) data->items.clear();
+		if (data && data.use_count() <= 1) data->items.clear();
 		data = nullptr;
 	}
 

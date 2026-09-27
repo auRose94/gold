@@ -16,7 +16,7 @@ namespace gold {
 	using namespace std;
 	using namespace bgfx;
 
-	binary getSpriteShaderData(shaderType stype);
+
 
 	struct PosColorVertex {
 		float x, y, z;
