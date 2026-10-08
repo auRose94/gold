@@ -23,13 +23,11 @@ All default to `ON` except examples:
 | `GOLD_BUILD_LANG` | `ON` | scripting-language module (`gold::lang`) |
 | `GOLD_BUILD_TESTS` | `ON` | test suite |
 | `GOLD_BUILD_EXAMPLES` | `OFF` | example projects (requires `GOLD_BUILD_GAME`) |
-| `GOLD_USE_SYSTEM_BGFX` | auto | use system bgfx instead of bundled submodules |
 
-`GOLD_USE_SYSTEM_BGFX` defaults to `ON` when a system bgfx is found
-(`libbgfx.so` + the `bgfx-shaderc` tool), falling back to the bundled
-bgfx/bx/bimg sources otherwise. Using the system install cuts a full build
-to tens of seconds. Requires the `bgfx` CMake package and
-`/usr/bin/bgfx-shaderc` (e.g. the `bgfx-cmake` package on Arch).
+**bgfx is always the system package** (`libbgfx.so` + headers + the
+`/usr/bin/bgfx-shaderc` tool, e.g. the `bgfx-cmake` package on Arch); the
+vendored fallback build was removed. Without the package, the game module
+cannot be configured.
 
 ## Fast core-only build (no game/web deps)
 
@@ -57,7 +55,7 @@ ctest --test-dir build --output-on-failure
   system `sdl3` pkg-config module is found. Without it the engine degrades
   to wayland/evdev/headless and bgfx's Noop renderer. e.g. `sdl3` on Arch,
   `libsdl3-dev` on Debian.
-- **bgfx** (optional) — see `GOLD_USE_SYSTEM_BGFX` above.
+- **bgfx** — required for the game module (system package).
 
 Other dependencies (bullet, freetype, uWebSockets/uSockets) still build from
 `3rdParty/` sources for now; they migrate one by one to runtime dynamic

@@ -99,17 +99,12 @@ Build options (all default to `ON` except examples):
 * `GOLD_BUILD_LANG` – the scripting-language module (`gold::lang`)
 * `GOLD_BUILD_TESTS` – the test suite
 * `GOLD_BUILD_EXAMPLES` – build the example projects (default `OFF`; requires `GOLD_BUILD_GAME`)
-* `GOLD_USE_SYSTEM_BGFX` – use an installed bgfx (`libbgfx.so` + the
-  `bgfx-shaderc` tool) instead of building the bundled bgfx/bx/bimg
-  submodules and the bundled shader-compiler stack (glslang, spirv-tools,
-  glsl-optimizer, fcpp). Defaults to `ON` when a system bgfx is found;
-  falls back to the bundled sources otherwise. Using the system install
-  cuts a full build to tens of seconds. Requires the `bgfx` CMake package
-  and `/usr/bin/bgfx-shaderc` (e.g. the `bgfx-cmake` package on Arch).
-
-With system bgfx, shaders are compiled at build time and at runtime by
-the external `bgfx-shaderc` tool; the runtime shader compiler is not
-statically linked into `gold::game`.
+* **bgfx** is always the system package (`libbgfx.so` + headers + the
+  `bgfx-shaderc` tool, e.g. the `bgfx-cmake` package on Arch) — the game
+  module cannot be configured without it; the vendored fallback sources
+  were removed. Shaders compile at build time and at run time through
+  the external `bgfx-shaderc` tool; the compiler is not statically
+  linked into `gold::game`.
 
 To build and test just the shared core (fast, no game/web deps):
 
@@ -337,9 +332,8 @@ soname with graceful fallbacks (the UI's built-in 5x7 font when FreeType
 is absent). Selection policy: system package → platform-parity package →
 feature absent.
 
-Still vendored as stopgaps: `bullet3` (queued: physics plugin),
-`uWebSockets`/`uSockets` (queued: port to libwebsockets), and
-`bgfx.cmake` as the build when no system bgfx is found. JSON and the
+Still vendored as stopgaps: `bullet3` (queued: physics plugin) and
+`uWebSockets`/`uSockets` (queued: port to libwebsockets). JSON and the
 binary data formats (BSON/CBOR/MsgPack/UBJSON) are implemented in-tree
 (`src/goldjson.cpp`); the web document store is in-tree too (`dataStore`
 with a "file" backend in `src/web/dataStoreFile.cpp`). Crypto++/snappy,

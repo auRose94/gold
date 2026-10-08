@@ -31,18 +31,15 @@ target_include_directories(
 	goldShared
 	PUBLIC
 		"include"
-		3rdParty/
 		3rdParty/uWebSockets/src
-		# image.cpp uses the stb single-header image loader directly.
-		3rdParty/bgfx.cmake/bimg/3rdparty
 )
 
 target_link_libraries (
 	goldShared
 	PUBLIC 
 		OpenSSL::Crypto
-		${GOLD_BX_TARGET}
-		${GOLD_BIMG_TARGET}
+		bgfx::bx
+		bgfx::bimg
 )
 
 if(MSVC)

@@ -88,9 +88,10 @@ host via the `script` facade (`setGlobal`/`getGlobal`/`eval`/`call`).
   `conwaysGameOfLife`, `myWebProject`).
 - `docs/` — module docs; `docs/index.md` is the entry point.
 - `3rdParty/` — remaining vendored deps only (`bullet3`, `uWebSockets`/
-  `uSockets` stopgaps, `bgfx.cmake` fallback, `generated/` build input).
-  Do not edit; these migrate to runtime-loaded plugins (`include/plugin.hpp`,
-  `docs/backends/plugins.md`) phase by phase — dead deps were removed.
+  `uSockets` stopgaps, `generated/` build input; bx/bimg/bgfx come from
+  the system bgfx package). Do not edit; queued phases migrate bullet to
+  a physics plugin and the web transport to libwebsockets
+  (`docs/backends/plugins.md`).
 
 ## Test suite
 

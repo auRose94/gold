@@ -28,14 +28,8 @@ endif()
 set(JSON_BuildTests OFF CACHE INTERNAL "")
 set(JSON_Install OFF CACHE INTERNAL "")
 set(BUILD_TESTING OFF CACHE INTERNAL "")
-set(BGFX_BUILD_EXAMPLES OFF CACHE INTERNAL "")
-# gold builds its own shaderc (cmake/shaderc.cmake) with a link fix for the
-# circular shader-toolchain archives, so disable the bgfx.cmake submodule's
-# built-in shaderc build.
-set(BGFX_BUILD_TOOLS_SHADER OFF CACHE INTERNAL "")
+# ABI mirror: the system libbgfx is built with debug config annotations.
 set(BGFX_CONFIG_DEBUG ON CACHE INTERNAL "")
-set(ENTRY_CONFIG_USE_SDL ON CACHE INTERNAL "")
-set(BGFX_OPENGL_VERSION "46" CACHE INTERNAL "")
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 find_package(OpenSSL REQUIRED)
 set(USE_MSVC_RUNTIME_LIBRARY_DLL ON CACHE INTERNAL "")
@@ -64,32 +58,26 @@ option(GOLD_BUILD_LANG "Build the gold scripting-language module" ON)
 option(GOLD_BUILD_TESTS "Build the gold test suite" ON)
 option(GOLD_BUILD_EXAMPLES "Build the gold example projects" OFF)
 
-# bgfx/bx/bimg: prefer an installed system bgfx (shared lib + headers +
-# the bgfx-shaderc tool) over building the bundled submodules. Using the
-# system install cuts a lot of compile time (amalgamated bgfx plus the
-# shader-compiler stack glslang/spirv-tools/glsl-optimizer/fcpp). When no
-# system bgfx is found the bundled sources are built instead.
+# bgfx/bx/bimg come from the system bgfx package (shared lib + headers +
+# the bgfx-shaderc tool). gold no longer vendors the bgfx sources: the
+# render backend is a loadable plugin compiled against these system
+# headers, so the core binaries carry none of them. Without the package,
+# the game module cannot be built (the SDL_GPU render plugin is the
+# documented parity alternative on platforms without a bgfx package).
 find_package(bgfx QUIET)
-option(GOLD_USE_SYSTEM_BGFX
-	"Use the system bgfx install (libbgfx.so + bgfx-shaderc) instead of the bundled submodules"
-	${bgfx_FOUND})
-if(GOLD_USE_SYSTEM_BGFX AND NOT bgfx_FOUND)
-	message(FATAL_ERROR "GOLD_USE_SYSTEM_BGFX=ON but find_package(bgfx) found no system install")
+if(GOLD_BUILD_GAME AND NOT bgfx_FOUND)
+	message(FATAL_ERROR
+		"gold::game needs the system bgfx package (libbgfx + headers + the "
+		"bgfx-shaderc tool, e.g. the bgfx-cmake package on Arch); build "
+		"with GOLD_BUILD_GAME=OFF, or use the SDL_GPU render parity path")
 endif()
-if(GOLD_USE_SYSTEM_BGFX)
-	set(GOLD_BGFX_TARGET bgfx::bgfx)
-	set(GOLD_BX_TARGET bgfx::bx)
-	set(GOLD_BIMG_TARGET bgfx::bimg)
-	set(GOLD_SHADER_COMPILER "/usr/bin/bgfx-shaderc")
-	# bgfx's shader header includes (bgfx_shader.sh, bgfx_compute.sh).
-	set(GOLD_BGFX_SHADER_INCLUDE "/usr/include/bgfx")
-else()
-	set(GOLD_BGFX_TARGET bgfx)
-	set(GOLD_BX_TARGET bx)
-	set(GOLD_BIMG_TARGET bimg)
-	set(GOLD_SHADER_COMPILER "$<TARGET_FILE:shaderc>")
-	set(GOLD_BGFX_SHADER_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/3rdParty/bgfx.cmake/bgfx/src")
-endif()
+set(GOLD_BGFX_TARGET bgfx::bgfx)
+set(GOLD_BX_TARGET bgfx::bx)
+set(GOLD_BIMG_TARGET bgfx::bimg)
+# The shader compiler is the system tool; shaders compile at build time.
+set(GOLD_SHADER_COMPILER "/usr/bin/bgfx-shaderc")
+# bgfx's shader header includes (bgfx_shader.sh, bgfx_compute.sh).
+set(GOLD_BGFX_SHADER_INCLUDE "/usr/include/bgfx")
 
 set(GOLD_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 

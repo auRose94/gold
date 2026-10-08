@@ -64,14 +64,6 @@ target_include_directories(
 		3rdParty/bullet3/src
 )
 
-if(NOT GOLD_USE_SYSTEM_BGFX)
-	target_include_directories(
-		goldGame
-		PUBLIC
-			${CMAKE_CURRENT_SOURCE_DIR}/3rdParty/bgfx.cmake/bgfx/include
-	)
-endif()
-
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
 	# Unconditional probes: results are cached, and skipping the call on a
@@ -207,12 +199,6 @@ target_compile_definitions(goldGame PUBLIC BT_USE_DOUBLE_PRECISION)
 # The include dir is PRIVATE: the header is the only thing game code needs.
 if(TARGET gold::ui)
 	target_link_libraries(goldGame PRIVATE gold::ui)
-endif()
-
-# In system-bgfx mode the shader compiler is the external bgfx-shaderc
-# tool instead of the statically linked brtshaderc library.
-if(GOLD_USE_SYSTEM_BGFX)
-	target_compile_definitions(goldGame PUBLIC GOLD_USE_SYSTEM_BGFX=1)
 endif()
 
 # The shader compiler tool path, used at runtime to compile .sc shaders.
