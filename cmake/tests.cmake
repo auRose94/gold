@@ -125,6 +125,25 @@ if(GOLD_BUILD_GAME)
 	)
 	add_test(NAME goldGameTests COMMAND goldGameTests)
 
+	# The backend-plugin fixture: a genuine shared library named
+	# libgoldFixtureWindow(.so/.dll) placed in the executables' directory,
+	# where the plugin loader's search paths look. It self-registers the
+	# "fixtureWindow" backend when loaded.
+	add_library(
+		goldFixturePlugin
+		SHARED
+			tests/fixturePlugin.cpp
+	)
+	target_include_directories(goldFixturePlugin PRIVATE "include" "tests")
+	target_link_libraries(goldFixturePlugin PRIVATE gold::game)
+	set_target_properties(
+		goldFixturePlugin
+		PROPERTIES
+			OUTPUT_NAME libgoldFixtureWindow
+			PREFIX ""
+			LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+	)
+
 	add_executable(
 		goldRenderBackendTests
 		tests/renderBackendTest.cpp

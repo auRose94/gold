@@ -101,8 +101,11 @@ ui.loadFont(list({"assets/Inter-Bold.ttf", "sans-serif", 700.0}));
 
 Font files register under the family names they answer to, including the
 generic CSS families (`sans-serif`, `serif`, `monospace`). Glyphs are
-rasterized through FreeType with a small bitmap cache and horizontal
-sub-pixel positioning.
+rasterized through the system FreeType — opened at runtime (`ftshim`, see
+`plugin::sonames("freetype")`), never linked — with a small bitmap cache
+and horizontal sub-pixel positioning. A build without the freetype2 dev
+headers, or a machine without the library, only produces the built-in
+font below.
 
 **No font file required**: when a family has no file (or FreeType is
 unavailable), a built-in 5x7 bitmap font takes over, so the renderer always

@@ -16,9 +16,6 @@
 [submodule "examples/myWebProject/3rdParty/bootstrap-table"]
 	path = examples/myWebProject/3rdParty/bootstrap-table
 	url = https://github.com/wenzhixin/bootstrap-table.git
-[submodule "3rdParty/freetype2"]
-	path = 3rdParty/freetype2
-	url = https://github.com/aseprite/freetype2.git
 [submodule "3rdParty/bgfx.cmake"]
 	path = 3rdParty/bgfx.cmake
 	url = https://github.com/bkaradzic/bgfx.cmake.git

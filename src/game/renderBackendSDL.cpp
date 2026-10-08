@@ -253,6 +253,14 @@ namespace gold {
 					[]() -> renderBackend* {
 						return new sdlGpuBackend();
 					});
+				registerRenderBackendName("sdlgpu",
+					[]() -> renderBackend* {
+						return new sdlGpuBackend();
+					});
+				registerRenderBackendName("sdl",
+					[]() -> renderBackend* {
+						return new sdlGpuBackend();
+					});
 			}
 		};
 		sdlRegistrar sdlReg;

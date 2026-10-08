@@ -3,18 +3,14 @@ cmake_minimum_required(VERSION 3.16...4.2)
 
 project(gold CXX)
 
-# The UI module turns parsed HTML/CSS into pixels: style cascade, layout
-# (block/inline + flex + grid), text shaping, a CPU rasterizer, and an
-# event/hit-test surface for game interaction. gold::game adds a thin
-# adapter (uiSurface) on top of this; the module itself has no GPU
-# dependency so it can be tested headless.
-#
-# The `software_renderer` (CPU rasterizer) is the primary, always-on backend.
-# `ultralight_renderer` (WebKit) is an optional secondary backend; it pulls in
-# the Ultralight SDK, so it is off by default. Enable with
-# -DGOLD_UI_ULTRALIGHT=ON.
-option(GOLD_UI_ULTRALIGHT "Build the Ultralight (WebKit) UI renderer backend" OFF)
-
+# FreeType comes from the system install (dev headers only — the library
+# is opened at runtime through the plugin loader, so a machine without it
+# runs the built-in font). Without the headers, the inert shim keeps the
+# module building.
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+	pkg_check_modules(GOLD_FREETYPE QUIET freetype2)
+endif()
 set(goldUI_sources
 	src/ui/font.cpp
 	src/ui/layout.cpp
@@ -23,9 +19,20 @@ set(goldUI_sources
 	src/ui/style.cpp
 	src/ui/tree.cpp
 )
-if(GOLD_UI_ULTRALIGHT)
-	list(APPEND goldUI_sources src/ui/ultralight_renderer.cpp)
+if(GOLD_FREETYPE_FOUND)
+	list(APPEND goldUI_sources src/ui/ftShimFreetype.cpp)
+else()
+	list(APPEND goldUI_sources src/ui/ftShimNone.cpp)
+	message(STATUS "gold: no system freetype2 headers; the UI module will use the built-in 5x7 font only")
 endif()
+
+# The UI module turns parsed HTML/CSS into pixels: style cascade, layout
+# (block/inline + flex + grid), text shaping, a CPU rasterizer, and an
+# event/hit-test surface for game interaction. gold::game adds a thin
+# adapter (uiSurface) on top of this; the module itself has no GPU
+# dependency so it can be tested headless. Renderer backends register into
+# the renderer registry (see src/ui/renderer.cpp); optional WebKit-class
+# backends ship as their own loadable plugins.
 
 add_library(
 	goldUI
@@ -54,41 +61,23 @@ target_include_directories(
 	PUBLIC
 		"include"
 		"include/ui"
-	PRIVATE
-		3rdParty/freetype2/include
 )
 
-if(GOLD_UI_ULTRALIGHT)
-	get_filename_component(ultralight_root "${CMAKE_SOURCE_DIR}/3rdParty/ultralight-free-sdk" ABSOLUTE)
-	target_include_directories(
-		goldUI
-		PRIVATE
-			${ultralight_root}/include
-	)
-	target_link_libraries(
-		goldUI
-		PRIVATE
-			${ultralight_root}/bin/libUltralight.so
-			${ultralight_root}/bin/libUltralightCore.so
-	)
-	set_target_properties(
-		goldUI
-		PROPERTIES
-			BUILD_RPATH "$ORIGIN;${ultralight_root}/bin"
-			INSTALL_RPATH "${ultralight_root}/bin"
-	)
-endif()
-
-# gold::web carries the HTML/CSS parsers; freetype carries the glyph
-# rasterizer. Neither is exposed through goldUI's public headers.
+# gold::web carries the HTML/CSS parsers; the freetype shim handles
+# glyphs. Neither is exposed through goldUI's public headers.
 target_link_libraries(
 	goldUI
 	PUBLIC
 		gold::shared
 	PRIVATE
 		gold::web
-		freetype
 )
+
+if(GOLD_FREETYPE_FOUND)
+	# Compile-time access to the C ABI headers; the library itself is
+	# opened at runtime (see the freetype shim).
+	target_include_directories(goldUI PRIVATE ${GOLD_FREETYPE_INCLUDE_DIRS})
+endif()
 
 target_compile_features(
 	goldUI

@@ -324,4 +324,13 @@ namespace gold {
 	void registerRenderBackend(renderBackendType type,
 		renderBackend* (*factory)());
 
+	/** Register a backend factory by config-style name ("bgfx",
+	 *  "sdlgpu", ...) — how runtime-loaded render plugins register,
+	 *  since their enum entry may not exist in every build. */
+	void registerRenderBackendName(const std::string& name,
+		renderBackend* (*factory)());
+	/** Create by name, with the plugin-load retry the other registries
+	 *  have (a miss tries libgold<Name>.so before giving up). */
+	renderBackend* createRenderBackend(const std::string& name);
+
 }  // namespace gold

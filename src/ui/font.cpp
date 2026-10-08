@@ -4,9 +4,7 @@
 #include <cstring>
 #include <unordered_map>
 
-#include <ft2build.h>
-#include FT_FREETYPE_H
-#include FT_OUTLINE_H
+#include "ui/ftShim.h"
 
 namespace gold {
 	namespace UI {
@@ -139,9 +137,8 @@ namespace gold {
 		// ------------------------------------------------------------- impl
 
 		struct fontManager::impl {
-			FT_Library library = nullptr;
 			struct faceEntry {
-				FT_Face face = nullptr;
+				void* face = nullptr;  // an opaque ftshim face
 				binary data;  // keeps in-memory faces alive
 				string family;
 				int weight = 400;
@@ -154,8 +151,9 @@ namespace gold {
 
 			~impl() {
 				for (auto& entry : faces)
-					if (entry.face) FT_Done_Face(entry.face);
-				if (library) FT_Done_FreeType(library);
+					if (entry.face) ftshim::closeFace(entry.face);
+				// The shim owns its FreeType library for the process
+				// lifetime; faces are the callers' responsibility.
 			}
 
 			/** Find the face for a family, falling back to any weight. */
@@ -186,7 +184,7 @@ namespace gold {
 		};
 
 		fontManager::fontManager() : d(new impl()) {
-			d->freetypeReady = FT_Init_FreeType(&d->library) == 0;
+			d->freetypeReady = ftshim::open();
 		}
 
 		fontManager::~fontManager() {
@@ -253,9 +251,8 @@ namespace gold {
 		bool fontManager::loadFile(const string& path, const string& family,
 			int weight, bool italic) {
 			if (!d->freetypeReady) return false;
-			FT_Face face = nullptr;
-			if (FT_New_Face(d->library, path.c_str(), 0, &face) != 0)
-				return false;
+			void* face = ftshim::openFaceFile(path);
+			if (!face) return false;
 			impl::faceEntry entry;
 			entry.face = face;
 			entry.family = family;
@@ -271,13 +268,14 @@ namespace gold {
 		bool fontManager::loadData(binary data, const string& family,
 			int weight, bool italic) {
 			if (!d->freetypeReady || data.size() == 0) return false;
-			FT_Face face = nullptr;
-			if (FT_New_Memory_Face(d->library, (const FT_Byte*)data.data(),
-					(FT_Long)data.size(), 0, &face) != 0)
-				return false;
+			// The face reads the buffer lazily, so the owned binary must
+			// be where it points: move it into the entry and open from
+			// there (this used to point at the parameter's dying copy).
 			impl::faceEntry entry;
-			entry.face = face;
-			entry.data = data;  // FreeType reads it lazily
+			entry.data = std::move(data);
+			entry.face = ftshim::openFaceMemory(entry.data.data(),
+				entry.data.size());
+			if (!entry.face) return false;
 			entry.family = family;
 			entry.weight = weight;
 			entry.italic = italic;
@@ -325,32 +323,16 @@ namespace gold {
 			if (size <= 0.0f) size = 1.0f;
 			auto* entry = d->find(family, weight, italic);
 			if (entry && entry->face) {
-				// The size metrics are 26.6 fixed point, already scaled for
-				// the size this face is set to — so set it to the requested
-				// size first (the same call measureWidth/shape make) and
-				// read the values as-is. Multiplying again double-scales.
-				FT_Face face = entry->face;
-				if (FT_Set_Char_Size(face, 0, (FT_F26Dot6)(size * 64.0),
-						72, 72) == 0) {
-					const FT_Size_Metrics& m = face->size->metrics;
-					const float ascentPx = (float)m.ascender / 64.0f;
-					const float descentPx = (float)(-m.descender) / 64.0f;
-					out.ascent = ascentPx;
-					out.descent = descentPx;
-					// The em height covers ascent + descent; the rest of
-					// the pitch is leading between lines.
-					const float lineGapPx =
-						(float)m.height / 64.0f - ascentPx - descentPx;
-					out.lineGap = lineGapPx > 0.0f ? lineGapPx : 0.0f;
-					// Real x-height from the 'x' glyph at this size.
-					const FT_UInt xIndex = FT_Get_Char_Index(face, 'x');
-					if (xIndex != 0 &&
-						FT_Load_Glyph(face, xIndex, FT_LOAD_NO_BITMAP) == 0)
-						out.xHeight =
-							(float)face->glyph->metrics.height / 64.0f;
-					else
-						out.xHeight = ascentPx * 0.5f;
-					if (out.ascent > 0.0f) return out;
+				// The shim sets the requested size and reads the face's
+				// metrics in that space (they are 26.6 values, already
+				// scaled for the set size — must not be multiplied again).
+				const auto fm = ftshim::metrics(entry->face, size);
+				if (fm.ascent > 0.0f) {
+					out.ascent = fm.ascent;
+					out.descent = fm.descent;
+					out.lineGap = fm.lineGap;
+					out.xHeight = fm.xHeight;
+					return out;
 				}
 			}
 			const float s = builtinScale(size);
@@ -380,23 +362,17 @@ namespace gold {
 				return w;
 			}
 
-			FT_Face face = entry->face;
-			const FT_F26Dot6 charSize = (FT_F26Dot6)(size * 64.0);
-			FT_Set_Char_Size(face, 0, charSize, 72, 72);
+			void* face = entry->face;
+			ftshim::setSize(face, size);
 
 			float width = 0.0f;
-			FT_UInt previous = 0;
+			uint32_t previous = 0;
 			for (uint32_t cp : decodeUTF8(utf8)) {
-				const FT_UInt index = FT_Get_Char_Index(face, cp);
-				if (previous && index &&
-					FT_HAS_KERNING(face)) {
-					FT_Vector delta;
-					if (FT_Get_Kerning(face, previous, index,
-							FT_KERNING_DEFAULT, &delta) == 0)
-						width += (float)delta.x / 64.0f;
-				}
-				if (FT_Load_Glyph(face, index, FT_LOAD_DEFAULT) == 0)
-					width += (float)face->glyph->advance.x / 64.0f;
+				const uint32_t index = ftshim::charIndex(face, cp);
+				if (previous && index && ftshim::hasKerning(face))
+					width += ftshim::kerning(face, previous, index);
+				const auto glyph = ftshim::loadGlyph(face, index, false);
+				if (glyph.ok) width += glyph.advance;
 				previous = index;
 			}
 			return width;
@@ -409,15 +385,16 @@ namespace gold {
 			float x = 0.0f;
 			if (auto* entry = d->find(family, weight, italic);
 				entry && entry->face) {
-				FT_Face face = entry->face;
-				FT_Set_Char_Size(face, 0, (FT_F26Dot6)(size * 64.0), 72, 72);
+				void* face = entry->face;
+				ftshim::setSize(face, size);
 				for (uint32_t cp : decodeUTF8(utf8)) {
 					shapedGlyph glyph;
 					glyph.codepoint = cp;
 					glyph.x = x;
-					if (FT_Load_Glyph(face, FT_Get_Char_Index(face, cp),
-							FT_LOAD_DEFAULT) == 0)
-						glyph.advance = (float)face->glyph->advance.x / 64.0f;
+					const auto loaded =
+						ftshim::loadGlyph(face, ftshim::charIndex(face, cp),
+							false);
+					if (loaded.ok) glyph.advance = loaded.advance;
 					x += glyph.advance;
 					out.push_back(glyph);
 				}
@@ -495,30 +472,28 @@ namespace gold {
 			auto cached = d->cache.find(key);
 			if (cached != d->cache.end()) return &cached->second;
 
-			FT_Face face = entry->face;
-			FT_Set_Char_Size(face, 0, (FT_F26Dot6)(size * 64.0), 72, 72);
-			const FT_UInt index = FT_Get_Char_Index(face, codepoint);
+			void* face = entry->face;
+			ftshim::setSize(face, size);
+			const uint32_t index = ftshim::charIndex(face, codepoint);
 
 			glyphBitmap bitmap;
 			bitmap.advance = 0.0f;
-			if (index && FT_Load_Glyph(face, index,
-					FT_LOAD_DEFAULT | FT_LOAD_NO_BITMAP) == 0) {
-				bitmap.advance = (float)face->glyph->advance.x / 64.0f;
-				if (subpixel && face->glyph->format == FT_GLYPH_FORMAT_OUTLINE) {
-					FT_Outline_Translate(&face->glyph->outline,
-						(FT_Pos)(subpixel * 21), 0);
-				}
-				if (FT_Render_Glyph(face->glyph, FT_RENDER_MODE_NORMAL) == 0) {
-					const FT_Bitmap& src = face->glyph->bitmap;
-					bitmap.width = (int)src.width;
-					bitmap.height = (int)src.rows;
-					bitmap.left = face->glyph->bitmap_left;
-					bitmap.top = face->glyph->bitmap_top;
+			const auto loaded = ftshim::loadGlyph(face, index, true);
+			if (loaded.ok) {
+				bitmap.advance = loaded.advance;
+				if (subpixel && loaded.hasOutline)
+					ftshim::translateOutline(face, subpixel * 21);
+				if (ftshim::rasterize(face)) {
+					const auto src = ftshim::bitmapOf(face);
+					bitmap.width = src.width;
+					bitmap.height = src.height;
+					bitmap.left = src.left;
+					bitmap.top = src.top;
 					bitmap.alpha.assign((size_t)(bitmap.width * bitmap.height),
 						0);
 					for (int y = 0; y < bitmap.height; y++) {
 						const unsigned char* row = src.buffer +
-													(size_t)y * (size_t)src.pitch;
+												   (size_t)y * (size_t)src.pitch;
 						uint8_t* dst = bitmap.alpha.data() +
 									   (size_t)y * (size_t)bitmap.width;
 						for (int x = 0; x < bitmap.width; x++) dst[x] = row[x];

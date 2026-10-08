@@ -1,6 +1,7 @@
 #include "file.hpp"
 #include "goldtest.hpp"
 #include "module.hpp"
+#include "plugin.hpp"
 #include "promise.hpp"
 #include "worker.hpp"
 
@@ -204,6 +205,23 @@ TEST(concurrent_object_handle_getters) {
 	for (auto& th : threads) th.join();
 
 	EXPECT_EQ(errors.load(), 0);
+}
+
+TEST(plugin_loader_basics) {
+	// Search paths always exist; the loader explains misses; sonames are
+	// known for the dependency table and empty for unknown names.
+	EXPECT_TRUE(plugin::searchPaths().size() > 0);
+	EXPECT_FALSE(plugin::load(""));
+	EXPECT_FALSE(plugin::lastError().empty());
+
+	EXPECT_TRUE(plugin::sonames("freetype").size() > 0);
+	EXPECT_TRUE(plugin::sonames("sdl3").size() > 0);
+	EXPECT_TRUE(plugin::sonames("no_such_dependency_name").empty());
+
+	// A gold plugin name that was never built stays absent.
+	EXPECT_FALSE(plugin::load("NoSuchBackendAnywhere"));
+	EXPECT_FALSE(plugin::isLoaded("NoSuchBackendAnywhere"));
+	EXPECT_FALSE(plugin::lastError().empty());
 }
 
 int main() {

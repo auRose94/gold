@@ -3,6 +3,8 @@
 #include <map>
 #include <mutex>
 
+#include "plugin.hpp"
+
 namespace gold {
 
 	namespace {
@@ -23,6 +25,14 @@ namespace gold {
 	}
 
 	inputSystem* createInputSystem(const std::string& name) {
+		{
+			std::lock_guard<std::mutex> guard(registryMutex());
+			auto it = factories().find(name);
+			if (it != factories().end()) return it->second();
+		}
+		// Miss: a backend plugin may provide it — load then retry. Loading
+		// runs outside the registry mutex (registrars take it).
+		plugin::load(name);
 		std::lock_guard<std::mutex> guard(registryMutex());
 		auto it = factories().find(name);
 		if (it != factories().end()) return it->second();

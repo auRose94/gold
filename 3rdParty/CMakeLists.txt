@@ -39,10 +39,6 @@ if(GOLD_BUILD_GAME)
 	include(cmake/bullet.cmake)
 endif()
 
-# ------------------------------------------------- ui module deps (freetype)
-# The UI module rasterizes text through the bundled FreeType, so build it
-# whenever the module is enabled (Phase 2 moves this to a dlopen'd system
-# FreeType; see the plugin loader).
-if(GOLD_BUILD_UI AND GOLD_BUILD_WEB)
-	add_subdirectory(freetype2)
-endif()
+# FreeType is NOT built here: the UI module opens the system FreeType at
+# runtime through the plugin loader (src/ui/ftShim*), falling back to the
+# built-in 5x7 font when it is unavailable.

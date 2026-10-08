@@ -11,6 +11,7 @@
 #include <goldjson.hpp>
 #include <map>
 #include <mutex>
+#include <plugin.hpp>
 #include <shared_mutex>
 #include <system_error>
 
@@ -432,6 +433,14 @@ namespace gold {
 	}
 
 	dataStore* createDataStore(const std::string& name) {
+		{
+			lock_guard<mutex> guard(storeMutex());
+			auto it = storeFactories().find(name);
+			if (it != storeFactories().end()) return it->second();
+		}
+		// Miss: a backend plugin may provide it — load then retry. Loading
+		// runs outside the registry mutex (registrars take it).
+		plugin::load(name);
 		lock_guard<mutex> guard(storeMutex());
 		auto it = storeFactories().find(name);
 		if (it != storeFactories().end()) return it->second();

@@ -4,6 +4,7 @@
 #include <mutex>
 
 #include "module.hpp"
+#include "plugin.hpp"
 
 namespace gold {
 
@@ -116,9 +117,14 @@ namespace gold {
 			auto it = factories().find(name);
 			if (it != factories().end()) return it->second();
 		}
-		// Not statically registered: try loading it as a shared module.
-		// Backends live in the game module itself today, so an unknown name
-		// just means the backend isn't built in.
+		// Not statically registered: try loading it as a shared module. A
+		// backend plugin self-registers at load time via its static
+		// initializers, so loading is all that is needed. Load outside the
+		// registry mutex: the plugin's own registration takes it too.
+		plugin::load(name);
+		std::lock_guard<std::mutex> guard(factoryMutex());
+		auto it = factories().find(name);
+		if (it != factories().end()) return it->second();
 		return nullptr;
 	}
 

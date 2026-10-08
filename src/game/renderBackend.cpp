@@ -9,6 +9,8 @@
 #include <map>
 #include <mutex>
 
+#include "plugin.hpp"
+
 namespace gold {
 
 	namespace {
@@ -392,6 +394,8 @@ namespace gold {
 			bgfxRegistrar() {
 				registerRenderBackend(renderBackendType::BGFX,
 					[]() -> renderBackend* { return new bgfxRenderBackend(); });
+				registerRenderBackendName("bgfx",
+					[]() -> renderBackend* { return new bgfxRenderBackend(); });
 			}
 		};
 		bgfxRegistrar bgfxReg;
@@ -402,6 +406,10 @@ namespace gold {
 		}
 		std::map<renderBackendType, renderBackend* (*)()>& factories() {
 			static std::map<renderBackendType, renderBackend* (*)()> f;
+			return f;
+		}
+		std::map<std::string, renderBackend* (*)()>& namedFactories() {
+			static std::map<std::string, renderBackend* (*)()> f;
 			return f;
 		}
 	}  // namespace
@@ -416,6 +424,27 @@ namespace gold {
 		std::lock_guard<std::mutex> guard(registryMutex());
 		auto it = factories().find(type);
 		if (it != factories().end()) return it->second();
+		return nullptr;
+	}
+
+	void registerRenderBackendName(const std::string& name,
+		renderBackend* (*factory)()) {
+		std::lock_guard<std::mutex> guard(registryMutex());
+		namedFactories()[name] = factory;
+	}
+
+	renderBackend* createRenderBackend(const std::string& name) {
+		{
+			std::lock_guard<std::mutex> guard(registryMutex());
+			auto it = namedFactories().find(name);
+			if (it != namedFactories().end()) return it->second();
+		}
+		// Miss: a render plugin may provide it — load then retry. Loading
+		// runs outside the registry mutex (the plugin's registrar takes it).
+		plugin::load(name);
+		std::lock_guard<std::mutex> guard(registryMutex());
+		auto it = namedFactories().find(name);
+		if (it != namedFactories().end()) return it->second();
 		return nullptr;
 	}
 

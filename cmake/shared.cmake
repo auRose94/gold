@@ -12,6 +12,7 @@ add_library(
 		src/image.cpp
 		src/module.cpp
 		src/object.cpp
+		src/plugin.cpp
 		src/types.cpp
 		src/var.cpp
 		src/promise.cpp

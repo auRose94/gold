@@ -29,13 +29,15 @@ What's in the box?
 * 3D matrix transformation hierarchies
 * Texture loading(2D/3D/Cube)
 * HTML/CSS UI renderer: cascade, block/flex/grid layout, anti-aliased CPU
-  rasterizer, text through FreeType — re-renders only when the UI changes,
-  and drives in-world surfaces (`uiSurface`: a CRT on a desk) with pointer
+  rasterizer, text through the system FreeType (dlopen'd, with a built-in
+  fallback font) — re-renders only when the UI changes, and drives
+  in-world surfaces (`uiSurface`: a CRT on a desk) with pointer
   picking and click/hover events
 * Auto shader compilation, with inlining
 * CMake utilities
 * Still experimental threading stuff (workers/promises)
-* 3rdParty dependencies are sub modules to other GitHub projects
+* Optional backends are loadable plugins / dynamic dependencies, not
+  statically baked-in libraries
 * Hard parts of C++ have been abstracted to JS/Python difficulty
 * Works with GCC and Clang (MSVC is untested).
 * Uses little memory actually, good enough for x64 IOT or Mobile.
@@ -324,19 +326,24 @@ can replace bgfx without changing the engine's resource classes. This is the
 migration path to deprecate bgfx: implement the `renderBackend` interface
 against Vulkan and swap it in.
 
-## Submodule policy
+## Dependency policy
 
-The `3rdParty` submodules track upstream branches. `zlib` and `libuv` are
-kept at their latest releases, and `bullet3` and `freetype2`
-are updated to their latest master commits. JSON and
-the binary data formats (BSON/CBOR/MsgPack/UBJSON) are implemented in-tree
-(`src/goldjson.cpp`) — the nlohmann/json submodule was removed. The web
-module's document store is implemented in-tree too (`dataStore` interface
-with a "file" backend in `src/web/dataStoreFile.cpp`), so the
-mongo-c-driver is no longer built. The
-`bgfx`/`bx`/`bimg`/`brtshaderc` sources are only built as a fallback when no
-system bgfx is installed (`GOLD_USE_SYSTEM_BGFX`). `uSockets`/`uWebSockets`
-are pinned to a version matching the web module's usage (their latest
-releases changed the app-construction API). SDL2 and SDL_image/SDL_ttf were
-removed entirely: the game module uses system SDL3, and Crypto++/snappy were
-removed earlier (OpenSSL provides PBKDF2/base64).
+Runtime loads, not vendored source. Optional subsystems are shared
+libraries (`libgoldGame.so`, ...) that apps link or pull in at run time
+(`module::load`); platform backends are plugins compiled against their
+system dependency's headers and loaded on demand (`include/plugin.hpp`,
+`plugin::load`); C-ABI dependencies (FreeType) are dlopen'd directly by
+soname with graceful fallbacks (the UI's built-in 5x7 font when FreeType
+is absent). Selection policy: system package → platform-parity package →
+feature absent.
+
+Still vendored as stopgaps: `bullet3` (queued: physics plugin),
+`uWebSockets`/`uSockets` (queued: port to libwebsockets), and
+`bgfx.cmake` as the build when no system bgfx is found. JSON and the
+binary data formats (BSON/CBOR/MsgPack/UBJSON) are implemented in-tree
+(`src/goldjson.cpp`); the web document store is in-tree too (`dataStore`
+with a "file" backend in `src/web/dataStoreFile.cpp`). Crypto++/snappy,
+mongo-c-driver, zlib, libuv, SDL/SDL_image/SDL_ttf and brtshaderc were
+removed entirely (dead in the build graph, or replaced by system
+packages — OpenSSL provides PBKDF2/base64 and SDL3 comes from the
+system).

@@ -40,6 +40,7 @@ ctest --test-dir build --output-on-failure
 - [UI module](ui/overview.md)
 - [Game module](game/overview.md)
 - [Backends](backends/overview.md)
+- [Plugins (runtime-loaded backends)](backends/plugins.md)
 - [Build & config](build.md)
 
 ## Conventions

@@ -18,6 +18,7 @@
 #include "image.hpp"
 #include "goldjs.hpp"
 #include "goldtest.hpp"
+#include "plugin.hpp"
 #include "promise.hpp"
 
 using namespace gold;
@@ -50,6 +51,28 @@ TEST(window_backend_fallback) {
 	auto none = createWindowSystem(list({var(string("nope_a")),
 		var(string("nope_b"))}));
 	EXPECT_TRUE(none == nullptr);
+}
+
+TEST(backend_plugin_loads_and_registers) {
+	// The fixture plugin is a genuine shared library (libgoldFixtureWindow)
+	// built next to this executable: createWindowSystem's hook finds it on
+	// the first miss and gets a registered backend back.
+	auto* sys = createWindowSystem("fixtureWindow");
+	EXPECT_TRUE(sys != nullptr);
+	if (sys) {
+		EXPECT_EQ(string(sys->name()), string("fixtureWindow"));
+		delete sys;
+	}
+
+	// The fallback chain reaches plugin-loaded backends too.
+	auto* chained = createWindowSystem(
+		list({var(string("no_such_backend")), var(string("fixtureWindow"))}));
+	EXPECT_TRUE(chained != nullptr);
+	if (chained) delete chained;
+
+	// A genuine miss stays a miss, and the loader explains itself.
+	EXPECT_FALSE(plugin::load("NoSuchBackendAnywhere"));
+	EXPECT_FALSE(plugin::lastError().empty());
 }
 
 TEST(window_gold_events) {

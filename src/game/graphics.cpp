@@ -178,17 +178,13 @@ namespace gold {
 		if (!nw.handle && !nw.display && !nw.window)
 			setString("backend", "noop");
 
-		// Create the render backend through the renderBackend interface.
-		// Defaults to BGFX; a config "renderBackend" of "sdlgpu"/"sdl"
-		// selects the SDL3 GPU backend. Falls back to BGFX when the
-		// requested backend is unavailable.
-		auto backendType = renderBackendType::BGFX;
+		// Create the render backend through the registry, by the config
+		// name itself ("bgfx"/"sdlgpu"; "sdl" aliases "sdlgpu"). A name
+		// with no built-in factory (e.g. "vulkan") tries plugin::load
+		// first and falls back to bgfx when nothing provides it.
 		auto rb = getString("renderBackend", "bgfx");
-		if (rb == "sdlgpu" || rb == "sdl")
-			backendType = renderBackendType::SDLGPU;
-		else if (rb == "vulkan")
-			backendType = renderBackendType::Vulkan;
-		auto backend = createRenderBackend(backendType);
+		if (rb == "sdl") rb = "sdlgpu";
+		auto backend = createRenderBackend(rb);
 		if (!backend) backend = createRenderBackend(renderBackendType::BGFX);
 		if (!backend) return genericError("No render backend available");
 		render() = backend;
