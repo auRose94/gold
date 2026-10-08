@@ -12,8 +12,12 @@ namespace gold {
 	using std::set;
 	using std::string;
 	struct engine : public object {
-	 protected:
+	 public:
+		// Public: plugins, tests, and scripts need the prototype to
+		// bootstrap or detect engines (same rationale as shape's).
 		static object& getPrototype();
+
+	 protected:
 		friend struct world;
 
 		void registerComponent(component& comp);

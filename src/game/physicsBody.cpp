@@ -1,12 +1,8 @@
 #include "physicsBody.hpp"
 
-#include <BulletDynamics/Dynamics/btDiscreteDynamicsWorld.h>
-#include <BulletCollision/CollisionShapes/btCompoundShape.h>
-#include <BulletDynamics/Dynamics/btRigidBody.h>
-#include <LinearMath/btDefaultMotionState.h>
-
 #include "engine.hpp"
 #include "entity.hpp"
+#include "physicsBackend.hpp"
 #include "shape.hpp"
 #include "world.hpp"
 
@@ -30,66 +26,30 @@ namespace gold {
 	}
 
 	var physicsBody::initialize(list) {
-		float mass = getFloat("mass");
+		// The physics backend (bullet plugin, or "none" on machines
+		// without it) materializes the compound body from the entity's
+		// shape components and registers it with the world.
 		auto parentObject = getObject<entity>("object");
+		if (!parentObject) return var();
 		auto eng = parentObject.getObject<engine>("engine");
+		if (!eng) return var();
 		auto phys = eng.getObject<world>("world");
-		auto worldBodies = phys.getList("bodies");
-		auto dWorld =
-			(btDiscreteDynamicsWorld*)phys.getPtr("dynamicsWorld");
-		auto parTrans = parentObject.getTransform();
-		auto btParTrans = parTrans.getBtTransform().inverse();
-		auto shapes =
-			parentObject
-				.getComponentsRecursive({shape::getPrototype()})
-				.getList();
-		btCompoundShape* bodyShape = new btCompoundShape();
-		setPtr("shape", bodyShape);
-		for (auto it = shapes.begin(); it != shapes.end(); ++it) {
-			auto shapeComp = it->getObject<shape>();
-			auto shapeObj = shapeComp.getObject<entity>("object");
-			auto trans = shapeObj.getTransform();
-			auto btTrans = trans.getBtTransform() * btParTrans;
-
-			auto shape = (btCollisionShape*)shapeComp.getPtr("shape");
-			if (shape) bodyShape->addChildShape(btTrans, shape);
-		}
-		btAssert(
-			(!bodyShape ||
-			 bodyShape->getShapeType() != INVALID_SHAPE_PROXYTYPE));
-
-		bool isDynamic = (mass != 0.f);
-
-		btVector3 localInertia(0, 0, 0);
-		if (isDynamic)
-			bodyShape->calculateLocalInertia(mass, localInertia);
-
-		btDefaultMotionState* motionState =
-			new btDefaultMotionState(btParTrans);
-		setPtr("motionState", motionState);
-
-		btRigidBody::btRigidBodyConstructionInfo cInfo(
-			mass, motionState, bodyShape, localInertia);
-
-		btRigidBody* body = new btRigidBody(cInfo);
-
-		body->setUserIndex(-1);
-		setPtr("body", body);
-
-		dWorld->addRigidBody(body);
-		worldBodies.pushObject(*this);
-
+		if (!phys) return var();
+		auto backend = (physicsBackend*)phys.getPtr("physicsBackend");
+		if (!backend) return var();
+		backend->createBody(*this, phys);
 		return var();
 	}
 
 	var physicsBody::destroy(list) {
-		auto body = (btRigidBody*)getPtr("body");
-		auto motionState =
-			(btDefaultMotionState*)getPtr("motionState");
-		auto shape = (btCollisionShape*)getPtr("shape");
-		if (body) delete body;
-		if (motionState) delete motionState;
-		if (shape) delete shape;
+		auto parentObject = getObject<entity>("object");
+		if (!parentObject) return var();
+		auto eng = parentObject.getObject<engine>("engine");
+		if (!eng) return var();
+		auto phys = eng.getObject<world>("world");
+		if (!phys) return var();
+		auto backend = (physicsBackend*)phys.getPtr("physicsBackend");
+		if (backend) backend->destroyObject(*this);
 		erase("body");
 		erase("motionState");
 		erase("shape");

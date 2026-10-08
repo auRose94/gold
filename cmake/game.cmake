@@ -21,6 +21,7 @@ add_library(
 		src/game/mesh.cpp
 		src/game/meshRenderer.cpp
 		src/game/meshShape.cpp
+		src/game/physicsBackend.cpp
 		src/game/physicsBody.cpp
 		src/game/renderBackend.cpp
 		src/game/renderable.cpp
@@ -61,7 +62,6 @@ target_include_directories(
 		"include/game"
 		${CMAKE_CURRENT_BINARY_DIR}
 		${CMAKE_CURRENT_SOURCE_DIR}/3rdParty/generated/wayland
-		3rdParty/bullet3/src
 )
 
 find_package(PkgConfig QUIET)
@@ -163,17 +163,10 @@ if(PkgConfig_FOUND)
 endif()
 
 target_link_libraries (
-	goldGame 
-	PUBLIC 
+	goldGame
+	PUBLIC
 		gold::shared
 		${GOLD_BGFX_TARGET}
-		Bullet3Common
-		BulletSoftBody 
-		BulletDynamics 
-		BulletCollision 
-		BulletInverseDynamicsUtils 
-		BulletInverseDynamics 
-		LinearMath
 		${OPENGL_LIBRARIES}
 )
 if(PkgConfig_FOUND AND WAYLAND_CLIENT_FOUND)
@@ -185,15 +178,6 @@ endif()
 if(PkgConfig_FOUND AND LIBEVDEV_FOUND)
 	target_link_libraries(goldGame PUBLIC PkgConfig::LIBEVDEV)
 endif()
-target_link_directories(goldGame PUBLIC ${LIBRARY_OUTPUT_DIRECTORY})
-
-# Mirror the Bullet build configuration so goldGame compiles Bullet
-# headers with the same ABI as the Bullet static libraries. The bundled
-# Bullet CMake enables double precision (BT_USE_DOUBLE_PRECISION); without
-# this define the sizes of btScalar/btVector3 differ between goldGame and
-# the lib, corrupting the heap on any btDbvtBroadphase/btDiscreteDynamicsWorld
-# construction.
-target_compile_definitions(goldGame PUBLIC BT_USE_DOUBLE_PRECISION)
 
 # gold::ui backs the uiSurface component (HTML/CSS rendered to a texture).
 # The include dir is PRIVATE: the header is the only thing game code needs.
@@ -218,3 +202,46 @@ target_compile_features(
 		cxx_template_template_parameters
 		cxx_std_26
 )
+
+# The bullet physics backend is a loadable plugin compiled against the
+# system bullet package (use the double-precision build, `bullet-dp` on
+# Arch — gold mirrors BT_USE_DOUBLE_PRECISION on both sides so the ABIs
+# agree; mismatched precision corrupts the heap on btVector3 sizing).
+# The world/shape/body facades in libgoldGame stay bt-free and fall back
+# to the built-in no-op "none" backend without it.
+find_package(Bullet)
+if(Bullet_FOUND)
+	add_library(
+		goldBullet
+		SHARED
+			src/physics/bulletPhysicsBackend.cpp
+	)
+	add_library(
+		gold::bullet ALIAS goldBullet
+	)
+	set_target_properties(
+		goldBullet
+		PROPERTIES
+			OUTPUT_NAME libgoldBullet
+			PREFIX ""
+			LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+	)
+	target_compile_options(goldBullet PRIVATE -Wall -Wextra -pedantic)
+	target_include_directories(
+		goldBullet
+		PRIVATE
+			"include"
+			"include/game"
+			${BULLET_INCLUDE_DIRS}
+	)
+	target_link_libraries(
+		goldBullet
+		PRIVATE
+			gold::game
+			${BULLET_LIBRARIES}
+	)
+	target_compile_definitions(goldBullet PRIVATE BT_USE_DOUBLE_PRECISION)
+	target_compile_features(goldBullet PRIVATE cxx_std_26)
+else()
+	message(STATUS "gold: system bullet not found; physics runs the no-op \"none\" backend (install bullet-dp or a double-precision bullet build for simulation)")
+endif()

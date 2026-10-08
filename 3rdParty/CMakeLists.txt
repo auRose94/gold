@@ -15,10 +15,9 @@ if(GOLD_BUILD_WEB)
 	include(cmake/uWebSockets.cmake)
 endif()
 
-# ------------------------------------------------------------ game module deps
-if(GOLD_BUILD_GAME)
-	include(cmake/bullet.cmake)
-endif()
+# Bullet is NOT built here: physics runs through the loadable
+# libgoldBullet plugin compiled against the system bullet package (see
+# cmake/game.cmake). Vendored physics sources were removed.
 
 # FreeType is NOT built here: the UI module opens the system FreeType at
 # runtime through the plugin loader (src/ui/ftShim*), falling back to the

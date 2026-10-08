@@ -4,9 +4,6 @@
 [submodule "3rdParty/uSockets"]
 	path = 3rdParty/uSockets
 	url = https://github.com/uNetworking/uSockets.git
-[submodule "3rdParty/bullet3"]
-	path = 3rdParty/bullet3
-	url = https://github.com/bulletphysics/bullet3.git
 [submodule "examples/myWebProject/3rdParty/bootstrap"]
 	path = examples/myWebProject/3rdParty/bootstrap
 	url = https://github.com/twbs/bootstrap.git

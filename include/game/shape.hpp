@@ -4,8 +4,12 @@
 
 namespace gold {
 	struct shape : public component {
-	 protected:
+	 public:
+		// Public so backend plugins can discover shape components by
+		// prototype (getComponentsRecursive({shape::getPrototype()})).
 		static object& getPrototype();
+
+	 protected:
 		friend struct physicsBody;
 
 	 public:

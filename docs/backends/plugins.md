@@ -23,6 +23,17 @@ bgfx); `"sdlgpu"` probes `sdl3`. A plugin that provides an alias
 registers both its concrete name and the alias, and the first candidate
 found wins.
 
+**Physics** follows the same seam: `createPhysicsBackend` (a
+`physicsBackend` interface in `include/game/physicsBackend.hpp`)
+resolves `world(jo("physics", "bullet"))` — the bullet backend ships as
+`libgoldBullet`, compiled against the system bullet package (use the
+double-precision `bullet-dp` build; gold mirrors `BT_USE_DOUBLE_PRECISION`
+so the ABIs agree). Without it the world facade runs the built-in no-op
+`"none"` backend: worlds initialize, bodies register nowhere, transforms
+stay under script control. Shape components are descriptor data
+("shapeKind" + size/mesh/node); the backend materializes collision
+shapes at body time.
+
 Loading one is all that is needed: the plugin's static initializers call
 the standard registrars (`registerWindowSystem`,
 `registerInputSystem`, `registerAudioSystem`,

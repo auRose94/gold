@@ -1,6 +1,5 @@
 #include "transform.hpp"
 
-#include <LinearMath/btDefaultMotionState.h>
 #include <bx/math.h>
 
 #include "entity.hpp"
@@ -176,25 +175,6 @@ namespace gold {
 			}
 		}
 		return results;
-	}
-
-	btVector3 transform::getBtPosition() {
-		auto pos = getVar("pos");
-		return btVector3(
-			pos.getFloat(0), pos.getFloat(1), pos.getFloat(2));
-	}
-
-	btQuaternion transform::getBtRotation() {
-		auto rot = getVar("rot");
-		return btQuaternion(
-			rot.getFloat(0),
-			rot.getFloat(1),
-			rot.getFloat(2),
-			rot.getFloat(3));
-	}
-
-	btTransform transform::getBtTransform() {
-		return btTransform(getBtRotation(), getBtPosition());
 	}
 
 	var transform::reset(list) {

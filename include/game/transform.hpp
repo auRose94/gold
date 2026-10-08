@@ -2,21 +2,12 @@
 
 #include "component.hpp"
 
-class btTransform;
-class btVector3;
-class btQuaternion;
-
 namespace gold {
 	struct transform : public component {
 	 public:
 		static object& getPrototype();
 		transform();
 		transform(object config);
-
-		// Low level
-		btVector3 getBtPosition();
-		btQuaternion getBtRotation();
-		btTransform getBtTransform();
 
 		var getMatrix(list args = {});
 		var getWorldMatrix(list args = {});

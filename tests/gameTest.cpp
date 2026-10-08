@@ -5,7 +5,11 @@
 #include "game/inputSystem.hpp"
 #include "game/window.hpp"
 #include "game/windowSystem.hpp"
+#include "game/boxShape.hpp"
 #include "game/light.hpp"
+#include "game/physicsBackend.hpp"
+#include "game/physicsBody.hpp"
+#include "game/sphereShape.hpp"
 #include "game/sprite.hpp"
 #include "game/camera.hpp"
 #include "game/transform.hpp"
@@ -442,6 +446,79 @@ TEST(ui_surface_ray_hits_the_screen_quad) {
 	EXPECT_FALSE(intersectQuad(0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, x, y));
 	// Pointing away from it: no hit.
 	EXPECT_FALSE(intersectQuad(0.0f, 0.0f, -1.0f, 0.0f, 0.0f, -1.0f, 0.0f, x, y));
+}
+
+TEST(physics_backend_registry) {
+	// The built-in no-op "none" backend keeps the facades alive on
+	// machines without a physics engine, with the usual chain + miss
+	// semantics.
+	auto* none = createPhysicsBackend("none");
+	EXPECT_TRUE(none != nullptr);
+	if (none) {
+		EXPECT_EQ(string(none->name()), string("none"));
+		delete none;
+	}
+	auto* chained =
+		createPhysicsBackend(list({"no_such_backend", "none"}));
+	EXPECT_TRUE(chained != nullptr);
+	if (chained) delete chained;
+
+	// The bullet backend ships as libgoldBullet; the registry hook loads
+	// it on demand when the system bullet package exists.
+	auto* bullet = createPhysicsBackend("bullet");
+	if (bullet) EXPECT_EQ(string(bullet->name()), string("bullet"));
+	if (bullet) delete bullet;
+
+	EXPECT_TRUE(createPhysicsBackend("no_physics_anywhere") == nullptr);
+}
+
+TEST(physics_bullet_box_falls_under_gravity) {
+	// Gated on the bullet plugin; everything else is the real facade flow
+	// (entity + transform + shape descriptor + body) with the engine ref
+	// set manually, since no engine lifecycle boots here.
+	if (!plugin::load("bullet")) return;
+	engine eng;
+	// The bare engine facade skips its prototype (inert by convention);
+	// the world only needs the prototype-tagged ref to find it.
+	eng.setParent(engine::getPrototype());
+	world phys(jo("gravity", vec3f(0, -10, 0)));
+	auto err = phys.initialize({eng});
+	EXPECT_FALSE(err.isError());
+	if (err.isError()) return;
+	// The engine normally binds the world in its own initialize().
+	eng.setObject("world", phys);
+
+	// The config ctor attaches the prototype (the bare ctor is the inert
+	// convention) and runs the entity's own initialize().
+	entity box(jo("name", "box"));
+	box.setObject("engine", eng);
+	auto trans = box.getTransform();
+	trans.setPosition({vec3f(0, 10, 0)});
+	auto shapeComp = boxShape(jo("size", vec3f(1, 1, 1)));
+	physicsBody body(jo("mass", 1.0));
+	box.add(ja(shapeComp, body));
+
+	// Initialize the body through its facade (in production the engine's
+	// initComps dispatches this in priority order). The chain the
+	// facade walks: body -> entity -> engine -> world -> backend.
+	EXPECT_TRUE((bool)body.getObject<entity>("object"));
+	EXPECT_TRUE((bool)body.getObject<entity>("object").getObject<engine>("engine"));
+	EXPECT_TRUE((bool)eng.getObject<world>("world"));
+	EXPECT_TRUE(body.callMethod("initialize").isEmpty());
+	EXPECT_NE(body.getPtr("body"), (void*)nullptr);
+	EXPECT_EQ(phys.getList("bodies").size(), (uint64_t)1);
+
+	const float startY = trans.getPosition().getFloat(1);
+	for (int i = 0; i < 30; ++i)
+		phys.step(list({1.0 / 60.0}));
+	const float endY = trans.getPosition().getFloat(1);
+	// It fell from 10 and kept falling (transform synced from the sim).
+	EXPECT_TRUE(endY < startY);
+	EXPECT_TRUE(endY < 1.0f);
+
+	// The backend explains itself through the world's registry entry.
+	auto backend = (physicsBackend*)phys.getPtr("physicsBackend");
+	EXPECT_NE(backend, (physicsBackend*)nullptr);
 }
 
 int main() {
