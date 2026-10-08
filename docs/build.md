@@ -19,6 +19,7 @@ All default to `ON` except examples:
 | --- | --- | --- |
 | `GOLD_BUILD_GAME` | `ON` | game engine module (`gold::game`) |
 | `GOLD_BUILD_WEB` | `ON` | web server module (`gold::web`) |
+| `GOLD_BUILD_UI` | `ON` | HTML/CSS UI renderer module (`gold::ui`, requires `GOLD_BUILD_WEB`) |
 | `GOLD_BUILD_LANG` | `ON` | scripting-language module (`gold::lang`) |
 | `GOLD_BUILD_TESTS` | `ON` | test suite |
 | `GOLD_BUILD_EXAMPLES` | `OFF` | example projects (requires `GOLD_BUILD_GAME`) |
@@ -54,6 +55,12 @@ ctest --test-dir build --output-on-failure
 - **SDL3** — required by the game module's `"sdl"` window backend. e.g.
   `sdl3` on Arch, `libsdl3-dev` on Debian.
 - **bgfx** (optional) — see `GOLD_USE_SYSTEM_BGFX` above.
+
+Other dependencies (bullet, freetype, uWebSockets/uSockets) still build from
+`3rdParty/` sources for now; they migrate one by one to runtime dynamic
+loading — backend code moves into optional plugin shared libraries that
+require nothing but their system package at build time (`feature/dynamic-
+backends`, phases 2+).
 
 ## Module layout
 

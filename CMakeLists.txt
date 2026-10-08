@@ -7,6 +7,13 @@ set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
 project(gold VERSION 0.1.0)
 
+# An unset build type means no optimization flags at all; pick one so a
+# plain `cmake -B build` still produces a working (release) build.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+	set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+	set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release RelWithDebInfo MinSizeRel)
+endif()
+
 # Keep legacy bundled dependency behavior explicit when its nested
 # CMakeLists.txt resets the policy scope.
 set(CMAKE_POLICY_DEFAULT_CMP0160 OLD)
@@ -45,8 +52,6 @@ set(INSTALL_LIBS OFF CACHE INTERNAL "")
 set(INSTALL_EXTRA_LIBS OFF CACHE INTERNAL "")
 set(INSTALL_CMAKE_FILES OFF CACHE INTERNAL "")
 set(BGFX_INSTALL OFF CACHE INTERNAL "")
-set(LIBUV_BUILD_TESTS OFF CACHE INTERNAL "")
-set(LIBUV_BUILD_BENCH OFF CACHE INTERNAL "")
 
 # --------------------------------------------------------------------------
 # Build options. Turn these off to build only the shared core (fastest, and
@@ -96,9 +101,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD 26)
 
-# Export a full compile_commands.json (all C++ targets, not just the C
-# files that libuv's nested scope exports) so clangd/LSP resolves the
-# correct standard and include paths.
+# Export a full compile_commands.json (all C++ targets) so clangd/LSP
+# resolves the correct standard and include paths.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(cmake/shared.cmake)
@@ -121,11 +125,13 @@ if(GOLD_BUILD_TESTS)
 	include(cmake/tests.cmake)
 endif()
 if(GOLD_BUILD_EXAMPLES)
-	add_subdirectory(examples/langExample)
-	add_subdirectory(examples/blahajExample)
+	# Guard first: configuring an example whose dependency module is off
+	# would otherwise fail deep inside that example's own CMakeLists.
 	if(NOT GOLD_BUILD_GAME)
 		message(FATAL_ERROR "GOLD_BUILD_EXAMPLES requires GOLD_BUILD_GAME")
 	endif()
+	add_subdirectory(examples/langExample)
+	add_subdirectory(examples/blahajExample)
 	add_subdirectory(examples/conwaysGameOfLife)
 	if(GOLD_BUILD_WEB)
 		add_subdirectory(examples/myWebProject)

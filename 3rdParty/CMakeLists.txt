@@ -4,10 +4,10 @@ project(gold)
 
 cmake_policy(SET CMP0079 NEW)
 
-if(!MSVC)
+if(NOT MSVC)
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-gnu-zero-variadic-macro-arguments")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-gnu-zero-variadic-macro-arguments")
-endif(!MSVC)
+endif(NOT MSVC)
 
 # ---------------------------------------------------------------- core deps
 # goldShared depends on bx/bimg (from the system bgfx package when
@@ -30,8 +30,6 @@ endif()
 
 # ------------------------------------------------------------ web module deps
 if(GOLD_BUILD_WEB)
-	add_subdirectory(zlib)
-	add_subdirectory(libuv)
 	include(cmake/uSockets.cmake)
 	include(cmake/uWebSockets.cmake)
 endif()
@@ -43,7 +41,8 @@ endif()
 
 # ------------------------------------------------- ui module deps (freetype)
 # The UI module rasterizes text through the bundled FreeType, so build it
-# whenever the module is enabled (gold::game also uses it via SDL_ttf).
+# whenever the module is enabled (Phase 2 moves this to a dlopen'd system
+# FreeType; see the plugin loader).
 if(GOLD_BUILD_UI AND GOLD_BUILD_WEB)
 	add_subdirectory(freetype2)
 endif()

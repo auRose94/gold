@@ -93,6 +93,8 @@ Build options (all default to `ON` except examples):
 
 * `GOLD_BUILD_GAME` – the game engine module (`gold::game`)
 * `GOLD_BUILD_WEB` – the web server module (`gold::web`)
+* `GOLD_BUILD_UI` – the HTML/CSS UI renderer module (`gold::ui`, requires `GOLD_BUILD_WEB`)
+* `GOLD_BUILD_LANG` – the scripting-language module (`gold::lang`)
 * `GOLD_BUILD_TESTS` – the test suite
 * `GOLD_BUILD_EXAMPLES` – build the example projects (default `OFF`; requires `GOLD_BUILD_GAME`)
 * `GOLD_USE_SYSTEM_BGFX` – use an installed bgfx (`libbgfx.so` + the

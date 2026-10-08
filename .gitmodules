@@ -7,12 +7,6 @@
 [submodule "3rdParty/bullet3"]
 	path = 3rdParty/bullet3
 	url = https://github.com/bulletphysics/bullet3.git
-[submodule "3rdParty/mongo-c-driver"]
-	path = 3rdParty/mongo-c-driver
-	url = https://github.com/mongodb/mongo-c-driver.git
-[submodule "3rdParty/brtshaderc"]
-	path = 3rdParty/brtshaderc
-	url = git@github.com:CoryNull/brtshaderc.git
 [submodule "examples/myWebProject/3rdParty/bootstrap"]
 	path = examples/myWebProject/3rdParty/bootstrap
 	url = https://github.com/twbs/bootstrap.git
@@ -22,24 +16,9 @@
 [submodule "examples/myWebProject/3rdParty/bootstrap-table"]
 	path = examples/myWebProject/3rdParty/bootstrap-table
 	url = https://github.com/wenzhixin/bootstrap-table.git
-[submodule "3rdParty/libuv"]
-	path = 3rdParty/libuv
-	url = https://github.com/libuv/libuv.git
-[submodule "3rdParty/SDL"]
-	path = 3rdParty/SDL
-	url = https://github.com/SDL-mirror/SDL.git
-[submodule "3rdParty/SDL_image"]
-	path = 3rdParty/SDL_image
-	url = https://github.com/SDL-mirror/SDL_image.git
-[submodule "3rdParty/SDL_ttf"]
-	path = 3rdParty/SDL_ttf
-	url = https://github.com/SDL-mirror/SDL_ttf.git
 [submodule "3rdParty/freetype2"]
 	path = 3rdParty/freetype2
 	url = https://github.com/aseprite/freetype2.git
-[submodule "3rdParty/zlib"]
-	path = 3rdParty/zlib
-	url = https://github.com/madler/zlib.git
 [submodule "3rdParty/bgfx.cmake"]
 	path = 3rdParty/bgfx.cmake
 	url = https://github.com/bkaradzic/bgfx.cmake.git
