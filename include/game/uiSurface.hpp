@@ -102,8 +102,13 @@ namespace gold {
 		/** Project a world ray onto the quad, in UI pixel coordinates. */
 		bool projectRay(const var& origin, const var& direction,
 			float& outX, float& outY) const;
+		/** Pick the renderer backend from config "renderer" (string or
+		 *  list); the built-in software rasterizer is the chain's tail,
+		 *  so this never fails. */
+		void selectRenderer(object config);
 
 		UI::renderer* ui_ = nullptr;
+		string rendererName_ = "software";  // resolved backend name
 		renderHandle texture_{};
 		uint32_t textureWidth_ = 0;
 		uint32_t textureHeight_ = 0;

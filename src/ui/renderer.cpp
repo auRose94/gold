@@ -4,8 +4,11 @@
 #include <algorithm>
 #include <cmath>
 #include <ctime>
+#include <map>
+#include <mutex>
 
 #include "goldjs.hpp"
+#include "plugin.hpp"
 
 namespace gold {
 	namespace UI {
@@ -718,6 +721,60 @@ namespace gold {
 			};
 			return jo("hover", idOf(hoverNode_), "active", idOf(activeNode_),
 				"focus", idOf(focusNode_));
+		}
+
+		// -------------------------------------------------------- registry
+
+		namespace {
+			std::mutex& rendererMutex() {
+				static std::mutex m;
+				return m;
+			}
+
+			std::map<std::string, createRendererFn>& rendererFactories() {
+				static std::map<std::string, createRendererFn> f;
+				return f;
+			}
+
+			struct softwareRegistrar {
+				softwareRegistrar() {
+					registerRenderer("software",
+						[]() -> renderer* { return new software_renderer(); });
+				}
+			};
+			softwareRegistrar softwareReg;
+		}  // namespace
+
+		void registerRenderer(const std::string& name,
+			createRendererFn factory) {
+			std::lock_guard<std::mutex> guard(rendererMutex());
+			rendererFactories()[name] = factory;
+		}
+
+		renderer* createRenderer(const std::string& name) {
+			{
+				std::lock_guard<std::mutex> guard(rendererMutex());
+				auto it = rendererFactories().find(name);
+				if (it != rendererFactories().end()) return it->second();
+			}
+			// Miss: a renderer plugin may provide it — load then retry.
+			// Loading runs outside the mutex (the plugin's registrar takes
+			// it); a single retry is all the hook allows.
+			plugin::load(name);
+			std::lock_guard<std::mutex> guard(rendererMutex());
+			auto it = rendererFactories().find(name);
+			if (it != rendererFactories().end()) return it->second();
+			return nullptr;
+		}
+
+		renderer* createRenderer(const list& names) {
+			auto copy = names;
+			for (auto it = copy.begin(); it != copy.end(); ++it) {
+				auto name = it->getString();
+				if (name.empty() || name == "auto") continue;
+				if (auto* ui = createRenderer(name)) return ui;
+			}
+			return nullptr;
 		}
 
 	}  // namespace UI

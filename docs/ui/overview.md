@@ -21,7 +21,10 @@ HTML ──parse──▶ DOM ──cascade──▶ computed styles ──layou
 #include "ui/software_renderer.hpp"
 using namespace gold;
 
-UI::software_renderer ui;   // concrete CPU-rasterizer backend
+UI::software_renderer ui;   // the built-in CPU-rasterizer backend
+// or: auto ui = UI::createRenderer("software") — a registry resolves
+// renderer backends (plugins load on a miss; uiSurface's "renderer"
+// config chains names with "software" as the guaranteed tail fallback).
 ui.load(list({jo("html", markup, jo("css", sheet),
     jo("width", 512.0), jo("height", 384.0))}));
 

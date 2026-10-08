@@ -14,6 +14,8 @@ namespace gold {
 			software_renderer();
 			virtual ~software_renderer() override;
 
+			virtual const char* name() const override { return "software"; }
+
 			virtual var load(list args) override;
 			virtual var setHTML(list args) override;
 			virtual var setCSS(list args) override;

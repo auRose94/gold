@@ -43,6 +43,9 @@ namespace gold {
 
 			virtual ~renderer() = default;
 
+			/** Backend name ("software", "ultralight", ...). */
+			virtual const char* name() const = 0;
+
 			// ------------------------------------------------- lifecycle
 			virtual var load(list args) { return var(); }
 			virtual var setHTML(list args) { return var(); }
@@ -95,5 +98,21 @@ namespace gold {
 			void step(float dt) { advance(list({(double)dt})); }
 			bool paint() { return render(list()).getBool(); }
 		};
+
+		using createRendererFn = renderer* (*)();
+
+		/**
+		 * Register a renderer backend factory ("software", "ultralight",
+		 * ...). Static registrars (see renderer.cpp) keep built-ins
+		 * available; plugins register the same way when loaded.
+		 */
+		void registerRenderer(const std::string& name,
+			createRendererFn factory);
+		/** Create a renderer by backend name; a miss tries plugin::load
+		 *  first (plugins self-register), then stays null. */
+		renderer* createRenderer(const std::string& name);
+		/** Ordered fallback chain; the first name that produces a renderer
+		 *  wins ("software" should be a chain's guaranteed tail). */
+		renderer* createRenderer(const list& names);
 	}
 }

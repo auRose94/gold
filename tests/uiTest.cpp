@@ -357,6 +357,30 @@ TEST(ui_selector_sibling_combinators) {
 	EXPECT_NEAR(colors[3].textColor.b, 0.0, 0.01);
 }
 
+TEST(ui_renderer_registry_selects_software) {
+	// The built-in software rasterizer self-registers; unknown names are
+	// a plugin-load attempt then a miss (registry semantics, not a chain).
+	auto* ui = UI::createRenderer("software");
+	EXPECT_TRUE(ui != nullptr);
+	if (ui) {
+		EXPECT_EQ(string(ui->name()), string("software"));
+		delete ui;
+	}
+
+	// Chains pick the first available, falling through absent plugins to
+	// the registered built-in.
+	auto* chained = UI::createRenderer(
+		list({var(string("no_such_renderer")), var(string("software"))}));
+	EXPECT_TRUE(chained != nullptr);
+	if (chained) {
+		EXPECT_EQ(string(chained->name()), string("software"));
+		delete chained;
+	}
+
+	// An unknown-only chain is a miss, with the loader able to explain it.
+	EXPECT_TRUE(UI::createRenderer("no_renderer_anywhere") == nullptr);
+}
+
 TEST(ui_selector_attribute_operators) {
 	domTree tree = buildTree(compact(
 		"<a role='btn primary' lang='en-US' href='/docs/page.html'>x</a>"

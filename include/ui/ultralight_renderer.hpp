@@ -19,6 +19,8 @@ namespace gold {
 			ultralight_renderer();
 			virtual ~ultralight_renderer() override;
 
+			virtual const char* name() const override { return "ultralight"; }
+
 			// -------------------------------------------------
 			// lifecycle
 			virtual var load(list args) override;

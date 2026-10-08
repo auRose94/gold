@@ -1,6 +1,10 @@
 #include "ui/ultralight_renderer.hpp"
 #include <AppCore/AppCore.h>
+#include <algorithm>
+#include <vector>
+
 #include "goldjs.hpp"
+#include "plugin.hpp"
 
 namespace gold {
 	namespace UI {
@@ -108,11 +112,18 @@ namespace gold {
 			auto locked = bitmap->LockPixelsSafe();
 			if (!locked) return var();
 
-			binary pixels((uint8_t*)locked.data(), (uint8_t*)locked.data() + locked.size());
+			// The surface contract is premultiplied RGBA8; Ultralight's
+			// BitmapSurface is premultiplied BGRA — swap red/blue once
+			// here so consumers (and uiSurface's unpremultiply()) see the
+			// documented format.
+			std::vector<unsigned char> pixels(
+				(unsigned char*)locked.data(), (unsigned char*)locked.data() + locked.size());
+			for (size_t i = 0; i + 3 < pixels.size(); i += 4)
+				std::swap(pixels[i], pixels[i + 2]);
 			return jo(
 				"width", (int64_t)width_,
 				"height", (int64_t)height_,
-				"pixels", pixels
+				"pixels", binary(pixels.data(), pixels.data() + pixels.size())
 			);
 		}
 
@@ -123,8 +134,11 @@ namespace gold {
 			if (!bitmap) return var();
 			auto locked = bitmap->LockPixelsSafe();
 			if (!locked) return var();
-			binary pixels((uint8_t*)locked.data(), (uint8_t*)locked.data() + locked.size());
-			return var(pixels);
+			std::vector<unsigned char> pixels(
+				(unsigned char*)locked.data(), (unsigned char*)locked.data() + locked.size());
+			for (size_t i = 0; i + 3 < pixels.size(); i += 4)
+				std::swap(pixels[i], pixels[i + 2]);
+			return var(binary(pixels.data(), pixels.data() + pixels.size()));
 		}
 
 		bool ultralight_renderer::dirty() const {
@@ -202,6 +216,22 @@ namespace gold {
 		var ultralight_renderer::interactionState(list args) {
 			return var();
 		}
+
+		// Plugin registrar: loading libgoldUltralight (the plugin naming
+		// for backend "ultralight") makes this renderer reachable through
+		// UI::createRenderer("ultralight") and the uiSurface "renderer"
+		// chain.
+		namespace {
+			struct ultralightRegistrar {
+				ultralightRegistrar() {
+					registerRenderer("ultralight",
+						[]() -> renderer* {
+							return new ultralight_renderer();
+						});
+				}
+			};
+			ultralightRegistrar ultralightReg;
+		}  // namespace
 
 	} // namespace UI
 } // namespace gold

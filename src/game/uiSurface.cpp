@@ -62,7 +62,7 @@ namespace gold {
 
 	uiSurface::uiSurface() {
 		setParent(getPrototype());
-		ui_ = new UI::software_renderer();
+		selectRenderer(object());
 	}
 
 	uiSurface::uiSurface(object config) : uiSurface() {
@@ -75,10 +75,44 @@ namespace gold {
 		ui_ = nullptr;
 	}
 
+	void uiSurface::selectRenderer(object config) {
+		// Chain: any config names first (string or list; "auto" entries
+		// skipped — nothing to probe by default), then the guaranteed
+		// software tail. A missing optional backend (e.g. an ultralight
+		// that was never built) is simply absent from the chain's outcome.
+		auto names = list();
+		const auto cfg = config.getVar("renderer");
+		if (cfg.getType() == typeList) names = cfg.getList();
+		else if (cfg.isString() && string(cfg).size() > 0 &&
+				 string(cfg) != "auto")
+			names.pushString(string(cfg));
+
+		UI::renderer* chosen = UI::createRenderer(names);
+		const string name = chosen ? chosen->name() : "software";
+		// Reinitialization with the same backend keeps the live renderer
+		// (and its loaded document); a new backend replaces it.
+		if (ui_ && name == rendererName_ && chosen && ui_ != chosen) {
+			delete chosen;
+			return;
+		}
+		if (ui_ != chosen) {
+			delete ui_;
+			ui_ = chosen;
+		}
+		if (!ui_) ui_ = new UI::software_renderer();
+		rendererName_ = string(ui_->name());
+		setString("renderer", rendererName_);
+	}
+
 	var uiSurface::initialize(list args) {
 		object config;
 		if (args.size() == 1 && args[0].isObject()) config = args[0].getObject();
 		else if (args.size() == 1 && args[0].isList()) config = object();
+
+		selectRenderer(config);
+
+		// Everything the renderer needs travels as one config object, so the
+		// gold façade and C++ callers configure it the same way.
 
 		// Everything the renderer needs travels as one config object, so the
 		// gold façade and C++ callers configure it the same way.

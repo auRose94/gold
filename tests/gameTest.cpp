@@ -75,6 +75,15 @@ TEST(backend_plugin_loads_and_registers) {
 	EXPECT_FALSE(plugin::lastError().empty());
 }
 
+TEST(uisurface_selects_renderer_through_registry) {
+	// Construction resolves the backend through the renderer registry
+	// (config "renderer" picks it in initialize()); without a GPU backend
+	// nothing else happens headlessly.
+	uiSurface* s = new uiSurface();
+	EXPECT_EQ(s->getString("renderer"), string("software"));
+	delete s;
+}
+
 TEST(window_gold_events) {
 	// Headless backend never produces events.
 	auto sys = createWindowSystem("headless");

@@ -43,6 +43,53 @@ add_library(
 	gold::ui ALIAS goldUI
 )
 
+# The Ultralight (WebKit) renderer is a loadable backend plugin, not part
+# of goldUI: enabling it builds libgoldUltralight.so next to the modules.
+# Requires the (gitignored) local SDK at 3rdParty/ultralight-free-sdk —
+# the one pre-existing local-SDK exception to the system-package policy.
+option(GOLD_UI_ULTRALIGHT
+	"Build the Ultralight (WebKit) UI renderer plugin libgoldUltralight" OFF)
+if(GOLD_UI_ULTRALIGHT)
+	get_filename_component(ultralight_root
+		"${CMAKE_SOURCE_DIR}/3rdParty/ultralight-free-sdk" ABSOLUTE)
+	if(NOT EXISTS "${ultralight_root}/bin/libUltralight.so")
+		message(FATAL_ERROR
+			"GOLD_UI_ULTRALIGHT=ON but no Ultralight SDK found at "
+			"${ultralight_root}")
+	endif()
+	add_library(
+		goldUIUltralight
+		SHARED
+			src/ui/ultralight_renderer.cpp
+	)
+	add_library(
+		gold::uiUltralight ALIAS goldUIUltralight
+	)
+	set_target_properties(
+		goldUIUltralight
+		PROPERTIES
+			OUTPUT_NAME libgoldUltralight
+			PREFIX ""
+			LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+			BUILD_RPATH "$ORIGIN;${ultralight_root}/bin"
+			INSTALL_RPATH "${ultralight_root}/bin"
+	)
+	target_include_directories(
+		goldUIUltralight
+		PRIVATE
+			"include"
+			"include/ui"
+			${ultralight_root}/include
+	)
+	target_link_libraries(
+		goldUIUltralight
+		PRIVATE
+			gold::ui
+			${ultralight_root}/bin/libUltralight.so
+			${ultralight_root}/bin/libUltralightCore.so
+	)
+endif()
+
 set_target_properties(
 	goldUI
 	PROPERTIES
