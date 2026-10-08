@@ -325,15 +325,33 @@ namespace gold {
 			if (size <= 0.0f) size = 1.0f;
 			auto* entry = d->find(family, weight, italic);
 			if (entry && entry->face) {
-				// The size metrics are 26.6 fixed point; scale them to the
-				// requested pixel size (the face was set at 72 dpi).
-				const FT_Size_Metrics& m = entry->face->size->metrics;
-				const float units = (float)(size * 64.0) / 64.0f;
-				out.ascent = (float)m.ascender / 64.0f * units;
-				out.descent = (float)(-m.descender) / 64.0f * units;
-				out.lineGap = (float)m.height / 64.0f * units;
-				out.xHeight = (float)m.height / 64.0f * units;
-				if (out.ascent > 0.0f) return out;
+				// The size metrics are 26.6 fixed point, already scaled for
+				// the size this face is set to — so set it to the requested
+				// size first (the same call measureWidth/shape make) and
+				// read the values as-is. Multiplying again double-scales.
+				FT_Face face = entry->face;
+				if (FT_Set_Char_Size(face, 0, (FT_F26Dot6)(size * 64.0),
+						72, 72) == 0) {
+					const FT_Size_Metrics& m = face->size->metrics;
+					const float ascentPx = (float)m.ascender / 64.0f;
+					const float descentPx = (float)(-m.descender) / 64.0f;
+					out.ascent = ascentPx;
+					out.descent = descentPx;
+					// The em height covers ascent + descent; the rest of
+					// the pitch is leading between lines.
+					const float lineGapPx =
+						(float)m.height / 64.0f - ascentPx - descentPx;
+					out.lineGap = lineGapPx > 0.0f ? lineGapPx : 0.0f;
+					// Real x-height from the 'x' glyph at this size.
+					const FT_UInt xIndex = FT_Get_Char_Index(face, 'x');
+					if (xIndex != 0 &&
+						FT_Load_Glyph(face, xIndex, FT_LOAD_NO_BITMAP) == 0)
+						out.xHeight =
+							(float)face->glyph->metrics.height / 64.0f;
+					else
+						out.xHeight = ascentPx * 0.5f;
+					if (out.ascent > 0.0f) return out;
+				}
 			}
 			const float s = builtinScale(size);
 			out.ascent = (float)kCellHeight * s;

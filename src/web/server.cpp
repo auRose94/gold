@@ -156,6 +156,43 @@ namespace gold {
 		 "vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
 	});
 
+	/** Best-effort error answer for a uWS response; skipped when the route
+	 *  handler already wrote one (uWS never catches exceptions back). */
+	static void respondError(auto* res, uint16_t code,
+		const string& message = "") {
+		auto it = httpReturnStatusMap.find(code);
+		const auto& status =
+			it != httpReturnStatusMap.end() ? it->second : "500 Internal Server Error";
+		if (!res->hasResponded()) {
+			res->writeStatus(status.c_str());
+			if (!message.empty()) {
+				res->writeHeader("Content-Type", "text/plain");
+				res->end(message);
+			} else
+				res->end();
+		}
+	}
+
+	/** Wraps a gold route handler with the standard error policy: any
+	 *  exception becomes a 500 instead of unwinding into the vendored
+	 *  event loop (which would terminate the whole server). */
+	static auto guardedRoute(auto func) {
+		return [=](auto* res, auto* req) {
+			try {
+				func({request(req), response(res)});
+			} catch (genericError& e) {
+				cerr << e << endl;
+				respondError(res, 500);
+			} catch (const exception& e) {
+				cerr << e.what() << endl;
+				respondError(res, 500);
+			} catch (...) {
+				cerr << "unknown exception in route handler" << endl;
+				respondError(res, 500);
+			}
+		};
+	}
+
 	obj& server::getPrototype() {
 		static auto proto = obj({
 			{"host", "127.0.0.1"},
@@ -203,6 +240,11 @@ namespace gold {
 			{"getParameter", method(&request::getParameter)},
 			{"getQuery", method(&request::getQuery)},
 			{"getUrl", method(&request::getUrl)},
+			// Yield control so other matching routes keep running; without
+			// these bindings a `req.setYield` silently no-ops and the
+			// response is never written.
+			{"setYield", method(&request::setYield)},
+			{"getYield", method(&request::getYield)},
 		});
 		return proto;
 	}
@@ -265,30 +307,63 @@ namespace gold {
 							res->writeStatus("404 Not Found");
 							res->end();
 						}
-					} else {
-						res->writeStatus("404 Not Found");
-						res->end();
+						} else {
+							res->writeStatus("404 Not Found");
+							res->end();
+						}
+					} catch (genericError& e) {
+						cerr << e << endl;
+						respondError(res, 500);
+					} catch (const exception& e) {
+						cerr << e.what() << endl;
+						respondError(res, 500);
+					} catch (...) {
+						respondError(res, 500);
 					}
-				} catch (genericError& e) {
-					cerr << e << endl;
-				}
-			};
+				};
 
 			for (auto it = mounts.begin(); it != mounts.end(); ++it) {
 				auto url = it->first;
 				handle->get(url, handler);
 			}
 
-			handle
-				->listen(
-					port,
-					[port, host](auto* token) {
-						if (token) {
-							std::cout << "Serving " << host << " over "
-												<< port << std::endl;
-						}
-					})
-				.run();
+			// Unmatched requests must not hang the client: a per-verb
+			// catch-all answers 404 after the user's own routes (registered
+			// earlier, so they keep matching first) and after any user
+			// error handler.
+			handle->get("/*", [](auto* res, auto*) {
+				respondError(res, 404);
+			});
+			handle->post("/*", [](auto* res, auto*) {
+				respondError(res, 404);
+			});
+			handle->put("/*", [](auto* res, auto*) {
+				respondError(res, 404);
+			});
+			handle->patch("/*", [](auto* res, auto*) {
+				respondError(res, 404);
+			});
+			handle->del("/*", [](auto* res, auto*) {
+				respondError(res, 404);
+			});
+			handle->options("/*", [](auto* res, auto*) {
+				respondError(res, 404);
+			});
+
+			bool bound = false;
+			handle->listen(host, port, [port, host, &bound](auto* token) {
+				if (token) {
+					bound = true;
+					std::cout << "Serving " << host << " over " << port
+									 << std::endl;
+				}
+			});
+			// A failed bind must not fall through into `.run()`: the loop
+			// would spin forever and report success to the caller.
+			if (!bound)
+				return genericError(
+					"Failed to bind " + host + ":" + to_string(port));
+			handle->run();
 			return var(true);
 		}
 		return var(false);
@@ -303,13 +378,7 @@ namespace gold {
 		if (!func)
 			return genericError("missing callback");
 		else
-			handle->get(pattern.c_str(), [=](auto* res, auto* req) {
-				try {
-					func({request(req), response(res)});
-				} catch (genericError& e) {
-					cerr << e << endl;
-				}
-			});
+			handle->get(pattern.c_str(), guardedRoute(func));
 		return var();
 	}
 
@@ -321,13 +390,7 @@ namespace gold {
 		if (!func)
 			return genericError("missing callback");
 		else
-			handle->post(pattern.c_str(), [=](auto* res, auto* req) {
-				try {
-					func({request(req), response(res)});
-				} catch (genericError& e) {
-					cerr << e << endl;
-				}
-			});
+			handle->post(pattern.c_str(), guardedRoute(func));
 		return var();
 	}
 
@@ -339,13 +402,7 @@ namespace gold {
 		if (!func)
 			return genericError("missing callback");
 		else
-			handle->put(pattern.c_str(), [=](auto* res, auto* req) {
-				try {
-					func({request(req), response(res)});
-				} catch (genericError& e) {
-					cerr << e << endl;
-				}
-			});
+			handle->put(pattern.c_str(), guardedRoute(func));
 		return var();
 	}
 
@@ -357,13 +414,7 @@ namespace gold {
 		if (!func)
 			return genericError("missing callback");
 		else
-			handle->patch(pattern.c_str(), [=](auto* res, auto* req) {
-				try {
-					func({request(req), response(res)});
-				} catch (genericError& e) {
-					cerr << e << endl;
-				}
-			});
+			handle->patch(pattern.c_str(), guardedRoute(func));
 		return var();
 	}
 
@@ -375,13 +426,7 @@ namespace gold {
 		if (!func)
 			return genericError("missing callback");
 		else
-			handle->del(pattern.c_str(), [=](auto* res, auto* req) {
-				try {
-					func({request(req), response(res)});
-				} catch (genericError& e) {
-					cerr << e << endl;
-				}
-			});
+			handle->del(pattern.c_str(), guardedRoute(func));
 		return var();
 	}
 
@@ -393,14 +438,7 @@ namespace gold {
 		if (!func)
 			return genericError("missing callback");
 		else
-			handle->options(
-				pattern.c_str(), [=](auto* res, auto* req) {
-					try {
-						func({request(req), response(res)});
-					} catch (genericError& e) {
-						cerr << e << endl;
-					}
-				});
+			handle->options(pattern.c_str(), guardedRoute(func));
 		return var();
 	}
 
@@ -434,13 +472,7 @@ namespace gold {
 		if (!func)
 			return genericError("missing callback");
 		else
-			handle->get("/*", [=](auto* res, auto* req) {
-				try {
-					func({request(req), response(res)});
-				} catch (genericError& e) {
-					cerr << e << endl;
-				}
-			});
+			handle->get("/*", guardedRoute(func));
 		return var();
 	}
 
@@ -471,6 +503,8 @@ namespace gold {
 	var server::destroy(list) {
 		auto handle = (App*)getPtr("handle");
 		if (handle) delete handle;
+		// Null the pointer so a second destroy can't delete a freed App.
+		setPtr("handle", nullptr);
 		return var();
 	}
 

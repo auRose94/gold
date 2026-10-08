@@ -1,4 +1,5 @@
 #include <cmath>
+#include <filesystem>
 
 #include "goldjs.hpp"
 #include "goldtest.hpp"
@@ -945,6 +946,39 @@ TEST(ui_font_utf8_round_trip) {
 	EXPECT_EQ(decoded[1], (uint32_t)0xE9);
 	EXPECT_EQ(decoded[2], (uint32_t)0x20AC);
 	EXPECT_EQ(fontManager::encodeUTF8(0x20AC), std::string("\xE2\x82\xAC"));
+}
+
+TEST(ui_font_real_metrics_are_sane) {
+	// Uses a system-installed TTF when one exists. The ranges hold for any
+	// working real-font path; the old double-scaled metrics read ~12x the
+	// em size and fail these.
+	string fontFile;
+	if (std::filesystem::exists("/usr/share/fonts")) {
+		for (const auto& entry :
+			std::filesystem::recursive_directory_iterator(
+				"/usr/share/fonts")) {
+			if (entry.path().extension() == ".ttf") {
+				fontFile = entry.path().string();
+				break;
+			}
+		}
+	}
+	if (fontFile.empty()) return;  // no font on this system to test against
+
+	fontManager fonts;
+	EXPECT_TRUE(fonts.loadFile(fontFile, "sans-serif"));
+	const float size = 16.0f;
+	const fontMetrics fm = fonts.metrics("sans-serif", size);
+	EXPECT_TRUE(fm.ascent > 0.0f);
+	EXPECT_TRUE(fm.ascent < 1.5f * size);
+	EXPECT_TRUE(fm.descent >= 0.0f && fm.descent < 1.0f * size);
+	EXPECT_TRUE(fm.lineGap >= 0.0f && fm.lineGap < 0.5f * size);
+	EXPECT_TRUE(fm.xHeight > 0.0f && fm.xHeight < fm.ascent + fm.descent);
+	// A single glyph advance stays sub-em at this size.
+	const float w = fonts.measureWidth("x", "sans-serif", size);
+	EXPECT_TRUE(w > 0.0f && w < size);
+	// And glyphs rasterize at this size too.
+	EXPECT_TRUE(fonts.glyph('A', "sans-serif", size) != nullptr);
 }
 
 // -------------------------------------------------------------- end to end

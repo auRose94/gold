@@ -166,6 +166,46 @@ TEST(concurrent_object_erase_and_owns) {
 	EXPECT_EQ(errors.load(), 0);
 }
 
+TEST(concurrent_object_handle_getters) {
+	// getObject/getMethod/getFunc/getPtr must lock like their siblings:
+	// a writer forcing map rehashes must not race the reading side (the
+	// "func"-family getters previously read without any lock).
+	object shared;
+	shared.setString("name", "gold");
+	func noop = [](list) -> var { return var(); };
+	shared.setFunc("callme", noop);
+	int token;
+	shared.setPtr("ptr", &token);
+	object inner;
+	inner.setString("tag", "in");
+	shared.setObject("inner", inner);
+
+	const int kThreads = 4;
+	const int kIters = 2000;
+	std::atomic<int> errors{0};
+
+	std::vector<std::thread> threads;
+	for (int t = 0; t < kThreads; ++t) {
+		threads.emplace_back([&, t]() {
+			for (int i = 0; i < kIters; ++i) {
+				// Many distinct keys force rehashes while readers run.
+				shared.setInt64("g" + std::to_string(t) + "_" +
+										std::to_string(i),
+					i);
+				auto obj = shared.getObject("inner");
+				if (!obj || obj.getString("tag") != "in") ++errors;
+				if (!shared.getFunc("callme")) ++errors;
+				if (shared.getPtr("ptr") != &token) ++errors;
+				if (shared.getBinary("missing", binary()).size() != 0)
+					++errors;
+			}
+		});
+	}
+	for (auto& th : threads) th.join();
+
+	EXPECT_EQ(errors.load(), 0);
+}
+
 int main() {
 	return goldtest::runAll();
 }

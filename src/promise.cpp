@@ -72,10 +72,15 @@ namespace gold {
 																	 );
 				} catch (const exception& e) {
 					printError(e.what());
+				} catch (...) {
+					printError("unknown exception in promise worker");
 				}
 			}
 		} catch (const exception& e) {
 			printError(e.what());
+			return -1;
+		} catch (...) {
+			printError("unknown exception in promise worker");
 			return -1;
 		}
 
@@ -150,26 +155,45 @@ namespace gold {
 	}
 
 	var promise::call(list) {
-		auto obj = getObject("self");
-		auto args = getList("args");
-		auto resp = var();
-		if (getType("method") == typeMethod) {
-			auto m = getMethod("method");
-			resp = (obj.*m)(args);
-			erase("method");
-			erase("self");
-			erase("args");
-		} else if (getType("func") == typeFunction) {
-			auto f = getFunc("func");
-			auto apArgs = list({obj});
-			apArgs += args;  // obj, args...
-			resp = (f)(apArgs);
-			erase("func");
-			erase("self");
-			erase("args");
-		} else {
+		// Every path must leave `status` settled: a job that throws (or a
+		// promise with no callback) would otherwise stay at 0 forever and
+		// spin any thread sitting in `await()`.
+		var resp;
+		try {
+			if (getType("method") == typeMethod) {
+				auto obj = getObject("self");
+				auto args = getList("args");
+				auto m = getMethod("method");
+				resp = (obj.*m)(args);
+			} else if (getType("func") == typeFunction) {
+				auto obj = getObject("self");
+				auto args = getList("args");
+				auto f = getFunc("func");
+				auto apArgs = list({obj});
+				apArgs += args;  // obj, args...
+				resp = (f)(apArgs);
+			} else {
+				// No callback: failed, not successful.
+				setInt8("status", -1);
+				return var();
+			}
+		} catch (const genericError& e) {
+			setVar("response", var(e));
 			setInt8("status", -1);
+			return var();
+		} catch (const exception& e) {
+			setVar("response", genericError(e.what()));
+			setInt8("status", -1);
+			return var();
+		} catch (...) {
+			setVar("response", genericError("unknown exception in promise job"));
+			setInt8("status", -1);
+			return var();
 		}
+		erase("method");
+		erase("func");
+		erase("self");
+		erase("args");
 		setVar("response", resp);
 		setInt8("status", 1);
 		return resp;

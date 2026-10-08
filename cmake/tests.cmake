@@ -174,6 +174,20 @@ if(GOLD_BUILD_WEB)
 	target_link_libraries(goldWebPersistenceTests PRIVATE gold::web)
 	target_compile_features(goldWebPersistenceTests PRIVATE cxx_std_26)
 	add_test(NAME goldWebPersistenceTests COMMAND goldWebPersistenceTests)
+
+	add_executable(
+		goldServerTests
+		tests/serverTest.cpp
+	)
+	if(MSVC)
+		target_compile_options(goldServerTests PRIVATE /W4)
+	else()
+		target_compile_options(goldServerTests PRIVATE -Wall -Wextra -pedantic)
+	endif()
+	target_include_directories(goldServerTests PRIVATE "include" "include/web" "tests")
+	target_link_libraries(goldServerTests PRIVATE gold::web)
+	target_compile_features(goldServerTests PRIVATE cxx_std_26)
+	add_test(NAME goldServerTests COMMAND goldServerTests)
 endif()
 
 if(GOLD_BUILD_UI AND GOLD_BUILD_WEB)

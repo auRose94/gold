@@ -1,5 +1,9 @@
 #include <iostream>
 
+#include <chrono>
+#include <stdexcept>
+#include <thread>
+
 #include "file.hpp"
 #include "goldjs.hpp"
 #include "module.hpp"
@@ -384,6 +388,51 @@ TEST(promise_synchronous_execution) {
 	promise task(object(), callback, list({int64_t(21)}));
 	EXPECT_EQ(task.await().getInt64(), 42);
 	EXPECT_TRUE((bool)task);
+}
+
+TEST(promise_throw_marks_job_failed_not_success) {
+	auto boom = func([](list) -> var {
+		throw genericError("job blew up");
+	});
+	promise task(object(), boom, list());
+	auto resp = task.call();
+	EXPECT_TRUE(resp.isEmpty());
+	// A throwing job must settle with -1, not hang or report success.
+	EXPECT_TRUE(task.getInt8("status") == -1);
+	auto err = task.getVar("response").getError();
+	EXPECT_NE(err, (genericError*)nullptr);
+	EXPECT_EQ(err->getString("msg"), "job blew up");
+}
+
+TEST(promise_std_exception_marked_failed) {
+	auto boom = func([](list) -> var {
+		throw std::runtime_error("std boom");
+	});
+	promise task(object(), boom, list());
+	task.call();
+	EXPECT_TRUE(task.getInt8("status") == -1);
+	EXPECT_TRUE(task.getVar("response").isError());
+}
+
+TEST(promise_missing_callback_is_failed_not_success) {
+	promise task;
+	EXPECT_TRUE(task.call().isEmpty());
+	EXPECT_TRUE(task.getInt8("status") == -1);
+}
+
+TEST(promise_threaded_throw_does_not_hang_await) {
+	// Await polls `status`; before the fix a throwing job left it at 0
+	// forever. Wait is bounded so a regression fails the test, not hangs it.
+	promise::useAllCores();
+	auto boom = func([](list) -> var {
+		throw genericError("threaded job blew up");
+	});
+	promise task(object(), boom, list());
+	for (int i = 0; i < 5000 && task.getInt8("status") == 0; ++i)
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	EXPECT_TRUE(task.getInt8("status") == -1);
+	EXPECT_TRUE(task.getVar("response").isError());
+	promise::joinThreads();
 }
 
 TEST(explode_string) {

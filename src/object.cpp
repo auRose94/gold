@@ -176,7 +176,8 @@ namespace gold {
 	void object::copy(object& other) {
 		initMemory();
 		if (other) {
-			shared_lock<shared_mutex> guard(other.data->omutex);
+			shared_lock<shared_mutex> srcGuard(other.data->omutex);
+			unique_lock<shared_mutex> dstGuard(data->omutex);
 			auto end = other.data->items.end();
 			for (auto it = other.data->items.begin(); it != end; ++it)
 				data->items[it->first] = it->second;
@@ -185,7 +186,10 @@ namespace gold {
 	}
 
 	void object::empty() {
-		if (data) data->items.clear();
+		if (data) {
+			unique_lock<shared_mutex> guard(data->omutex);
+			data->items.clear();
+		}
 	}
 
 	void object::setParent(object other) {
@@ -590,7 +594,7 @@ namespace gold {
 
 	object object::getObject(string name, object def) {
 		initMemory();
-		// unique_lock<shared_mutex> guard(data->omutex);
+		shared_lock<shared_mutex> guard(data->omutex);
 		auto val = getExpression(name);
 		if (val.isObject()) return val.getObject();
 		return def;
@@ -598,6 +602,7 @@ namespace gold {
 
 	method object::getMethod(string name) {
 		initMemory();
+		shared_lock<shared_mutex> guard(data->omutex);
 		auto val = getExpression(name);
 		if (val.isMethod()) return val.getMethod();
 		return nullptr;
@@ -605,6 +610,7 @@ namespace gold {
 
 	func object::getFunc(string name) {
 		initMemory();
+		shared_lock<shared_mutex> guard(data->omutex);
 		auto val = getExpression(name);
 		if (val.isFunction()) return val.getFunction();
 		return nullptr;
@@ -612,6 +618,7 @@ namespace gold {
 
 	void* object::getPtr(string name, void* def) {
 		initMemory();
+		shared_lock<shared_mutex> guard(data->omutex);
 		auto val = getExpression(name);
 		if (val) return val.getPtr();
 		return def;
