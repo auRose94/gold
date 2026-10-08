@@ -17,14 +17,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD 26)
 
-target_include_directories(
-	LangExample
-	PUBLIC
-		"include"
-)
-
 target_link_libraries(
-	LangExample 
+	LangExample
 	PRIVATE
 		gold::lang
 )

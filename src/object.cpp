@@ -80,13 +80,13 @@ namespace gold {
 
 	object::omap::iterator object::begin() {
 		initMemory();
-		shared_lock<shared_mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> guard(data->omutex);
 		return std::begin(data->items);
 	}
 
 	object::omap::iterator object::end() {
 		initMemory();
-		shared_lock<shared_mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> guard(data->omutex);
 		return std::end(data->items);
 	}
 
@@ -102,7 +102,7 @@ namespace gold {
 
 	types object::getType(string name) {
 		initMemory();
-		shared_lock<shared_mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> guard(data->omutex);
 		auto val = getExpression(name);
 		return val.getType();
 	}
@@ -176,7 +176,7 @@ namespace gold {
 	void object::copy(object& other) {
 		initMemory();
 		if (other) {
-			shared_lock<shared_mutex> gaurd(other.data->omutex);
+			shared_lock<shared_mutex> guard(other.data->omutex);
 			auto end = other.data->items.end();
 			for (auto it = other.data->items.begin(); it != end; ++it)
 				data->items[it->first] = it->second;
@@ -190,7 +190,7 @@ namespace gold {
 
 	void object::setParent(object other) {
 		initMemory();
-		unique_lock<shared_mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> guard(data->omutex);
 		if (other.data) {
 			data->parent.data = other.data;
 		} else
@@ -288,133 +288,133 @@ namespace gold {
 
 	void object::setString(string name, string value) {
 		initMemory();
-		unique_lock<shared_mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> guard(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setStringView(string name, string_view value) {
 		initMemory();
-		unique_lock<shared_mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> guard(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setInt64(string name, int64_t value) {
 		initMemory();
-		unique_lock<shared_mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> guard(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setInt32(string name, int32_t value) {
 		initMemory();
-		unique_lock<shared_mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> guard(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setInt16(string name, int16_t value) {
 		initMemory();
-		unique_lock<shared_mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> guard(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setInt8(string name, int8_t value) {
 		initMemory();
-		unique_lock<shared_mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> guard(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setUInt64(string name, uint64_t value) {
 		initMemory();
-		unique_lock<shared_mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> guard(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setUInt32(string name, uint32_t value) {
 		initMemory();
-		unique_lock<shared_mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> guard(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setUInt16(string name, uint16_t value) {
 		initMemory();
-		unique_lock<shared_mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> guard(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setUInt8(string name, uint8_t value) {
 		initMemory();
-		unique_lock<shared_mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> guard(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setDouble(string name, double value) {
 		initMemory();
-		unique_lock<shared_mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> guard(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setFloat(string name, float value) {
 		initMemory();
-		unique_lock<shared_mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> guard(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setBool(string name, bool value) {
 		initMemory();
-		unique_lock<shared_mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> guard(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setList(string name, list value) {
 		initMemory();
-		unique_lock<shared_mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> guard(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setObject(string name, object value) {
 		initMemory();
-		unique_lock<shared_mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> guard(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setMethod(string name, method& value) {
 		initMemory();
-		unique_lock<shared_mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> guard(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setFunc(string name, func& value) {
 		initMemory();
-		unique_lock<shared_mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> guard(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setPtr(string name, void* value) {
 		initMemory();
-		unique_lock<shared_mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> guard(data->omutex);
 		setExpression(name, var(value, typePtr));
 	}
 
 	void object::setBinary(string name, binary value) {
 		initMemory();
-		unique_lock<shared_mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> guard(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setVar(string name, var value) {
 		initMemory();
-		unique_lock<shared_mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> guard(data->omutex);
 		setExpression(name, value);
 	}
 
 	void object::setNull(string name) {
 		initMemory();
-		unique_lock<shared_mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> guard(data->omutex);
 		setExpression(name, var());
 	}
 
 	void object::erase(string name) {
 		initMemory();
-		unique_lock<shared_mutex> gaurd(data->omutex);
+		unique_lock<shared_mutex> guard(data->omutex);
 		data->items.erase(name);
 	}
 
@@ -427,7 +427,7 @@ namespace gold {
 	string object::getString(string name, string def) {
 		try {
 			initMemory();
-			shared_lock<shared_mutex> gaurd(data->omutex);
+			shared_lock<shared_mutex> guard(data->omutex);
 			auto val = getExpression(name);
 			if (val.isString()) return val.getString();
 			return def;
@@ -438,7 +438,7 @@ namespace gold {
 
 	gold::var object::generateHash(string value, string salt) {
 		try {
-			unique_lock<mutex> gaurd(cryptoMutex);
+			unique_lock<mutex> guard(cryptoMutex);
 			// OWASP recommends 600k iterations for PBKDF2-HMAC-SHA256.
 			unsigned char derived[SHA256_DIGEST_LENGTH];
 			if (PKCS5_PBKDF2_HMAC(
@@ -469,7 +469,7 @@ namespace gold {
 		string name, string_view def) {
 		try {
 			initMemory();
-			shared_lock<shared_mutex> gaurd(data->omutex);
+			shared_lock<shared_mutex> guard(data->omutex);
 			auto val = getExpression(name);
 			if (val.isView()) return val.getStringView();
 			return def;
@@ -480,7 +480,7 @@ namespace gold {
 
 	int64_t object::getInt64(string name, int64_t def) {
 		initMemory();
-		shared_lock<shared_mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> guard(data->omutex);
 		auto val = getExpression(name);
 		if (val.isNumber()) return val.getInt64();
 		return def;
@@ -488,7 +488,7 @@ namespace gold {
 
 	int32_t object::getInt32(string name, int32_t def) {
 		initMemory();
-		shared_lock<shared_mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> guard(data->omutex);
 		auto val = getExpression(name);
 		if (val.isNumber()) return val.getInt32();
 		return def;
@@ -496,7 +496,7 @@ namespace gold {
 
 	int16_t object::getInt16(string name, int16_t def) {
 		initMemory();
-		shared_lock<shared_mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> guard(data->omutex);
 		auto val = getExpression(name);
 		if (val.isNumber()) return val.getInt16();
 		return def;
@@ -504,7 +504,7 @@ namespace gold {
 
 	int8_t object::getInt8(string name, int8_t def) {
 		initMemory();
-		shared_lock<shared_mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> guard(data->omutex);
 		auto val = getExpression(name);
 		if (val.isNumber()) return val.getInt8();
 		return def;
@@ -512,7 +512,7 @@ namespace gold {
 
 	uint64_t object::getUInt64(string name, uint64_t def) {
 		initMemory();
-		shared_lock<shared_mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> guard(data->omutex);
 		auto val = getExpression(name);
 		if (val.isNumber()) return val.getUInt64();
 		return def;
@@ -520,7 +520,7 @@ namespace gold {
 
 	uint32_t object::getUInt32(string name, uint32_t def) {
 		initMemory();
-		shared_lock<shared_mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> guard(data->omutex);
 		auto val = getExpression(name);
 		if (val.isNumber()) return val.getUInt32();
 		return def;
@@ -528,7 +528,7 @@ namespace gold {
 
 	uint16_t object::getUInt16(string name, uint16_t def) {
 		initMemory();
-		shared_lock<shared_mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> guard(data->omutex);
 		auto val = getExpression(name);
 		if (val.isNumber()) return val.getUInt16();
 		return def;
@@ -536,7 +536,7 @@ namespace gold {
 
 	uint8_t object::getUInt8(string name, uint8_t def) {
 		initMemory();
-		shared_lock<shared_mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> guard(data->omutex);
 		auto val = getExpression(name);
 		if (val.isNumber()) return val.getUInt8();
 		return def;
@@ -544,7 +544,7 @@ namespace gold {
 
 	double object::getDouble(string name, double def) {
 		initMemory();
-		shared_lock<shared_mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> guard(data->omutex);
 		auto val = getExpression(name);
 		if (val.isNumber()) return val.getDouble();
 		return def;
@@ -552,7 +552,7 @@ namespace gold {
 
 	float object::getFloat(string name, float def) {
 		initMemory();
-		shared_lock<shared_mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> guard(data->omutex);
 		auto val = getExpression(name);
 		if (val.isNumber()) return val.getFloat();
 		return def;
@@ -560,7 +560,7 @@ namespace gold {
 
 	bool object::getBool(string name, bool def) {
 		initMemory();
-		shared_lock<shared_mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> guard(data->omutex);
 		auto val = getExpression(name);
 		if (val.isBool()) return val.getBool();
 		return def;
@@ -568,7 +568,7 @@ namespace gold {
 
 	list object::getList(string name, list def) {
 		initMemory();
-		shared_lock<shared_mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> guard(data->omutex);
 		auto val = getExpression(name);
 		if (val.isList()) return val.getList();
 		return def;
@@ -576,21 +576,21 @@ namespace gold {
 
 	void object::assignList(string name, list& result) {
 		initMemory();
-		shared_lock<shared_mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> guard(data->omutex);
 		auto val = getExpression(name);
 		if (val.isList()) result = val.getList();
 	}
 
 	void object::assignObject(string name, object& result) {
 		initMemory();
-		shared_lock<shared_mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> guard(data->omutex);
 		auto val = getExpression(name);
 		if (val.isObject()) result = val.getObject();
 	}
 
 	object object::getObject(string name, object def) {
 		initMemory();
-		// unique_lock<shared_mutex> gaurd(data->omutex);
+		// unique_lock<shared_mutex> guard(data->omutex);
 		auto val = getExpression(name);
 		if (val.isObject()) return val.getObject();
 		return def;
@@ -619,7 +619,7 @@ namespace gold {
 
 	binary object::getBinary(string name, binary def) {
 		initMemory();
-		shared_lock<shared_mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> guard(data->omutex);
 		auto val = getExpression(name);
 		if (val.isBinary()) return val.getBinary();
 		return def;
@@ -627,14 +627,14 @@ namespace gold {
 
 	void object::assignBinary(string name, binary& result) {
 		initMemory();
-		shared_lock<shared_mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> guard(data->omutex);
 		auto val = getExpression(name);
 		if (val.isBinary()) result = val.getBinary();
 	}
 
 	var object::getVar(string name) {
 		initMemory();
-		shared_lock<shared_mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> guard(data->omutex);
 		return getExpression(name);
 	}
 
@@ -645,7 +645,7 @@ namespace gold {
 
 	var object::operator->*(string name) {
 		initMemory();
-		shared_lock<shared_mutex> gaurd(data->omutex);
+		shared_lock<shared_mutex> guard(data->omutex);
 		return getExpression(name);
 	}
 

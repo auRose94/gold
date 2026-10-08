@@ -12,3 +12,6 @@ out/
 # OS
 .DS_Store
 Thumbs.db
+
+# Third party SDKs (Non-distributable)
+3rdParty/ultralight-free-sdk/

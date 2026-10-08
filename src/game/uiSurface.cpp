@@ -5,6 +5,7 @@
 
 #include "entity.hpp"
 #include "goldjs.hpp"
+#include "ui/software_renderer.hpp"
 #include "shaderSprite.hpp"
 #include "sprite.hpp"
 #include "transform.hpp"
@@ -61,7 +62,7 @@ namespace gold {
 
 	uiSurface::uiSurface() {
 		setParent(getPrototype());
-		ui_ = new UI::renderer();
+		ui_ = new UI::software_renderer();
 	}
 
 	uiSurface::uiSurface(object config) : uiSurface() {

@@ -82,9 +82,9 @@ namespace gold {
 						auto in = fo.getVar("$in");
 						if (in.getType() != typeList) return false;
 						auto inList = in.getList();
-						auto docField = doc.getVar(it->first);
-						if (docField.getType() != typeList) return false;
-						auto docList = docField.getList();
+						auto dv = doc.getVar(it->first);
+						if (dv.getType() != typeList) return false;
+						auto docList = dv.getList();
 						bool any = false;
 						for (auto d : docList)
 							for (auto x : inList)
@@ -98,12 +98,43 @@ namespace gold {
 				return true;
 			}
 
+			/**
+			 * Update operators: `$set`, `$unset` and `$inc`. Returns false
+			 * when the update contains none of them, so callers can report
+			 * an unsupported update instead of silently rewriting nothing.
+			 */
 			static bool applyUpdate(object& doc, object& update) {
+				bool touched = false;
 				auto set = update.getObject("$set");
-				if (!set) return false;
-				for (auto it = set.begin(); it != set.end(); ++it)
-					doc.setVar(it->first, it->second);
-				return true;
+				if (set) {
+					for (auto it = set.begin(); it != set.end(); ++it)
+						doc.setVar(it->first, it->second);
+					touched = true;
+				}
+				auto unset = update.getObject("$unset");
+				if (unset) {
+					for (auto it = unset.begin(); it != unset.end(); ++it)
+						doc.erase(it->first);
+					touched = true;
+				}
+				auto inc = update.getObject("$inc");
+				if (inc) {
+					for (auto it = inc.begin(); it != inc.end(); ++it) {
+						auto current = doc.getVar(it->first);
+						if (current.getType() == typeNull) current = var(int64_t(0));
+						doc.setVar(it->first, current + it->second);
+					}
+					touched = true;
+				}
+				return touched;
+			}
+
+			// Documents live as `<name>.json`; metadata files (`.index.json`)
+			// must never surface as queryable documents.
+			static bool isDocumentFile(const string& name) {
+				return name.size() >= 6 &&
+					   name.compare(name.size() - 5, 5, ".json") == 0 &&
+					   name[0] != '.';
 			}
 
 			void collectMatches(const string& cname, object& filter,
@@ -111,12 +142,22 @@ namespace gold {
 				auto dir = colDir(cname);
 				if (!fs::is_directory(dir)) return;
 				uint64_t n = 0;
+
+				// `_id` equality resolves straight to the file named by
+				// the id; documents are keyed by it.
+				auto idVar = filter.getVar("_id");
+				if (filter.size() == 1 && filter.getType("_id") != typeNull &&
+					idVar.getType() == typeString &&
+					filenameSafe(idVar.getString())) {
+					auto doc = readJSON(dir + "/" + idVar.getString() + ".json");
+					if (doc && matches(doc, filter)) out.pushObject(doc);
+					return;
+				}
+
 				for (const auto& entry : fs::directory_iterator(dir)) {
 					if (!entry.is_regular_file()) continue;
 					auto name = entry.path().filename().string();
-					if (name.size() < 6 ||
-						name.substr(name.size() - 5) != ".json")
-						continue;
+					if (!isDocumentFile(name)) continue;
 					auto doc = readJSON(entry.path().string());
 					if (doc && matches(doc, filter)) {
 						out.pushObject(doc);
@@ -208,7 +249,11 @@ namespace gold {
 				}
 				auto dir = colDir(cname);
 				fs::create_directories(dir);
-				if (!writeJSON(dir + "/" + id + ".json", toStore))
+				const auto path = dir + "/" + id + ".json";
+				// An insert must not silently replace an existing document.
+				if (fs::exists(path))
+					return genericError("duplicate _id: " + id);
+				if (!writeJSON(path, toStore))
 					return genericError("failed to write document");
 				return var(toStore);
 			}
@@ -224,13 +269,14 @@ namespace gold {
 				for (const auto& entry : fs::directory_iterator(dir)) {
 					if (!entry.is_regular_file()) continue;
 					auto name = entry.path().filename().string();
-					if (name.size() < 6 ||
-						name.substr(name.size() - 5) != ".json")
-						continue;
+					if (!isDocumentFile(name)) continue;
 					auto doc = readJSON(entry.path().string());
 					if (doc && matches(doc, f)) {
-						if (applyUpdate(doc, u))
-							writeJSON(entry.path().string(), doc);
+						if (!applyUpdate(doc, u))
+							return genericError(
+								"unsupported update operators (want $set, "
+								"$unset or $inc)");
+						writeJSON(entry.path().string(), doc);
 						return var(doc);
 					}
 				}
@@ -250,15 +296,15 @@ namespace gold {
 				for (const auto& entry : fs::directory_iterator(dir)) {
 					if (!entry.is_regular_file()) continue;
 					auto name = entry.path().filename().string();
-					if (name.size() < 6 ||
-						name.substr(name.size() - 5) != ".json")
-						continue;
+					if (!isDocumentFile(name)) continue;
 					auto doc = readJSON(entry.path().string());
 					if (doc && matches(doc, f)) {
-						if (applyUpdate(doc, u)) {
-							writeJSON(entry.path().string(), doc);
-							++count;
-						}
+						if (!applyUpdate(doc, u))
+							return genericError(
+								"unsupported update operators (want $set, "
+								"$unset or $inc)");
+						writeJSON(entry.path().string(), doc);
+						++count;
 					}
 				}
 				return var(object{{"modifiedCount", count}});
@@ -275,9 +321,7 @@ namespace gold {
 				for (const auto& entry : fs::directory_iterator(dir)) {
 					if (!entry.is_regular_file()) continue;
 					auto name = entry.path().filename().string();
-					if (name.size() < 6 ||
-						name.substr(name.size() - 5) != ".json")
-						continue;
+					if (!isDocumentFile(name)) continue;
 					auto doc = readJSON(entry.path().string());
 					if (doc && matches(doc, f)) {
 						fs::remove(entry.path());
@@ -299,9 +343,7 @@ namespace gold {
 				for (const auto& entry : fs::directory_iterator(dir)) {
 					if (!entry.is_regular_file()) continue;
 					auto name = entry.path().filename().string();
-					if (name.size() < 6 ||
-						name.substr(name.size() - 5) != ".json")
-						continue;
+					if (!isDocumentFile(name)) continue;
 					auto doc = readJSON(entry.path().string());
 					if (doc && matches(doc, f)) {
 						fs::remove(entry.path());
@@ -321,13 +363,19 @@ namespace gold {
 				for (const auto& entry : fs::directory_iterator(dir)) {
 					if (!entry.is_regular_file()) continue;
 					auto name = entry.path().filename().string();
-					if (name.size() < 6 ||
-						name.substr(name.size() - 5) != ".json")
-						continue;
+					if (!isDocumentFile(name)) continue;
 					auto existing = readJSON(entry.path().string());
 					if (existing && matches(existing, f)) {
-						writeJSON(entry.path().string(), doc);
-						return var(doc);
+						// `_id` is immutable: the replacement keeps the
+						// matched document's id, so the file name, the
+						// payload and future lookups agree.
+						object replacement = doc;
+						const string id = existing.getString("_id");
+						if (replacement.getType("_id") == typeNull ||
+							replacement.getString("_id") != id)
+							replacement.setString("_id", id);
+						writeJSON(entry.path().string(), replacement);
+						return var(replacement);
 					}
 				}
 				return var();

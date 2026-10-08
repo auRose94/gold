@@ -86,84 +86,100 @@ namespace gold {
 			return rule;
 		}
 
-		object parseDeclarations(const string& body) {
-			object declarations;
-			size_t pos = 0;
-			size_t end = body.size();
+	object parseDeclarations(const string& body) {
+		object declarations;
+		size_t pos = 0;
+		size_t end = body.size();
 
-			while (pos < end) {
-				// Skip whitespace and comments
-				while (pos < end && isspace(body[pos])) pos++;
-				if (pos >= end) break;
+		// `!important` (case-insensitive) must end the value: followed by
+		// whitespace, `;`, `}` or nothing at all.
+		auto importantAt = [&body, end](size_t at) -> bool {
+			if (at + 10 > end) return false;
+			for (size_t k = 0; k < 10; k++) {
+				const char expected = (k == 0) ? '!' : "important"[k - 1];
+				if (tolower((unsigned char)body[at + k]) != expected)
+					return false;
+			}
+			if (at + 10 >= end) return true;
+			const char after = body[at + 10];
+			return after == ';' || after == '}' || isspace((unsigned char)after);
+		};
 
-				// Skip CSS comments
-				if (pos + 2 < end && body.substr(pos, 2) == "/*") {
-					size_t endComment = body.find("*/", pos + 2);
-					if (endComment != string::npos) {
-						pos = endComment + 2;
-					} else {
-						break;
-					}
-					continue;
-				}
+		while (pos < end) {
+			// Skip whitespace and comments
+			while (pos < end && isspace(body[pos])) pos++;
+			if (pos >= end) break;
 
-				// Check for closing brace
-				if (body[pos] == '}') {
-					pos++;
+			// Skip CSS comments
+			if (pos + 2 <= end && body[pos] == '/' && body[pos + 1] == '*') {
+				size_t endComment = body.find("*/", pos + 2);
+				if (endComment != string::npos) {
+					pos = endComment + 2;
+				} else {
 					break;
 				}
+				continue;
+			}
 
-				// Find colon separator
-				size_t colonPos = body.find(':', pos);
-				if (colonPos == string::npos) break;
+			// Check for closing brace
+			if (body[pos] == '}') {
+				pos++;
+				break;
+			}
 
-				string name = trim(body.substr(pos, colonPos - pos));
-				pos = colonPos + 1;
+			// Find colon separator
+			size_t colonPos = body.find(':', pos);
+			if (colonPos == string::npos) break;
 
-				// Skip whitespace after colon
-				while (pos < end && isspace(body[pos])) pos++;
+			string name = trim(body.substr(pos, colonPos - pos));
+			pos = colonPos + 1;
 
-				// Parse value (handle multiple values and !important)
-				size_t valStart = pos;
-				bool important = false;
+			// Skip whitespace after colon
+			while (pos < end && isspace(body[pos])) pos++;
 
-				// Find the end of value (semicolon or closing brace)
-				int parenDepth = 0;
-				int bracketDepth = 0;
+			// Parse the value. Quotes and nested parens/brackets are
+			// honored, so a `;` inside `rgb(...)` or a quoted string does
+			// not end the declaration. `!important` is recorded as a flag
+			// under `name + "!"` rather than glued onto the value, so it
+			// survives for numeric values too.
+			size_t valStart = pos;
+			size_t valueEnd = pos;
+			bool important = false;
+			int depth = 0;
+			char quote = 0;
 
-				while (pos < end) {
-					char c = body[pos];
-					if (c == '(' || c == '[') {
-						if (parenDepth == 0 && bracketDepth == 0 &&
-						    (pos + 9 > end || body.substr(pos + 1, 8) != "important")) {
-							parenDepth += (c == '(');
-							bracketDepth += (c == '[');
-						}
-					} else if (c == ')' || c == ']') {
-						if (parenDepth > 0 || bracketDepth > 0) {
-							parenDepth -= (c == ')');
-							bracketDepth -= (c == ']');
-						}
-					} else if ((c == ';' || c == '}') && parenDepth == 0 && bracketDepth == 0) {
-						break;
-					} else if (c == '!' && pos + 9 < end && body.substr(pos + 1, 8) == "important") {
-						important = true;
-						pos += 9; // skip "!important"
-						continue;
-					}
-					pos++;
+			while (pos < end) {
+				char c = body[pos];
+				if (quote) {
+					if (c == quote) quote = 0;
+				} else if (c == '"' || c == '\'') {
+					quote = c;
+				} else if (c == '(' || c == '[') {
+					depth++;
+				} else if (c == ')' || c == ']') {
+					if (depth > 0) depth--;
+				} else if (depth == 0 && (c == ';' || c == '}')) {
+					if (!important) valueEnd = pos;  // flag case set it earlier
+					break;
+				} else if (depth == 0 && c == '!' && importantAt(pos)) {
+					important = true;
+					valueEnd = pos;  // the flag is not part of the value
+					pos += 10;       // skip "!important"
+					continue;
 				}
+				pos++;
+			}
+			if (!important) valueEnd = pos;  // ran to the end of the body
 
-				string value = trim(body.substr(valStart, pos - valStart));
+			const string value =
+				trim(body.substr(valStart, valueEnd - valStart));
 
-				// Handle !important flag (already skipped above)
-
-				// Store the declaration
-				// Try to convert value to appropriate type
+			// Store the declaration, converting plain numbers/booleans so
+			// host code reads typed data back.
+			if (!name.empty() && !value.empty()) {
 				if (value == "true" || value == "false") {
 					declarations.setBool(name, value == "true");
 				} else if (isNumericValue(value)) {
-					// Check if it's a float
 					size_t dotPos = value.find('.');
 					if (dotPos != string::npos) {
 						declarations.setDouble(name, stod(value));
@@ -171,19 +187,17 @@ namespace gold {
 						declarations.setInt64(name, stoll(value));
 					}
 				} else {
-					// Keep as string - but handle !important flag
-					if (important) {
-						value += " !important";
-					}
 					declarations.setString(name, value);
 				}
-
-				// Skip to next declaration (past ; or })
-				if (pos < end && (body[pos] == ';' || body[pos] == '}')) pos++;
+				if (important) declarations.setBool(name + "!", true);
 			}
 
-			return declarations;
+			// Skip to next declaration (past ; or })
+			if (pos < end && (body[pos] == ';' || body[pos] == '}')) pos++;
 		}
+
+		return declarations;
+	}
 
 		vector<string> getShorthandProperties() {
 			static const vector<string> shorthand = {

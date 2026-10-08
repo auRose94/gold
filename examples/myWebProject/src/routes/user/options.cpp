@@ -30,8 +30,8 @@ namespace gg {
 			table({obj{{"class", "table"}},
 						 thead({
 							 tr({
-								 th({obj{{"scope", "bs::col"}}, "Field"}),
-								 th({obj{{"scope", "bs::col"}}, "Error"}),
+								 th({obj{{"scope", "col"}}, "Field"}),
+								 th({obj{{"scope", "col"}}, "Error"}),
 							 }),
 						 }),
 						 errorBody});

@@ -14,13 +14,13 @@ get_filename_component(
 
 get_filename_component(
 	JS_ABS
-	"./js/"
+	"${CMAKE_CURRENT_SOURCE_DIR}/js/"
 	ABSOLUTE
 )
 
 get_filename_component(
 	CSS_ABS
-	"./css/"
+	"${CMAKE_CURRENT_SOURCE_DIR}/css/"
 	ABSOLUTE
 )
 

@@ -61,8 +61,16 @@ int main() {
 	// Embed a script via the `script` facade and share gold data.
 	auto s = script({{"source", var(string(
 		"function welcome(name) { return `Welcome, ${name}!`; }"))}});
-	s.load();
-	s.run();
+	auto loaded = s.load();
+	if (loaded.isError()) {
+		cerr << "script failed to load: " << (string)loaded << endl;
+		return 1;
+	}
+	auto ran = s.run();
+	if (ran.isError()) {
+		cerr << "script failed to run: " << (string)ran << endl;
+		return 1;
+	}
 	s.setGlobal({var(string("appName")), var(string("gold"))});
 	auto greeting = s.call({var(string("welcome")), var(string("builder"))});
 	cout << "facade:   " << (string)greeting << endl;

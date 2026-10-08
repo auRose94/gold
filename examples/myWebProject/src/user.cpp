@@ -281,12 +281,14 @@ namespace gg {
 								{"res", res},
 								{"redirect", "/home"},
 							}});
+							// The second argument is the error map; the
+							// created user is not an error list.
 							return res.end({getTemplate(
-								req, user::userRegister(params, u))});
+								req, user::userRegister(params, obj()))});
 						}
 					} else if (u.isObject()) {
 						return res.end({getTemplate(
-							req, user::userRegister(params, u))});
+							req, user::userRegister(params, obj()))});
 					} else if (u.isError()) {
 						return res.end({getTemplate(req, errorPage({u}))});
 					}

@@ -126,6 +126,17 @@ namespace gold {
 					// fragment with several roots fills the page downward.
 					float cursor = 0.0f;
 					for (int root : tree_.roots()) {
+						if (tree_.nodes[(size_t)root].isText) {
+							// A document can be just text ("hello"): no block
+							// container, so the text node carries its own
+							// runs, laid out inline across the viewport.
+							vector<inlineItem> items;
+							collectTextNode(root, items, false);
+							cursor = layoutInlineGroup(root, items, 0.0f,
+								cursor, ctx_.viewportWidth);
+							maxBottom = std::max(maxBottom, cursor);
+							continue;
+						}
 						if (styles_[(size_t)root].display == displayType::none)
 							continue;
 						const rect r = layoutBlockLevel(root,
@@ -873,8 +884,10 @@ namespace gold {
 				void collectTextNode(int node, vector<inlineItem>& items,
 					bool pendingSpace) {
 					const domNode& dn = tree_.nodes[(size_t)node];
-					const int owner = dn.parent;
-					if (owner < 0 || dn.text.empty()) return;
+					// Runs are styled by their owning element; top-level
+					// text has none, so it styles itself.
+					const int owner = dn.parent >= 0 ? dn.parent : node;
+					if (dn.text.empty()) return;
 					const computedStyle& os = style(owner);
 					if (os.whiteSpace == whiteSpaceType::pre ||
 						os.whiteSpace == whiteSpaceType::preWrap) {

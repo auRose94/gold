@@ -129,8 +129,10 @@ To inspect a glTF asset (or another glTF/GLB file):
 
 ```sh
 cmake --build build --target BlahajExample
+./build/examples/blahajExample/BlahajExample
+# Or pass any glTF/GLB path, e.g. the shipped shark model:
 ./build/examples/blahajExample/BlahajExample \
-  /home/rose/kodot-kare/Output/models/props/Blahaj/Blahaj_Low_poly_blahaj1_Low_poly_blahaj1.gltf
+  examples/blahajExample/assets/models/props/Blahaj/Blahaj_Low_poly_blahaj1_Low_poly_blahaj1.gltf
 ```
 
 > Crypto (PBKDF2 password hashing, URL-safe base64) is provided by the system

@@ -10,7 +10,7 @@ get_filename_component(
 
 get_filename_component(
 	ASSETS_ABS
-	"./assets/"
+	"${CMAKE_CURRENT_SOURCE_DIR}/assets/"
 	ABSOLUTE
 )
 

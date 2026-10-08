@@ -18,10 +18,10 @@ HTML ──parse──▶ DOM ──cascade──▶ computed styles ──layou
 ## Quick start
 
 ```cpp
-#include "ui/renderer.hpp"
+#include "ui/software_renderer.hpp"
 using namespace gold;
 
-UI::renderer ui;
+UI::software_renderer ui;   // concrete CPU-rasterizer backend
 ui.load(list({jo("html", markup, jo("css", sheet),
     jo("width", 512.0), jo("height", 384.0))}));
 
@@ -143,13 +143,26 @@ UI pixels for anchoring 3D widgets to a UI element.
 ```cpp
 ui.setText(list({elementId, "SYSTEM READY"}));
 ui.setStyle(list({elementId, jo("background", "#ff0000")}));
-ui.setHTML(list({markup}));     // rebuilds the tree, ids reassigned
-ui.markup();                    // serialize back to HTML
+ui.setHTML(list({markup}));     // markup string, or builder elements
+ui.markup();                    // serialize back to HTML (escaped)
 ```
+
+`setHTML` accepts markup text, a single builder element
+(`HTML::div(list({...}))`), or a list of them — so a document assembled with
+the `gold::HTML` element classes renders directly. `setCSS` accepts a
+stylesheet string or a list of `CSS::Rule` objects (the `CSS::parseCSS`
+output), for building styles from gold data.
 
 Gold DOM objects are shared, not copied, so mutating a parsed element
 directly is also visible to the renderer: the next `render()` notices the
-change through a structural fingerprint and re-resolves style and layout.
+change through a fingerprint (shape, ids, text and attributes) and
+re-resolves style and layout. `dirty()`/`needsRender()` report those
+external mutations too.
+
+Text and attribute values decode character references on parse (`&amp;`,
+`&#65;`, `&#x42;`, ...) and escape them on serialize, except `script` and
+`style` bodies, which round-trip raw source. See the web module docs for the
+parser's full character-reference rules.
 
 ## In a 3D scene
 

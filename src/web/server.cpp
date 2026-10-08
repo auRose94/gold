@@ -240,14 +240,22 @@ namespace gold {
 						if (loaded.isView()) {
 							auto hash = f.hash().getString();
 							if (hash.compare(chash) == 0) {
-								res->writeStatus("304 Not Changed");
+								// Not the phrase "304 Not Changed": the
+								// HTTP status text is "Not Modified".
+								res->writeStatus("304 Not Modified");
 								res->writeHeader("Cache-Control", control);
 								res->end();
 							} else {
 								auto bin = loaded.getStringView();
 								res->writeStatus(HTTP_200_OK);
 								auto ext = fs::path(p).extension().string();
-								auto ct = mimeMap[ext];
+								// Find, not []: unknown types must not
+								// mutate the shared map per request.
+								auto mimeIt = mimeMap.find(ext);
+								const string ct =
+									mimeIt != mimeMap.end()
+										? mimeIt->second
+										: "application/octet-stream";
 								res->writeHeader("Content-Type", ct);
 								res->writeHeader("Cache-Control", control);
 								res->writeHeader("ETag", hash);
@@ -517,26 +525,32 @@ namespace gold {
 	}
 
 	var response::end(list args) {
+		// Ending twice in one handler trips the uWS assert; silently keep
+		// the first end.
+		if (hasResponded(list()).getBool()) return var();
 		auto bin = binary();
-		if (args[0].isObject(HTML::iHTML::getPrototype())) {
+		if (args.size() > 0 &&
+			args[0].isObject(HTML::iHTML::getPrototype())) {
 			string htmlStr = string(args[0]);
 			bin.insert(bin.end(), htmlStr.begin(), htmlStr.end());
 			writeHeader({"Content-Type", "text/html"});
-		} else if (args[0].isObject()) {
+		} else if (args.size() > 0 && args[0].isObject()) {
 			bin = args[0].getObject().getJSONBin();
 			writeHeader({"Content-Type", "application/json"});
-		} else if (args[0].isList()) {
+		} else if (args.size() > 0 && args[0].isList()) {
 			bin = args[0].getList().getJSONBin();
 			writeHeader({"Content-Type", "application/json"});
-		} else if (args[0].isList()) {
-			bin = args[0].getList().getJSONBin();
-			writeHeader({"Content-Type", "application/json"});
-		} else if (args[0].isView())
+		} else if (args.size() > 0 && args[0].isView())
 			bin = args[0].getBinary();
 
 		auto headers = getObject("headers");
 		auto code = getUInt16("code");
-		auto status = httpReturnStatusMap[code];
+		// Find, not []: an unknown code must not insert into the shared
+		// map (produces a wrong status line and races concurrent requests).
+		auto statusIt = httpReturnStatusMap.find(code);
+		const string status =
+			statusIt != httpReturnStatusMap.end() ? statusIt->second
+												  : string(HTTP_200_OK);
 
 		auto strV = string_view((char*)bin.data(), bin.size());
 		auto ssl = getBool("ssl");
@@ -586,15 +600,15 @@ namespace gold {
 		} else if (args[0].isList()) {
 			bin = args[0].getList().getJSONBin();
 			writeHeader({"Content-Type", "application/json"});
-		} else if (args[0].isList()) {
-			bin = args[0].getList().getJSONBin();
-			writeHeader({"Content-Type", "application/json"});
 		} else if (args[0].isView())
 			bin = args[0].getBinary();
 
 		auto headers = getObject("headers");
 		auto code = getUInt16("code");
-		auto status = httpReturnStatusMap[code];
+		auto statusIt = httpReturnStatusMap.find(code);
+		const string status =
+			statusIt != httpReturnStatusMap.end() ? statusIt->second
+												  : string(HTTP_200_OK);
 
 		auto strV = string_view((char*)bin.data(), bin.size());
 		auto size = args.size() >= 2 ? args[1].getInt32() : 0;

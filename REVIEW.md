@@ -1,5 +1,12 @@
 # Gold Framework — Code Quality Review
 
+> Status note (2026-10): all P0 items have been fixed (`file.cpp` parameter
+> lists, the `objData` ODR violation via `include/object_impl.hpp`,
+> `use_count() <= 1` teardown, and the Mat4x4 translation index bug), plus
+> the P1 RAII-lock and `"gaurd"` typos. The remaining items below are
+> tracked but not all done; treat this file as an audit snapshot, not a
+> live list.
+
 ## P0: Build-Breaking Bugs (won't compile)
 
 ### `src/file.cpp:181-209` — Missing parameter lists

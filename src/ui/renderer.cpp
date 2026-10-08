@@ -1,4 +1,5 @@
 #include "ui/renderer.hpp"
+#include "ui/software_renderer.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -41,6 +42,9 @@ namespace gold {
 		// ------------------------------------------------------- prototype
 
 		object& renderer::getPrototype() {
+			// One prototype shared by every backend: the method bindings
+			// resolve virtually, so software and WebKit implementations both
+			// dispatch through the same gold interface.
 			static auto proto = obj({
 				{"load", method(&renderer::load)},
 				{"setHTML", method(&renderer::setHTML)},
@@ -68,7 +72,7 @@ namespace gold {
 			return proto;
 		}
 
-		renderer::renderer() {
+		software_renderer::software_renderer() {
 			setParent(getPrototype());
 			// Transparent by default, like a browser canvas: a host that wants
 			// an opaque panel sets `background` in `load`.
@@ -82,32 +86,28 @@ namespace gold {
 			target_.resize(640, 480);
 		}
 
-		renderer::renderer(list args) : renderer() {
-			load(args);
-		}
-
-		renderer::~renderer() = default;
+		software_renderer::~software_renderer() = default;
 
 		// ------------------------------------------------------- lifecycle
 
-		void renderer::markStyleDirty() {			styleDirty_ = true;
+		void software_renderer::markStyleDirty() {			styleDirty_ = true;
 			markLayoutDirty();
 		}
 
-		void renderer::markLayoutDirty() {
+		void software_renderer::markLayoutDirty() {
 			layoutDirty_ = true;
 			markPaintDirty();
 		}
 
-		void renderer::markPaintDirty() {
+		void software_renderer::markPaintDirty() {
 			paintDirty_ = true;
 		}
 
-		void renderer::refreshFingerprint() {
+		void software_renderer::refreshFingerprint() {
 			fingerprint_ = tree_.fingerprint();
 		}
 
-		var renderer::load(list args) {
+		var software_renderer::load(list args) {
 			object config;
 			if (args.size() == 1 && args[0].isObject()) config = args[0].getObject();
 			else if (args.size() > 0) config = object({{"html", args[0]}});
@@ -140,9 +140,22 @@ namespace gold {
 			return var(this);
 		}
 
-		var renderer::setHTML(list args) {
-			html_ = argString(args, 0, html_);
-			tree_ = buildTree(html_);
+		var software_renderer::setHTML(list args) {
+			if (args.size() >= 1 && args[0].isList()) {
+				// Markup built with the HTML builder: gold objects straight
+				// into the DOM. (Still available after a reload via `markup`.)
+				tree_ = buildTree(args[0].getList());
+				html_ = tree_.toHTML();
+			} else if (args.size() >= 1 && args[0].isObject() &&
+					   args[0].getObject().getType("tag") != typeNull) {
+				// One builder element acts as the whole document.
+				list elements({args[0]});
+				tree_ = buildTree(elements);
+				html_ = tree_.toHTML();
+			} else {
+				html_ = argString(args, 0, html_);
+				tree_ = buildTree(html_);
+			}
 			// The first element acts as the page root: a bare fragment should
 			// still fill the viewport.
 			hoverNode_ = activeNode_ = focusNode_ = -1;
@@ -151,14 +164,38 @@ namespace gold {
 			return var(this);
 		}
 
-		var renderer::setCSS(list args) {
-			css_ = argString(args, 0, css_);
-			sheet_ = parseStylesheet(css_);
+		var software_renderer::setCSS(list args) {
+			if (args.size() >= 1 && args[0].isList()) {
+				// Pre-parsed `CSS::parseCSS` output: a list of rules, each a
+				// gold object with "selector" and "declarations".
+				stylesheet sheet;
+				int order = 0;
+				for (auto it = args[0].getList().begin();
+					 it != args[0].getList().end(); ++it) {
+					if (!it->isObject()) continue;
+					object rule = it->getObject();
+					const string selectorText = rule.getString("selector");
+					if (selectorText.empty()) continue;
+					for (const complexSelector& sel :
+						parseSelectorList(selectorText)) {
+						styleRule entry;
+						entry.selector = sel;
+						entry.declarations = rule.getObject("declarations");
+						entry.spec = selectorSpecificity(sel);
+						entry.order = order++;
+						sheet.rules.push_back(entry);
+					}
+				}
+				sheet_ = sheet;
+			} else {
+				css_ = argString(args, 0, css_);
+				sheet_ = parseStylesheet(css_);
+			}
 			markStyleDirty();
 			return var(this);
 		}
 
-		var renderer::setViewport(list args) {
+		var software_renderer::setViewport(list args) {
 			float w = argFloat(args, 0, styleCtx_.viewportWidth);
 			float h = argFloat(args, 1, styleCtx_.viewportHeight);
 			if (args.size() == 1 && args[0].isObject()) {
@@ -178,7 +215,7 @@ namespace gold {
 			return var(this);
 		}
 
-		var renderer::setFonts(list args) {
+		var software_renderer::setFonts(list args) {
 			string sans, serif, mono;
 			if (args.size() == 1 && args[0].isObject()) {
 				object config = args[0].getObject();
@@ -196,7 +233,7 @@ namespace gold {
 			return var(this);
 		}
 
-		var renderer::loadFont(list args) {
+		var software_renderer::loadFont(list args) {
 			const string path = argString(args, 0);
 			const string family = argString(args, 1, "sans-serif");
 			const int weight = (int)argFloat(args, 2, 400.0f);
@@ -205,14 +242,14 @@ namespace gold {
 			return fonts_.loadFile(path, family, weight, italic);
 		}
 
-		var renderer::advance(list args) {
+		var software_renderer::advance(list args) {
 			// No animations run yet, so time alone never dirties the tree; the
 			// hook is here so a game loop can call it unconditionally.
 			(void)args;
 			return dirty();
 		}
 
-		var renderer::invalidate(list args) {
+		var software_renderer::invalidate(list args) {
 			const string stage = argString(args, 0, "all");
 			if (stage == "style" || stage == "all") styleDirty_ = true;
 			if (stage == "layout" || stage == "all") layoutDirty_ = true;
@@ -220,21 +257,23 @@ namespace gold {
 			return dirty();
 		}
 
-		var renderer::needsRender(list args) {
+		var software_renderer::needsRender(list args) {
 			(void)args;
 			return dirty();
 		}
 
-		var renderer::render(list args) {
+		var software_renderer::render(list args) {
 			(void)args;
-			if (!dirty()) return false;
-
-			// A game may have mutated the gold DOM behind our back.
+			// A game may have mutated the gold DOM behind our back; the
+			// fingerprint check runs before the dirty check so that
+			// mutation is noticed even on an otherwise quiet surface.
 			const uint32_t current = tree_.fingerprint();
 			if (current != fingerprint_) {
 				refreshFingerprint();
 				styleDirty_ = true;
 			}
+			if (!dirty()) return false;
+
 			if (styleDirty_) {
 				styleDirty_ = false;
 				layoutDirty_ = true;
@@ -269,7 +308,7 @@ namespace gold {
 
 		// ------------------------------------------------------- painting
 
-		void renderer::paintBox(rasterizer& raster, int node,
+		void software_renderer::paintBox(rasterizer& raster, int node,
 			float inheritedOpacity) {
 			const layoutBox& b = layout_.boxes[(size_t)node];
 			if (!b.visible) return;
@@ -338,14 +377,14 @@ namespace gold {
 			if (clipped) raster.popClip();
 		}
 
-		bool renderer::hasClippedAncestor(int node) const {
+		bool software_renderer::hasClippedAncestor(int node) const {
 			for (int p = tree_.nodes[(size_t)node].parent; p >= 0;
 				 p = tree_.nodes[(size_t)p].parent)
 				if (layout_.boxes[(size_t)p].clipped) return true;
 			return false;
 		}
 
-		void renderer::paintPage() {
+		void software_renderer::paintPage() {
 			rasterizer raster(target_);
 			raster.clear(pageBackground_);
 			raster.resetStats();
@@ -354,7 +393,15 @@ namespace gold {
 			// positioned or z-indexed, lowest z first.
 			vector<int> deferred;
 			for (size_t i = 0; i < tree_.nodes.size(); i++) {
-				if (tree_.nodes[i].isText) continue;
+				const layoutBox& b = layout_.boxes[i];
+				if (tree_.nodes[i].isText) {
+					// Top-level text has no container box, so its own box
+					// carries the runs ("hello world" as a whole document).
+					if (b.visible && !b.runs.empty())
+						for (const textRun& run : b.runs)
+							raster.drawText(run, fonts_);
+					continue;
+				}
 				if (styles_[i].display == displayType::none) continue;
 				const computedStyle& s = styles_[i];
 				if (s.position != positionType::staticPos || s.zIndex != 0) {
@@ -374,12 +421,12 @@ namespace gold {
 
 		// ------------------------------------------------------- reading
 
-		var renderer::pixels(list args) {
+		var software_renderer::pixels(list args) {
 			(void)args;
 			return var(target_.pixels);
 		}
 
-		var renderer::surface(list args) {
+		var software_renderer::surface(list args) {
 			(void)args;
 			return jo("width", (int64_t)target_.width, "height",
 				(int64_t)target_.height, "pixels", target_.unpremultiply());
@@ -387,7 +434,7 @@ namespace gold {
 
 		// ----------------------------------------------------- interaction
 
-		int renderer::hitTest(float x, float y) const {
+		int software_renderer::hitTest(float x, float y) const {
 			int best = -1;
 			int bestDepth = -1;
 			// Deepest match wins, so children paint over parents and pick the
@@ -419,7 +466,7 @@ namespace gold {
 			return best;
 		}
 
-		object renderer::describe(int node) const {
+		object software_renderer::describe(int node) const {
 			if (node < 0) return object();
 			const domNode& dn = tree_.nodes[(size_t)node];
 			object attr = dn.attr;
@@ -437,21 +484,21 @@ namespace gold {
 					b.content.w, "height", b.content.h));
 		}
 
-		var renderer::hit(list args) {
+		var software_renderer::hit(list args) {
 			const float x = argFloat(args, 0);
 			const float y = argFloat(args, 1);
 			return describe(hitTest(x, y));
 		}
 
-		list renderer::fireEvent(const string& type, int node, const var& data,
+		list software_renderer::fireEvent(const string& type, int node, const var& data,
 			const object& target) {
 			list results;
 			if (node < 0) return results;
+			const auto typeIt = handlers_.find(type);
+			if (typeIt == handlers_.end()) return results;
 			// Bubble from the target up through its ancestors.
 			for (int current = node; current >= 0;
 				 current = tree_.nodes[(size_t)current].parent) {
-				auto typeIt = handlers_.find(type);
-				if (typeIt == handlers_.end()) break;
 				const uint32_t id = tree_.nodes[(size_t)current].id;
 				auto nodeIt = typeIt->second.find(id);
 				if (nodeIt == typeIt->second.end()) continue;
@@ -464,34 +511,30 @@ namespace gold {
 				}
 			}
 			// Document-level handlers see every event.
-			auto typeIt = handlers_.find(type);
-			if (typeIt != handlers_.end()) {
-				auto globalIt = typeIt->second.find(0);
-				if (globalIt != typeIt->second.end()) {
-					for (func& callback : globalIt->second) {
-						if (!callback) continue;
-						list args;
-						args.pushVar(var(target));
-						if (data) args.pushVar(data);
-						results.pushVar(callback(args));
-					}
+			auto globalIt = typeIt->second.find(0);
+			if (globalIt != typeIt->second.end()) {
+				for (func& callback : globalIt->second) {
+					if (!callback) continue;
+					list args;
+					args.pushVar(var(target));
+					if (data) args.pushVar(data);
+					results.pushVar(callback(args));
 				}
 			}
 			return results;
 		}
 
-		void renderer::syncHover(int node) {
+		void software_renderer::syncHover(int node) {
 			if (node == hoverNode_) return;
 			if (hoverNode_ >= 0)
 				tree_.nodes[(size_t)hoverNode_].state.hover = false;
 			hoverNode_ = node;
 			if (hoverNode_ >= 0)
 				tree_.nodes[(size_t)hoverNode_].state.hover = true;
-			if (node >= 0) markStyleDirty();
-			else markStyleDirty();
+			markStyleDirty();
 		}
 
-		var renderer::dispatch(list args) {
+		var software_renderer::dispatch(list args) {
 			const string type = argString(args, 0, "click");
 			const float x = argFloat(args, 1, -1.0f);
 			const float y = argFloat(args, 2, -1.0f);
@@ -546,7 +589,7 @@ namespace gold {
 			return fireEvent(fired, node, data, describe(node));
 		}
 
-		var renderer::on(list args) {
+		var software_renderer::on(list args) {
 			if (args.size() == 0) return var(this);
 			const string type = lowerStr(argString(args, 0));
 			uint32_t id = 0;
@@ -564,7 +607,7 @@ namespace gold {
 			return var(this);
 		}
 
-		var renderer::setState(list args) {
+		var software_renderer::setState(list args) {
 			if (args.size() < 2) return var(this);
 			const int id = (int)args[0].getInt64();
 			const int node = tree_.byId((uint32_t)id);
@@ -594,7 +637,7 @@ namespace gold {
 			return var(this);
 		}
 
-		var renderer::query(list args) {
+		var software_renderer::query(list args) {
 			const string selectorText = argString(args, 0);
 			list out;
 			if (selectorText.empty()) return out;
@@ -608,12 +651,12 @@ namespace gold {
 			return out;
 		}
 
-		var renderer::element(list args) {
+		var software_renderer::element(list args) {
 			const int node = tree_.byId((uint32_t)argFloat(args, 0));
 			return describe(node);
 		}
 
-		var renderer::elementRect(list args) {
+		var software_renderer::elementRect(list args) {
 			const int node = tree_.byId((uint32_t)argFloat(args, 0));
 			if (node < 0) return var();
 			const layoutBox& b = layout_.boxes[(size_t)node];
@@ -621,7 +664,7 @@ namespace gold {
 				"height", b.border.h);
 		}
 
-		var renderer::setText(list args) {
+		var software_renderer::setText(list args) {
 			const int node = tree_.byId((uint32_t)argFloat(args, 0));
 			if (node < 0) return var(this);
 			const string text = argString(args, 1);
@@ -649,7 +692,7 @@ namespace gold {
 			return var(this);
 		}
 
-		var renderer::setStyle(list args) {
+		var software_renderer::setStyle(list args) {
 			const int node = tree_.byId((uint32_t)argFloat(args, 0));
 			if (node < 0) return var(this);
 			if (args.size() < 2 || !args[1].isObject()) return var(this);
@@ -667,7 +710,7 @@ namespace gold {
 			return var(this);
 		}
 
-		var renderer::interactionState(list args) {
+		var software_renderer::interactionState(list args) {
 			(void)args;
 			auto idOf = [this](int node) -> int64_t {
 				return node < 0 ? (int64_t)-1

@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 3.16...4.2)
 
 project(ConwaysGameOfLife)
 
-include_directories(include)
 
 get_filename_component(
 	BUILD_ROOT
@@ -13,7 +12,7 @@ get_filename_component(
 
 get_filename_component(
 	ASSETS_ABS
-	"./assets/"
+	"${CMAKE_CURRENT_SOURCE_DIR}/assets/"
 	ABSOLUTE
 )
 

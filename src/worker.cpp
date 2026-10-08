@@ -36,17 +36,13 @@ namespace gold {
 	}
 
 	worker::jobPtr worker::nextJob() {
-		if (mtx.try_lock()) {
-			auto it = jobs.begin();
-			if (it != jobs.end()) {
-				auto j = it.operator*();
-				jobs.erase(it);
-				mtx.unlock();
-				if (j) return j;
-			}
-			mtx.unlock();
-		}
-		return jobPtr();
+		unique_lock<mutex> guard(mtx, try_to_lock);
+		if (!guard.owns_lock()) return jobPtr();
+		auto it = jobs.begin();
+		if (it == jobs.end()) return jobPtr();
+		auto j = *it;
+		jobs.erase(it);
+		return j;
 	}
 
 	bool worker::shouldDie() { return this->kill == true; }
@@ -57,9 +53,10 @@ namespace gold {
 
 	worker::jobPtr worker::add(const method& m, obj& o, const list& args) {
 		auto j = make_shared<job>(m, o, args);
-		mtx.lock();
-		jobs.push_back(j);
-		mtx.unlock();
+		{
+			lock_guard<mutex> guard(mtx);
+			jobs.push_back(j);
+		}
 		return j;
 	}
 
@@ -94,8 +91,7 @@ namespace gold {
 	}
 
 	void worker::clear() {
-		mtx.lock();
+		lock_guard<mutex> guard(mtx);
 		jobs.clear();
-		mtx.unlock();
 	}
 }  // namespace gold

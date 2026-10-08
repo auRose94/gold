@@ -6,12 +6,10 @@ using namespace std;
 #include <graphics.hpp>
 #include <iostream>
 #include <mesh.hpp>
-#include <mutex>
 #include <random>
 #include <sprite.hpp>
 #include <string>
 #include <texture.hpp>
-#include <thread>
 #include <transform.hpp>
 #include <goldjs.hpp>
 

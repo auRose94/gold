@@ -620,11 +620,18 @@ namespace gold {
 					case pseudoClass::onlyChild:
 						return n.prev < 0 && n.next < 0;
 					case pseudoClass::firstOfType: return n.typeIndex == 0;
-					case pseudoClass::lastOfType:
-						return n.next < 0 || tree.nodes[(size_t)n.next].tag != n.tag;
-					case pseudoClass::onlyOfType:
-						return n.typeIndex == 0 &&
-							(n.next < 0 || tree.nodes[(size_t)n.next].tag != n.tag);
+					case pseudoClass::lastOfType: {
+						// No following element sibling with the same tag.
+						for (int s = n.next; s >= 0; s = tree.nodes[(size_t)s].next)
+							if (tree.nodes[(size_t)s].tag == n.tag) return false;
+						return true;
+					}
+					case pseudoClass::onlyOfType: {
+						if (n.typeIndex != 0) return false;
+						for (int s = n.next; s >= 0; s = tree.nodes[(size_t)s].next)
+							if (tree.nodes[(size_t)s].tag == n.tag) return false;
+						return true;
+					}
 					case pseudoClass::nthChild:
 						return matchesNth(n.index + 1, nthA, nthB);
 					case pseudoClass::nthLastChild: {
@@ -634,14 +641,10 @@ namespace gold {
 							following++;
 						return matchesNth(following + 1, nthA, nthB);
 					}
-					case pseudoClass::nthOfType: {
-						int sameType = 0;
-						for (int a = node; a >= 0;
-							 a = tree.nodes[(size_t)a].parent) {
-							if (tree.nodes[(size_t)a].tag == n.tag) sameType++;
-						}
-						return matchesNth(sameType, nthA, nthB);
-					}
+					case pseudoClass::nthOfType:
+						// `typeIndex` is 0-based among same-tag element
+						// siblings, which is exactly the nth-of-type index.
+						return matchesNth(n.typeIndex + 1, nthA, nthB);
 					case pseudoClass::hover: return n.state.hover;
 					case pseudoClass::active: return n.state.active;
 					case pseudoClass::focus: return n.state.focus;
@@ -734,22 +737,25 @@ namespace gold {
 					string value;
 					if (op != string::npos) {
 						name = trimStr(body.substr(0, op));
-						size_t valueStart = op;
+						// Operator tokens: `=`, `~=`, `^=`, `$=`, `*=`, `|=`.
+						// Compound ones carry their `=` right after the
+						// operator character; every form ends on the value.
+						size_t valueStart = op + 1;
 						switch (body[op]) {
-							case '~': attr = attrOp::includes; valueStart = op + 1; break;
-							case '^': attr = attrOp::prefix; valueStart = op + 1; break;
-							case '$': attr = attrOp::suffix; valueStart = op + 1; break;
-							case '*': attr = attrOp::substring; valueStart = op + 1; break;
-							case '|': attr = attrOp::dashMatch; valueStart = op + 1; break;
+							case '~': attr = attrOp::includes; break;
+							case '^': attr = attrOp::prefix; break;
+							case '$': attr = attrOp::suffix; break;
+							case '*': attr = attrOp::substring; break;
+							case '|': attr = attrOp::dashMatch; break;
 							case '=':
 								attr = attrOp::equals;
-								valueStart = (op + 1 < body.size() &&
-													body[op + 1] == '=')
-												? op + 2
-												: op + 1;
+								valueStart = op;
 								break;
 							default: return false;
 						}
+						if (valueStart < body.size() &&
+							body[valueStart] == '=')
+							valueStart++;
 						string raw = trimStr(body.substr(valueStart));
 						if (raw.size() >= 2 &&
 							((raw.front() == '"' && raw.back() == '"') ||
@@ -1929,13 +1935,16 @@ namespace gold {
 			if (!declarations) return;
 			object decls = declarations;
 			for (auto it = decls.begin(); it != decls.end(); ++it) {
-				// `CSS::parseDeclarations` keeps the `!important` flag as a
-				// suffix on string values; the cascade applies those in a
-				// second pass.
-				string raw = it->second.getString();
-				const bool important = stripImportant(raw);
-				if (mode == importantMode::only && !important) continue;
-				if (mode == importantMode::skip && important) continue;
+				// `CSS::parseDeclarations` records `!important` as a flag
+				// under `name + "!"`; those keys are skipped, not applied.
+				if (!it->first.empty() && it->first.back() == '!') continue;
+				if (mode == importantMode::only &&
+					!decls.getBool(it->first + "!", false))
+					continue;
+				if (mode == importantMode::skip &&
+					decls.getBool(it->first + "!", false))
+					continue;
+				const string raw = valueText(it->second);
 				if (raw.empty()) continue;
 				prop p;
 				if (!lookupProperty(it->first, p)) continue;

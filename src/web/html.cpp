@@ -38,10 +38,29 @@ namespace gold {
 					items.pushVar(*it);
 				else if (it->isString())
 					items.pushVar(*it);
-				else if (it->isObject())
-					attr = it->getObject();
 				else if (it->isList())
 					items += it->getList();
+				else if (it->isObject()) {
+					// An attribute bundle. Several may appear; their keys
+					// merge. `items` inside a bundle routes to children
+					// instead of becoming an attribute.
+					object bundle = it->getObject();
+					for (auto kv = bundle.begin(); kv != bundle.end(); ++kv) {
+						if (kv->first == "items") {
+							if (kv->second.isList())
+								items += kv->second.getList();
+							else
+								items.pushVar(kv->second);
+							continue;
+						}
+						if (kv->second.isString())
+							attr.setString(kv->first, kv->second.getString());
+						else if (kv->second.isBool())
+							attr.setBool(kv->first, kv->second.getBool());
+						else
+							attr.setVar(kv->first, kv->second);
+					}
+				}
 			}
 			setList("items", items);
 			setObject("attr", attr);
@@ -97,10 +116,14 @@ namespace gold {
 					if (it->second.getBool()) buffer += it->first + " ";
 				} else if (it->second.isFloating()) {
 					buffer += it->first + "=\"" +
-										to_string(it->second.getDouble()) + "\" ";
+									  to_string(it->second.getDouble()) + "\" ";
 				} else if (it->second.isNumber()) {
 					buffer += it->first + "=\"" +
-										to_string(it->second.getInt64()) + "\" ";
+									  to_string(it->second.getInt64()) + "\" ";
+				} else if (it->second.isString()) {
+					buffer += it->first + "=\"" +
+							  Parser::escapeHTML(it->second.getString(), true) +
+							  "\" ";
 				} else
 					buffer +=
 						it->first + "=\"" + it->second.getString() + "\" ";
@@ -110,12 +133,16 @@ namespace gold {
 			if (buffer.size() > 1 && buffer.back() == ' ') buffer.pop_back();
 			buffer += ">";
 			auto defHTML = iHTML();
+			// Script/style bodies are source text, not character data, so
+			// they round-trip verbatim (their parser branch reads raw).
+			const bool escapeText = tag != "script" && tag != "style";
 			for (auto it = items.begin(); it != items.end(); ++it) {
 				if (it->isObject(getPrototype())) {
 					auto obj = it->getObject<iHTML>();
 					buffer += (string)(obj);
 				} else if (it->isString())
-					buffer += (string)(*it);
+					buffer += escapeText ? Parser::escapeHTML((string)(*it), false)
+										 : (string)(*it);
 			}
 			buffer += "</" + tag + ">";
 			return buffer;
@@ -285,6 +312,82 @@ namespace gold {
 				for (auto& c : s) c = (char)tolower((unsigned char)c);
 				return s;
 			}
+
+			// A practical entity set: the five ASCII ones the spec requires
+			// plus a few that show up in real text.
+			const struct entityDef {
+				const char* name;
+				const char* utf8;
+			} kEntities[] = {
+				{"amp", "&"},     {"lt", "<"},     {"gt", ">"},
+				{"quot", "\""},   {"apos", "'"},   {"nbsp", "\xC2\xA0"},
+				{"shy", "\xC2\xAD"}, {"copy", "\xC2\xA9"}, {"reg", "\xC2\xAE"},
+				{"trade", "\xE2\x84\xA2"}, {"hellip", "\xE2\x80\xA6"},
+				{"mdash", "\xE2\x80\x94"}, {"ndash", "\xE2\x80\x93"},
+				{"lsquo", "\xE2\x80\x98"}, {"rsquo", "\xE2\x80\x99"},
+				{"ldquo", "\xE2\x80\x9C"}, {"rdquo", "\xE2\x80\x9D"},
+				{"bull", "\xE2\x80\xA2"}, {"middot", "\xC2\xB7"},
+				{"times", "\xC3\x97"}, {"divide", "\xC3\xB7"},
+				{"deg", "\xC2\xB0"}, {"plusmn", "\xC2\xB1"},
+				{"frac12", "\xC2\xBD"}, {"frac14", "\xC2\xBC"},
+			};
+
+			void appendCodepoint(string& out, uint32_t cp) {
+				if (cp < 0x80)
+					out += (char)cp;
+				else if (cp < 0x800) {
+					out += (char)(0xC0 | (cp >> 6));
+					out += (char)(0x80 | (cp & 0x3F));
+				} else if (cp < 0x10000) {
+					out += (char)(0xE0 | (cp >> 12));
+					out += (char)(0x80 | ((cp >> 6) & 0x3F));
+					out += (char)(0x80 | (cp & 0x3F));
+				} else {
+					out += (char)(0xF0 | (cp >> 18));
+					out += (char)(0x80 | ((cp >> 12) & 0x3F));
+					out += (char)(0x80 | ((cp >> 6) & 0x3F));
+					out += (char)(0x80 | (cp & 0x3F));
+				}
+			}
+
+			// Decode one `&...;` starting at `at`; returns the replacement
+			// (empty keeps the source characters as-is).
+			string decodeEntity(const string& src, size_t at, size_t& next) {
+				const size_t semi = src.find(';', at);
+				if (semi == string::npos || semi == at + 1 || semi - at > 12) {
+					next = at + 1;
+					return "";
+				}
+				const string body = src.substr(at + 1, semi - at - 1);
+				next = semi + 1;
+				if (!body.empty() && body[0] == '#') {
+					uint32_t cp = 0;
+					if (body.size() > 1 && (body[1] == 'x' || body[1] == 'X')) {
+						for (size_t k = 2; k < body.size(); k++) {
+							const char c = body[k];
+							const int d = isdigit((unsigned char)c)	 ? c - '0'
+										  : (c >= 'a' && c <= 'f')	 ? c - 'a' + 10
+										  : (c >= 'A' && c <= 'F')	 ? c - 'A' + 10
+																	 : -1;
+							if (d < 0) return "";
+							cp = cp * 16 + (uint32_t)d;
+						}
+					} else {
+						for (size_t k = 1; k < body.size(); k++) {
+							if (!isdigit((unsigned char)body[k])) return "";
+							cp = cp * 10 + (uint32_t)(body[k] - '0');
+						}
+					}
+					if (cp == 0 || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF))
+						return "";
+					string out;
+					appendCodepoint(out, cp);
+					return out;
+				}
+				for (const auto& def : kEntities)
+					if (body == def.name) return def.utf8;
+				return "";
+			}
 		}  // namespace
 
 		string trim(const string& s) {
@@ -309,6 +412,49 @@ namespace gold {
 				}
 			}
 			return true;
+		}
+
+		string decodeEntities(const string& s) {
+			// Fast path: nothing to decode.
+			if (s.find('&') == string::npos) return s;
+			string out;
+			size_t i = 0;
+			while (i < s.size()) {
+				if (s[i] != '&') {
+					out += s[i++];
+					continue;
+				}
+				size_t next = i;
+				const string decoded = decodeEntity(s, i, next);
+				if (decoded.empty())
+					out += s[i++];
+				else {
+					out += decoded;
+					i = next;
+				}
+			}
+			return out;
+		}
+
+		string escapeHTML(const string& s, bool attribute) {
+			string out;
+			out.reserve(s.size() + 8);
+			for (char c : s) {
+				switch (c) {
+					case '&': out += "&amp;"; break;
+					case '<': out += "&lt;"; break;
+					case '>': out += "&gt;"; break;
+					case '"':
+						if (attribute) {
+							out += "&quot;";
+							break;
+						}
+						out += c;
+						break;
+					default: out += c;
+				}
+			}
+			return out;
 		}
 
 		const vector<string>& voidTags() {
@@ -357,6 +503,7 @@ namespace gold {
 				if (existing == "option")
 					return open == "option" || open == "optgroup";
 				if (existing == "optgroup") return open == "optgroup";
+				if (existing == "a") return open == "a";
 				if (existing == "tr")
 					return open == "tr" || open == "td" || open == "th" ||
 						   open == "thead" || open == "tbody" || open == "tfoot";
@@ -410,10 +557,11 @@ namespace gold {
 							i++;
 						value = src.substr(valStart, i - valStart);
 					}
-					if (isNumericValue(value))
-						attr.setInt64(name, stoll(value));
-					else
-						attr.setString(name, value);
+					const string decoded = decodeEntities(value);
+					// Attribute values are strings (HTML semantics): plain
+					// numbers stay text, so `stoll` never silently
+					// truncates a decimal like "12.5".
+					attr.setString(name, decoded);
 				}
 			}
 		}  // namespace
@@ -425,12 +573,16 @@ namespace gold {
 			string pending;
 
 			// Append text to the innermost open element (or to the roots).
+			// Character references (`&amp;`,...) are decoded here, per the
+			// "escapable raw text" rule; script/style bodies are raw and
+			// are attached separately below.
 			auto flushText = [&]() {
 				if (pending.empty()) return;
+				const string text = decodeEntities(pending);
 				if (!stack.empty())
-					stack.back().getList("items").pushString(pending);
+					stack.back().getList("items").pushString(text);
 				else
-					roots.pushString(pending);
+					roots.pushString(text);
 				pending.clear();
 			};
 
@@ -539,8 +691,11 @@ namespace gold {
 							}
 							scan = at + 1;
 						}
-						const string content =
-							html.substr(pos, contentEnd - pos);
+						string content = html.substr(pos, contentEnd - pos);
+						// `title` / `textarea` still decode character
+						// references; `script` / `style` are raw source.
+						if (tag != "script" && tag != "style")
+							content = decodeEntities(content);
 						if (!content.empty())
 							el.getList("items").pushString(content);
 						pos = nextPos;

@@ -81,16 +81,24 @@ namespace gold {
 				node.next = -1;
 			}
 			// Sibling indices skip text nodes: `li:nth-child(2)` counts
-			// elements, not whitespace between them.
+			// elements, not whitespace between them. `typeIndex` is the
+			// 0-based position among same-tag element siblings, backing
+			// `:first-of-type` and friends.
 			for (auto& node : nodes) {
 				int elementIndex = 0;
-				int typeIndex = 0;
 				int last = -1;
 				for (int c : node.children) {
 					auto& child = nodes[(size_t)c];
 					if (child.isText) continue;
+					int typeIndex = 0;
+					for (int before : node.children) {
+						if (before == c) break;
+						const auto& prior = nodes[(size_t)before];
+						if (!prior.isText && prior.tag == child.tag)
+							typeIndex++;
+					}
 					child.index = elementIndex++;
-					if (child.tag == node.tag) child.typeIndex = typeIndex++;
+					child.typeIndex = typeIndex;
 					child.prev = last;
 					if (last >= 0) nodes[(size_t)last].next = c;
 					last = c;
@@ -100,12 +108,18 @@ namespace gold {
 
 		namespace {
 			/** Serialize one node (and its subtree) back to markup. */
-			void writeHTML(const vector<domNode>& nodes, int index,
+			void writeHTML(const vector<domNode>& nodes, int index, int parent,
 				string& out) {
 				if (index < 0) return;
 				const auto& node = nodes[(size_t)index];
 				if (node.isText) {
-					out += node.text;
+					// Script/style bodies are source text, not character
+					// data, and round-trip verbatim.
+					const bool rawBody =
+						parent >= 0 &&
+						(nodes[(size_t)parent].tag == "script" ||
+						 nodes[(size_t)parent].tag == "style");
+					out += rawBody ? node.text : Parser::escapeHTML(node.text);
 					return;
 				}
 				const bool voidTag = Parser::isVoidTag(node.tag);
@@ -116,25 +130,27 @@ namespace gold {
 						if (it->second.getBool()) out += " " + it->first;
 						continue;
 					}
-					out += " " + it->first + "=\"" + it->second.getString() +
+					out += " " + it->first + "=\"" +
+						   Parser::escapeHTML(it->second.getString(), true) +
 						   "\"";
 				}
 				out += ">";
 				if (voidTag) return;
-				for (int c : node.children) writeHTML(nodes, c, out);
+				for (int c : node.children) writeHTML(nodes, c, index, out);
 				out += "</" + node.tag + ">";
 			}
 		}  // namespace
 
 		string domTree::toHTML() const {
 			string out;
-			for (int r : roots()) writeHTML(nodes, r, out);
+			for (int r : roots()) writeHTML(nodes, r, -1, out);
 			return out;
 		}
 
 		uint32_t domTree::fingerprint() const {
-			// Cheap structural hash: shape + ids, used to notice that a
-			// game-side DOM mutation invalidates style and layout.
+			// Cheap structural hash: shape + ids + attributes, used to
+			// notice that a game-side DOM mutation invalidates style and
+			// layout (attribute changes like `class` or `style` count too).
 			uint32_t h = 2166136261u;
 			auto mix = [&h](uint32_t v) {
 				h ^= v;
@@ -146,6 +162,14 @@ namespace gold {
 				mix((uint32_t)node.children.size());
 				for (char c : node.tag) mix((uint32_t)(uint8_t)c);
 				for (char c : node.text) mix((uint32_t)(uint8_t)c);
+				if (node.isText) continue;
+				object attr = node.attr;
+				for (auto it = attr.begin(); it != attr.end(); ++it) {
+					for (char c : it->first) mix((uint32_t)(uint8_t)c);
+					const string value = it->second.getString();
+					for (char c : value) mix((uint32_t)(uint8_t)c);
+					mix(1);
+				}
 			}
 			return h;
 		}
@@ -181,6 +205,17 @@ namespace gold {
 			vector<frame> open;
 			for (uint64_t i = 0; i < elems.size(); i++) {
 				var item = elems.getVar(i);
+				if (item.isString()) {
+					// Top-level text is part of the document too ("hello
+					// <b>x</b>" must not lose "hello").
+					domNode textNode;
+					textNode.id = tree.nextId++;
+					textNode.isText = true;
+					textNode.text = item.getString();
+					textNode.parent = -1;
+					tree.nodes.push_back(textNode);
+					continue;
+				}
 				if (!item.isObject()) continue;
 				const int self = addElement(item.getObject(), -1);
 				list items = item.getObject().getList("items");

@@ -29,13 +29,13 @@ namespace gold {
 	}
 
 	bool shouldContinue() {
-		unique_lock<mutex> gaurd(shouldQuitMutex);
+		unique_lock<mutex> guard(shouldQuitMutex);
 		auto keepWorking = !shouldQuit;
 		return keepWorking;
 	}
 
 	bool getPromise(promise& job) {
-		unique_lock<mutex> gaurd(promisesMutex);
+		unique_lock<mutex> guard(promisesMutex);
 		auto it = promises.begin();
 		if (it != promises.end()) {
 			job = *it;
@@ -46,12 +46,12 @@ namespace gold {
 	}
 
 	void pushPromise(promise& job) {
-		unique_lock<mutex> gaurd(promisesMutex);
+		unique_lock<mutex> guard(promisesMutex);
 		promises.push_back(job);
 	}
 
 	void printError(string msg) {
-		unique_lock<mutex> gaurd(printMutex);
+		unique_lock<mutex> guard(printMutex);
 		cerr << msg << endl;
 	}
 
@@ -89,15 +89,15 @@ namespace gold {
 	}
 
 	void promise::joinThreads() {
-		shouldQuitMutex.lock();
-		shouldQuit = true;
-		shouldQuitMutex.unlock();
+		{
+			lock_guard<mutex> guard(shouldQuitMutex);
+			shouldQuit = true;
+		}
 		for (auto it = threads.begin(); it != threads.end(); ++it)
 			it->join();
 		threads.clear();
-		shouldQuitMutex.lock();
+		lock_guard<mutex> guard(shouldQuitMutex);
 		shouldQuit = false;
-		shouldQuitMutex.unlock();
 	}
 
 	promise::promise() : object() {}

@@ -8,15 +8,29 @@ project(gold CXX)
 # event/hit-test surface for game interaction. gold::game adds a thin
 # adapter (uiSurface) on top of this; the module itself has no GPU
 # dependency so it can be tested headless.
+#
+# The `software_renderer` (CPU rasterizer) is the primary, always-on backend.
+# `ultralight_renderer` (WebKit) is an optional secondary backend; it pulls in
+# the Ultralight SDK, so it is off by default. Enable with
+# -DGOLD_UI_ULTRALIGHT=ON.
+option(GOLD_UI_ULTRALIGHT "Build the Ultralight (WebKit) UI renderer backend" OFF)
+
+set(goldUI_sources
+	src/ui/font.cpp
+	src/ui/layout.cpp
+	src/ui/raster.cpp
+	src/ui/renderer.cpp
+	src/ui/style.cpp
+	src/ui/tree.cpp
+)
+if(GOLD_UI_ULTRALIGHT)
+	list(APPEND goldUI_sources src/ui/ultralight_renderer.cpp)
+endif()
+
 add_library(
 	goldUI
 	SHARED
-		src/ui/font.cpp
-		src/ui/layout.cpp
-		src/ui/raster.cpp
-		src/ui/renderer.cpp
-		src/ui/style.cpp
-		src/ui/tree.cpp
+		${goldUI_sources}
 )
 add_library(
 	gold::ui ALIAS goldUI
@@ -43,6 +57,27 @@ target_include_directories(
 	PRIVATE
 		3rdParty/freetype2/include
 )
+
+if(GOLD_UI_ULTRALIGHT)
+	get_filename_component(ultralight_root "${CMAKE_SOURCE_DIR}/3rdParty/ultralight-free-sdk" ABSOLUTE)
+	target_include_directories(
+		goldUI
+		PRIVATE
+			${ultralight_root}/include
+	)
+	target_link_libraries(
+		goldUI
+		PRIVATE
+			${ultralight_root}/bin/libUltralight.so
+			${ultralight_root}/bin/libUltralightCore.so
+	)
+	set_target_properties(
+		goldUI
+		PROPERTIES
+			BUILD_RPATH "$ORIGIN;${ultralight_root}/bin"
+			INSTALL_RPATH "${ultralight_root}/bin"
+	)
+endif()
 
 # gold::web carries the HTML/CSS parsers; freetype carries the glyph
 # rasterizer. Neither is exposed through goldUI's public headers.

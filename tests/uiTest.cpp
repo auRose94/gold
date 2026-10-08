@@ -3,6 +3,7 @@
 #include "goldjs.hpp"
 #include "goldtest.hpp"
 #include "ui/renderer.hpp"
+#include "ui/software_renderer.hpp"
 #include "ui/style.hpp"
 #include "ui/tree.hpp"
 #include "web/html.hpp"
@@ -263,10 +264,246 @@ TEST(ui_media_queries_match_viewport) {
 	EXPECT_NEAR(styles[0].textColor.g, 1.0, 0.01);
 }
 
+TEST(ui_selector_nth_child_variants) {
+	domTree tree = buildTree(
+		"<ul><li>1</li><li>2</li><li>3</li><li>4</li><li>5</li></ul>");
+	// Node indices: ul, li, t, li, t, ... every li at 1, 3, 5, 7, 9.
+	stylesheet odd = parseStylesheet("li:nth-child(odd) { color: #ff0000 }");
+	stylesheet even = parseStylesheet("li:nth-child(even) { color: #00ff00 }");
+	stylesheet third = parseStylesheet("li:nth-child(3) { color: #0000ff }");
+	stylesheet lastTwo = parseStylesheet("li:nth-last-child(-n+2) { color: #ff00ff }");
+	styleContext ctx;
+
+	auto colors = resolveStyles(tree, odd, ctx);
+	EXPECT_NEAR(colors[1].textColor.r, 1.0, 0.01);   // li 1
+	EXPECT_NEAR(colors[3].textColor.r, 0.0, 0.01);   // li 2
+	EXPECT_NEAR(colors[5].textColor.r, 1.0, 0.01);   // li 3
+
+	colors = resolveStyles(tree, even, ctx);
+	EXPECT_NEAR(colors[3].textColor.g, 1.0, 0.01);
+	EXPECT_NEAR(colors[7].textColor.g, 1.0, 0.01);
+	EXPECT_NEAR(colors[1].textColor.g, 0.0, 0.01);
+
+	colors = resolveStyles(tree, third, ctx);
+	EXPECT_NEAR(colors[5].textColor.b, 1.0, 0.01);
+	EXPECT_NEAR(colors[1].textColor.b, 0.0, 0.01);
+
+	// The last two lis are indexes 4 and 5.
+	colors = resolveStyles(tree, lastTwo, ctx);
+	EXPECT_NEAR(colors[7].textColor.r, 1.0, 0.01);
+	EXPECT_NEAR(colors[9].textColor.r, 1.0, 0.01);
+	EXPECT_NEAR(colors[5].textColor.r, 0.0, 0.01);
+}
+
+TEST(ui_selector_of_type_matches_sibling_position) {
+	domTree tree = buildTree(compact(
+		"<div><span>a</span><p>b</p><span>c</span><span>d</span>"
+		"<b>bold</b></div>"));
+	// Node indices: div 0, span 1, text 2, p 3, text 4, span 5, text 6,
+	// span 7, text 8, b 9, text 10.
+	styleContext ctx;
+
+	// The second span is node 5, the third is node 7.
+	stylesheet sheet = parseStylesheet("span:nth-of-type(2) { color: #ff0000 }");
+	auto colors = resolveStyles(tree, sheet, ctx);
+	EXPECT_NEAR(colors[5].textColor.r, 1.0, 0.01);
+	EXPECT_NEAR(colors[1].textColor.r, 0.0, 0.01);
+	EXPECT_NEAR(colors[7].textColor.r, 0.0, 0.01);
+
+	// The paragraph is the first <p> among its siblings.
+	stylesheet firstP = parseStylesheet("p:first-of-type { color: #00ff00 }");
+	colors = resolveStyles(tree, firstP, ctx);
+	EXPECT_NEAR(colors[3].textColor.g, 1.0, 0.01);
+
+	// The last span is node 7; the first one is not.
+	stylesheet lastSpan = parseStylesheet("span:last-of-type { color: #0000ff }");
+	colors = resolveStyles(tree, lastSpan, ctx);
+	EXPECT_NEAR(colors[7].textColor.b, 1.0, 0.01);
+	EXPECT_NEAR(colors[1].textColor.b, 0.0, 0.01);
+
+	// The only <b>.
+	stylesheet onlyB = parseStylesheet("b:only-of-type { color: #ff00ff }");
+	colors = resolveStyles(tree, onlyB, ctx);
+	EXPECT_NEAR(colors[9].textColor.r, 1.0, 0.01);
+	EXPECT_NEAR(colors[9].textColor.b, 1.0, 0.01);
+}
+
+TEST(ui_selector_sibling_combinators) {
+	domTree tree = buildTree(compact(
+		"<div><p class='a'>1</p><p class='b'>2</p><span>m</span>"
+		"<p class='c'>3</p></div>"));
+	// Node indices: div 0, p.a 1, t 2, p.b 3, t 4, span 5, t 6, p.c 7,
+	// t 8.
+	styleContext ctx;
+
+	// `+` matches the immediately following element.
+	stylesheet sheet = parseStylesheet("p.a + p { color: #ff0000 }");
+	auto colors = resolveStyles(tree, sheet, ctx);
+	EXPECT_NEAR(colors[3].textColor.r, 1.0, 0.01);
+	EXPECT_NEAR(colors[7].textColor.r, 0.0, 0.01);
+
+	// `~` matches any following element.
+	stylesheet any = parseStylesheet("p.a ~ p { color: #00ff00 }");
+	colors = resolveStyles(tree, any, ctx);
+	EXPECT_NEAR(colors[3].textColor.g, 1.0, 0.01);
+	EXPECT_NEAR(colors[7].textColor.g, 1.0, 0.01);
+
+	// The span sits between p.b and p.c, so `p.b + p` reaches nothing:
+	// the adjacency is positional and p.c's previous sibling is the span.
+	stylesheet afterSpan = parseStylesheet("p.b + p { color: #0000ff }");
+	colors = resolveStyles(tree, afterSpan, ctx);
+	EXPECT_NEAR(colors[7].textColor.b, 0.0, 0.01);
+	EXPECT_NEAR(colors[3].textColor.b, 0.0, 0.01);
+}
+
+TEST(ui_selector_attribute_operators) {
+	domTree tree = buildTree(compact(
+		"<a role='btn primary' lang='en-US' href='/docs/page.html'>x</a>"
+		"<a role='other'>y</a>"));
+	styleContext ctx;
+	auto matches = [&](const string& selector) {
+		const auto sels = parseSelectorList(selector);
+		for (const auto& sel : sels)
+			if (selectorMatches(sel, tree, 0)) return true;
+		return false;
+	};
+	EXPECT_TRUE(matches("a[role~='primary']"));
+	EXPECT_FALSE(matches("a[role~='prim']"));
+	EXPECT_TRUE(matches("a[lang|='en']"));
+	EXPECT_TRUE(matches("a[href^='/docs']"));
+	EXPECT_TRUE(matches("a[href$='.html']"));
+	EXPECT_TRUE(matches("a[href*='page']"));
+	EXPECT_TRUE(matches("[role]"));
+	EXPECT_FALSE(matches("[title]"));
+}
+
+TEST(ui_selector_not_root_empty) {
+	domTree tree = buildTree("<div class='on'><p>t</p></div><div></div>");
+	// Node indices: div.on(0), p(1), text t(2), empty div(3).
+	stylesheet sheet = parseStylesheet(
+		"div:not(.on) { color: #ff0000 } div:empty { font-weight: 700 }");
+	styleContext ctx;
+	auto colors = resolveStyles(tree, sheet, ctx);
+	// :not excludes .on...
+	EXPECT_NEAR(colors[0].textColor.r, 0.0, 0.01);
+	EXPECT_EQ(colors[0].fontWeight, 400);
+	// ...and the empty div matches both rules.
+	EXPECT_NEAR(colors[3].textColor.r, 1.0, 0.01);
+	EXPECT_EQ(colors[3].fontWeight, 700);
+}
+
+TEST(ui_important_numeric_declaration_wins) {
+	domTree tree = buildTree("<div>t</div>");
+	// `!important` on a number-valued declaration (stored typed by the CSS
+	// parser) must still outrank the later normal rule.
+	stylesheet sheet = parseStylesheet(
+		"div { margin: 0 !important } div { margin: 5px }");
+	styleContext ctx;
+	auto styles = resolveStyles(tree, sheet, ctx);
+	EXPECT_NEAR(styles[0].margin[0].value, 0.0, 0.01);
+	EXPECT_EQ(styles[0].margin[0].u, unit::px);
+
+	stylesheet zIndex = parseStylesheet(
+		"div { z-index: 7 } div { z-index: 2 !important }");
+	auto zIndexed = resolveStyles(tree, zIndex, ctx);
+	EXPECT_EQ(zIndexed[0].zIndex, 2);
+
+	// The flag also works inline.
+	stylesheet inlineStyle = parseStylesheet("div { margin: 9px }");
+	tree.nodes[0].attr.setString("style", "margin: 0 !important");
+	auto inlined = resolveStyles(tree, inlineStyle, ctx);
+	EXPECT_NEAR(inlined[0].margin[0].value, 0.0, 0.01);
+	EXPECT_EQ(inlined[0].margin[0].u, unit::px);
+}
+
+TEST(ui_parse_stylesheet_at_rules) {
+	stylesheet sheet = parseStylesheet(
+		"@import url(theme.css); "
+		"@font-face { font-family: Custom; src: url(c.ttf) } "
+		"p { color: #ff0000 } "
+		"@media (min-width: 700px) { "
+		"  @media (min-height: 400px) { p { color: #00ff00 } } "
+		"} "
+		"@keyframes slide { from { opacity: 0 } to { opacity: 1 } }");
+
+	// @import ignored; the base rule plus the (nested) media rule are both
+	// collected, with the media query combined via `and`.
+	EXPECT_EQ(sheet.rules.size(), (size_t)2);
+	EXPECT_EQ(sheet.rules[1].media,
+		std::string("(min-width: 700px) and (min-height: 400px)"));
+	EXPECT_EQ(sheet.fontFaces.size(), (size_t)1);
+	const keyframesBlock* block = sheet.findKeyframes("slide");
+	EXPECT_TRUE(block != nullptr);
+	if (block) EXPECT_EQ(block->steps.size(), (size_t)2);
+
+	styleContext small;
+	small.viewportWidth = 600.0f;
+	small.viewportHeight = 300.0f;
+	domTree tree = buildTree("<p>t</p>");
+	auto styles = resolveStyles(tree, sheet, small);
+	EXPECT_NEAR(styles[0].textColor.r, 1.0, 0.01);
+
+	styleContext big;
+	big.viewportWidth = 800.0f;
+	big.viewportHeight = 600.0f;
+	styles = resolveStyles(tree, sheet, big);
+	EXPECT_NEAR(styles[0].textColor.g, 1.0, 0.01);
+}
+
+// ------------------------------------------------------------------ builder
+
+TEST(ui_set_html_accepts_builder_elements) {
+	software_renderer ui;
+	ui.setViewport(list({60.0, 30.0}));
+	// Built with the element ctors; nested items via an "items" bundle.
+	auto panel = HTML::div(
+		list({jo("style",
+				 "width: 60px; height: 30px; background: #ff0000",
+				 "items", ja(HTML::span(list({"hi"}))))}));
+	ui.setHTML(list({var(panel)}));
+	ui.setStyleSheet("");
+	EXPECT_TRUE(ui.dom().nodes.size() >= 2);
+	EXPECT_TRUE(ui.paint());
+	EXPECT_TRUE(pixelNear(ui.target(), 30, 15, 255, 0, 0));
+	// markup() round-trips the built element.
+	EXPECT_EQ(compact(ui.markup()),
+		std::string("<div style=\"width: 60px; height: 30px; "
+			"background: #ff0000\"><span>hi</span></div>"));
+}
+
+TEST(ui_set_css_accepts_rule_list) {
+	software_renderer ui;
+	ui.setViewport(list({40.0, 20.0}));
+	ui.setMarkup("<div class='box'>x</div>");
+	// Data-driven stylesheet: CSS::parseCSS output, or a hand-built list.
+	list rules({var(CSS::Rule(".box",
+		jo("width", "40px", "height", "20px", "background", "#00ff00")))});
+	ui.setCSS(list({var(rules)}));
+	EXPECT_TRUE(ui.paint());
+	EXPECT_TRUE(pixelNear(ui.target(), 20, 10, 0, 255, 0));
+}
+
+TEST(ui_markup_escapes_text) {
+	software_renderer ui; setupUI(ui, "<p>1 &lt; 2 &amp; 3</p>", "");
+	// setupUI already painted: the entity text round-trips.
+	EXPECT_EQ(ui.markup(), std::string("<p>1 &lt; 2 &amp; 3</p>"));
+	// The text nodes hold the decoded characters.
+	EXPECT_EQ(ui.dom().nodes[1].text, std::string("1 < 2 & 3"));
+}
+
+TEST(ui_top_level_text_reaches_the_renderer) {
+	software_renderer ui; setupUI(ui, "hello world", "", 80, 20);
+	uint64_t lit = 0;
+	const rasterTarget& target = ui.target();
+	for (uint32_t i = 3; i < target.pixels.size(); i += 4)
+		if (target.pixels[i] > 40) lit++;
+	EXPECT_TRUE(lit > 4);
+}
+
 // ------------------------------------------------------------------ layout
 
 TEST(ui_layout_block_flow_positions_siblings) {
-	renderer ui; setupUI(ui, "<div id='a'>A</div><div id='b'>B</div>",
+	software_renderer ui; setupUI(ui, "<div id='a'>A</div><div id='b'>B</div>",
 		"div { height: 20px }");
 	object a = ui.hit(list({5.0, 5.0}));
 	object b = ui.hit(list({5.0, 30.0}));
@@ -277,7 +514,7 @@ TEST(ui_layout_block_flow_positions_siblings) {
 }
 
 TEST(ui_layout_box_model_widths) {
-	renderer ui; setupUI(ui, "<div id='a'>A</div>",
+	software_renderer ui; setupUI(ui, "<div id='a'>A</div>",
 		"div { width: 100px; height: 40px; padding: 5px; "
 		"border: 2px solid #000; margin: 10px }");
 	object rect = rectOf(ui.hit(list({50.0, 30.0})));
@@ -288,7 +525,7 @@ TEST(ui_layout_box_model_widths) {
 }
 
 TEST(ui_layout_border_box_sizing) {
-	renderer ui; setupUI(ui, "<div id='a'>A</div>",
+	software_renderer ui; setupUI(ui, "<div id='a'>A</div>",
 		"div { box-sizing: border-box; width: 100px; height: 40px; "
 		"padding: 5px; border: 2px solid #000 }");
 	object rect = rectOf(ui.hit(list({50.0, 20.0})));
@@ -297,20 +534,20 @@ TEST(ui_layout_border_box_sizing) {
 }
 
 TEST(ui_layout_percentage_width) {
-	renderer ui; setupUI(ui, "<div id='a'>A</div>", "div { width: 50%; }");
+	software_renderer ui; setupUI(ui, "<div id='a'>A</div>", "div { width: 50%; }");
 	object rect = rectOf(ui.hit(list({50.0, 5.0})));
 	EXPECT_NEAR(rect.getDouble("width"), 100.0, 0.5);
 }
 
 TEST(ui_layout_display_none_hides_box) {
-	renderer ui; setupUI(ui, "<div id='a'>A</div><div id='b'>B</div>",
+	software_renderer ui; setupUI(ui, "<div id='a'>A</div><div id='b'>B</div>",
 		"#a { display: none } #b { height: 10px }");
 	// The hidden box must not be hit, and the visible one moves up to y=0.
 	EXPECT_EQ(ui.hit(list({5.0, 5.0})).getString("cssId"), std::string("b"));
 }
 
 TEST(ui_layout_flex_row_distributes_space) {
-	renderer ui; setupUI(ui, "<div id='row'><div id='l'>L</div>"
+	software_renderer ui; setupUI(ui, "<div id='row'><div id='l'>L</div>"
 						 "<div id='r'>R</div></div>",
 		"#row { display: flex; width: 200px; height: 20px } "
 		"#l, #r { flex-grow: 1 }");
@@ -322,7 +559,7 @@ TEST(ui_layout_flex_row_distributes_space) {
 }
 
 TEST(ui_layout_flex_justify_and_gap) {
-	renderer ui; setupUI(ui, "<div id='row'><div id='l'>L</div>"
+	software_renderer ui; setupUI(ui, "<div id='row'><div id='l'>L</div>"
 						 "<div id='r'>R</div></div>",
 		"#row { display: flex; width: 200px; height: 20px; gap: 10px; "
 		"justify-content: center } "
@@ -334,7 +571,7 @@ TEST(ui_layout_flex_justify_and_gap) {
 }
 
 TEST(ui_layout_grid_places_items_in_cells) {
-	renderer ui; setupUI(ui, "<div id='g'><div id='a'>A</div>"
+	software_renderer ui; setupUI(ui, "<div id='g'><div id='a'>A</div>"
 						 "<div id='b'>B</div></div>",
 		"#g { display: grid; grid-template-columns: 100px 100px; "
 		"height: 40px } #a, #b { height: 40px }");
@@ -346,7 +583,7 @@ TEST(ui_layout_grid_places_items_in_cells) {
 }
 
 TEST(ui_layout_text_wraps_to_lines) {
-	renderer ui; setupUI(ui, "<div id='p'>one two three four five</div>",
+	software_renderer ui; setupUI(ui, "<div id='p'>one two three four five</div>",
 		"div { width: 60px; font-size: 8px }");
 	const layoutResult& result = ui.boxes();
 	const layoutBox& box = result.boxes[0];
@@ -359,7 +596,7 @@ TEST(ui_layout_text_wraps_to_lines) {
 }
 
 TEST(ui_layout_absolute_positioning) {
-	renderer ui; setupUI(ui, "<div id='c'><div id='a'>A</div></div>",
+	software_renderer ui; setupUI(ui, "<div id='c'><div id='a'>A</div></div>",
 		"#c { position: relative; width: 200px; height: 200px } "
 		"#a { position: absolute; left: 30px; top: 40px; width: 20px; "
 		"height: 20px }");
@@ -371,7 +608,7 @@ TEST(ui_layout_absolute_positioning) {
 }
 
 TEST(ui_layout_relative_offset_moves_box) {
-	renderer ui; setupUI(ui, "<div id='c'><div id='a'>A</div></div>",
+	software_renderer ui; setupUI(ui, "<div id='c'><div id='a'>A</div></div>",
 		"#c { width: 200px; height: 200px } "
 		"#a { position: relative; left: 15px; top: 5px; width: 20px; "
 		"height: 20px }");
@@ -384,14 +621,14 @@ TEST(ui_layout_relative_offset_moves_box) {
 // ------------------------------------------------------------- rasterizer
 
 TEST(ui_paint_fills_background_color) {
-	renderer ui; setupUI(ui, "<div style='width: 40px; height: 20px; "
+	software_renderer ui; setupUI(ui, "<div style='width: 40px; height: 20px; "
 						 "background: #ff0000'></div>");
 	EXPECT_TRUE(pixelNear(ui.target(), 20, 10, 255, 0, 0));
 	EXPECT_TRUE(alphaAt(ui.target(), 20, 10) > 200);
 }
 
 TEST(ui_paint_antialiases_rounded_corners) {
-	renderer ui; setupUI(ui, "<div style='width: 40px; height: 40px; "
+	software_renderer ui; setupUI(ui, "<div style='width: 40px; height: 40px; "
 						 "background: #ff0000; border-radius: 10px'></div>");
 	// The very corner is outside the rounded shape...
 	EXPECT_TRUE(alphaAt(ui.target(), 0, 0) < 40);
@@ -401,7 +638,7 @@ TEST(ui_paint_antialiases_rounded_corners) {
 }
 
 TEST(ui_paint_border_sides_have_independent_colors) {
-	renderer ui; setupUI(ui, "<div style='width: 40px; height: 40px; "
+	software_renderer ui; setupUI(ui, "<div style='width: 40px; height: 40px; "
 						 "border-top: 4px solid #ff0000; "
 						 "border-bottom: 4px solid #0000ff'></div>");
 	// Content-box sizing: the border box is 40 x (40 + 4 + 4).
@@ -412,7 +649,7 @@ TEST(ui_paint_border_sides_have_independent_colors) {
 }
 
 TEST(ui_paint_gradient_varies_across_the_box) {
-	renderer ui; setupUI(ui, "<div style='width: 40px; height: 10px; "
+	software_renderer ui; setupUI(ui, "<div style='width: 40px; height: 10px; "
 						 "background: linear-gradient(90deg, #000000, "
 						 "#ffffff)'></div>");
 	const int left = (int)ui.target().pixels[(10 * 40 + 5) * 4];
@@ -421,7 +658,7 @@ TEST(ui_paint_gradient_varies_across_the_box) {
 }
 
 TEST(ui_paint_text_marks_pixels) {
-	renderer ui; setupUI(ui, "<div style='color: #ffffff; font-size: 16px'>III</div>",
+	software_renderer ui; setupUI(ui, "<div style='color: #ffffff; font-size: 16px'>III</div>",
 		"", 100, 40);
 	uint64_t lit = 0;
 	for (uint32_t i = 3; i < ui.target().pixels.size(); i += 4)
@@ -430,7 +667,7 @@ TEST(ui_paint_text_marks_pixels) {
 }
 
 TEST(ui_paint_respects_overflow_clip) {
-	renderer ui; setupUI(ui, 
+	software_renderer ui; setupUI(ui, 
 		"<div style='width: 20px; height: 10px; overflow: hidden'>"
 		"<span style='display: block; width: 200px; height: 50px; "
 		"background: #ff0000'></span></div>",
@@ -442,13 +679,13 @@ TEST(ui_paint_respects_overflow_clip) {
 }
 
 TEST(ui_paint_visibility_hidden_is_not_drawn) {
-	renderer ui; setupUI(ui, "<div style='width: 40px; height: 20px; "
+	software_renderer ui; setupUI(ui, "<div style='width: 40px; height: 20px; "
 						 "background: #ff0000; visibility: hidden'></div>");
 	EXPECT_TRUE(alphaAt(ui.target(), 20, 10) < 20);
 }
 
 TEST(ui_paint_opacity_fades_pixels) {
-	renderer ui; setupUI(ui, "<div style='width: 40px; height: 20px; "
+	software_renderer ui; setupUI(ui, "<div style='width: 40px; height: 20px; "
 						 "background: #ff0000; opacity: 0.25'></div>");
 	const int a = alphaAt(ui.target(), 20, 10);
 	EXPECT_TRUE(a > 30);
@@ -458,7 +695,7 @@ TEST(ui_paint_opacity_fades_pixels) {
 // -------------------------------------------------- dirty tracking / frames
 
 TEST(ui_only_repaints_when_something_changed) {
-	renderer ui;
+	software_renderer ui;
 	ui.setViewport(list({200.0, 100.0}));
 	ui.setMarkup("<div style='height: 10px'></div>");
 	ui.setStyleSheet("");
@@ -473,7 +710,7 @@ TEST(ui_only_repaints_when_something_changed) {
 }
 
 TEST(ui_viewport_change_relayouts) {
-	renderer ui;
+	software_renderer ui;
 	ui.setViewport(list({200.0, 100.0}));
 	ui.setMarkup("<div style='width: 50%'></div>");
 	ui.setStyleSheet("");
@@ -485,7 +722,7 @@ TEST(ui_viewport_change_relayouts) {
 }
 
 TEST(ui_set_text_marks_dirty_and_replaces_content) {
-	renderer ui; setupUI(ui, "<div id='a'>i</div>", "div { width: 80px }");
+	software_renderer ui; setupUI(ui, "<div id='a'>i</div>", "div { width: 80px }");
 	const int64_t id = ui.hit(list({5.0, 5.0})).getObject().getInt64("id");
 	ui.paint();
 	EXPECT_FALSE(ui.dirty());
@@ -499,7 +736,7 @@ TEST(ui_set_text_marks_dirty_and_replaces_content) {
 }
 
 TEST(ui_set_style_overrides) {
-	renderer ui; setupUI(ui, "<div id='a'>A</div>", "div { height: 10px }");
+	software_renderer ui; setupUI(ui, "<div id='a'>A</div>", "div { height: 10px }");
 	const int64_t id = ui.hit(list({5.0, 5.0})).getObject().getInt64("id");
 	ui.setStyle(list({(double)id, jo("height", 40.0)}));
 	ui.paint();
@@ -507,10 +744,32 @@ TEST(ui_set_style_overrides) {
 		0.5);
 }
 
+TEST(ui_external_dom_mutation_repaints) {
+	software_renderer ui;
+	ui.setViewport(list({100.0, 60.0}));
+	ui.setMarkup("<div style='width: 100px; height: 60px; "
+				 "background: #ff0000'>t</div>");
+	ui.setStyleSheet("");
+	ui.paint();
+	EXPECT_TRUE(pixelNear(ui.target(), 50, 30, 255, 0, 0));
+	EXPECT_FALSE(ui.dirty());
+
+	// Mutate the shared parsed element behind the renderer's back: object
+	// copies share storage, so this write reaches the renderer's tree.
+	object el = ui.dom().nodes[0].el;
+	el.getObject("attr").setString("style",
+		"width: 100px; height: 60px; background: #0000ff");
+
+	// An otherwise quiet surface still notices and repaints.
+	EXPECT_TRUE(ui.dirty());
+	EXPECT_TRUE(ui.paint());
+	EXPECT_TRUE(pixelNear(ui.target(), 50, 30, 0, 0, 255));
+}
+
 // ------------------------------------------------------------ interaction
 
 TEST(ui_hit_test_finds_deepest_element) {
-	renderer ui; setupUI(ui, 
+	software_renderer ui; setupUI(ui, 
 		"<div id='outer' style='width: 100px; height: 100px'>"
 		"<div id='inner' style='width: 20px; height: 20px'></div></div>");
 	object hit = ui.hit(list({5.0, 5.0}));
@@ -522,7 +781,7 @@ TEST(ui_hit_test_finds_deepest_element) {
 }
 
 TEST(ui_pointer_events_none_is_skipped) {
-	renderer ui; setupUI(ui, 
+	software_renderer ui; setupUI(ui, 
 		"<div id='outer' style='width: 100px; height: 100px'>"
 		"<div id='inner' style='width: 20px; height: 20px; "
 		"pointer-events: none'></div></div>");
@@ -531,7 +790,7 @@ TEST(ui_pointer_events_none_is_skipped) {
 }
 
 TEST(ui_click_handler_fires_with_element_data) {
-	renderer ui; setupUI(ui, "<div id='btn' style='width: 50px; height: 20px'>"
+	software_renderer ui; setupUI(ui, "<div id='btn' style='width: 50px; height: 20px'>"
 						 "OK</div>");
 	int64_t captured = -1;
 	string capturedTag;
@@ -546,7 +805,7 @@ TEST(ui_click_handler_fires_with_element_data) {
 }
 
 TEST(ui_click_handler_bubbles_to_ancestors) {
-	renderer ui; setupUI(ui, 
+	software_renderer ui; setupUI(ui, 
 		"<div id='panel' style='width: 100px; height: 100px'>"
 		"<button id='btn' style='width: 20px; height: 20px'>x</button>"
 		"</div>");
@@ -561,7 +820,7 @@ TEST(ui_click_handler_bubbles_to_ancestors) {
 }
 
 TEST(ui_element_scoped_handler_only_fires_for_that_element) {
-	renderer ui; setupUI(ui, 
+	software_renderer ui; setupUI(ui, 
 		"<div id='a' style='width: 20px; height: 20px'></div>"
 		"<div id='b' style='width: 20px; height: 20px'></div>");
 	int aClicks = 0, bClicks = 0;
@@ -584,7 +843,7 @@ TEST(ui_element_scoped_handler_only_fires_for_that_element) {
 TEST(ui_hover_state_changes_style_and_dirties) {
 	// The background lives in the stylesheet, not inline: an inline
 	// declaration would outrank any `:hover` rule.
-	renderer ui; setupUI(ui, "<div id='btn'>hover me</div>",
+	software_renderer ui; setupUI(ui, "<div id='btn'>hover me</div>",
 		"#btn { width: 50px; height: 20px; background: #ff0000 } "
 		"#btn:hover { background: #0000ff }");
 	EXPECT_TRUE(pixelNear(ui.target(), 25, 10, 255, 0, 0));
@@ -600,7 +859,7 @@ TEST(ui_hover_state_changes_style_and_dirties) {
 }
 
 TEST(ui_press_then_release_outside_cancels_click) {
-	renderer ui; setupUI(ui, "<div id='btn' style='width: 50px; "
+	software_renderer ui; setupUI(ui, "<div id='btn' style='width: 50px; "
 						 "height: 20px'></div>");
 	int clicks = 0;
 	ui.on(ja("click", func([&](list) {
@@ -616,7 +875,7 @@ TEST(ui_press_then_release_outside_cancels_click) {
 }
 
 TEST(ui_game_can_drive_hover_state_directly) {
-	renderer ui; setupUI(ui, "<div id='btn'>B</div>",
+	software_renderer ui; setupUI(ui, "<div id='btn'>B</div>",
 		"#btn { width: 50px; height: 20px; background: #ff0000 } "
 		"#btn:hover { background: #00ff00 }");
 	const int64_t id = ui.hit(list({5.0, 5.0})).getObject().getInt64("id");
@@ -629,7 +888,7 @@ TEST(ui_game_can_drive_hover_state_directly) {
 }
 
 TEST(ui_query_selects_elements) {
-	renderer ui; setupUI(ui, 
+	software_renderer ui; setupUI(ui, 
 		"<ul><li class='item'>a</li><li class='item'>b</li></ul>");
 	list found = ui.query(list({"li.item"}));
 	EXPECT_EQ(found.size(), (uint64_t)2);
@@ -638,7 +897,7 @@ TEST(ui_query_selects_elements) {
 }
 
 TEST(ui_element_descriptor_reports_geometry) {
-	renderer ui; setupUI(ui, "<div id='box' style='width: 30px; height: 10px'>"
+	software_renderer ui; setupUI(ui, "<div id='box' style='width: 30px; height: 10px'>"
 						 "text</div>");
 	list found = ui.query(list({"#box"}));
 	EXPECT_EQ(found.size(), (uint64_t)1);
@@ -692,7 +951,7 @@ TEST(ui_font_utf8_round_trip) {
 
 TEST(ui_crt_panel_renders_and_reacts) {
 	// A small in-world "screen": markup + CSS in, pixels out, clickable.
-	renderer ui;
+	software_renderer ui;
 	ui.setViewport(list({128.0, 64.0}));
 	ui.setMarkup(compact(
 		"<div id='crt' class='screen'>"
@@ -737,7 +996,7 @@ TEST(ui_crt_panel_renders_and_reacts) {
 }
 
 TEST(ui_list_marker_is_painted) {
-	renderer ui; setupUI(ui, "<ul style='width: 60px'>"
+	software_renderer ui; setupUI(ui, "<ul style='width: 60px'>"
 						 "<li>one</li><li>two</li></ul>",
 		"ul { width: 60px } li { height: 12px }", 80, 60);
 	// Markers sit left of the content; something must be drawn there.

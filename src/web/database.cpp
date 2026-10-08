@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <file.hpp>
 #include <iostream>
+#include <memory>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <web/dataStore.hpp>
@@ -11,12 +13,37 @@
 namespace gold {
 	using namespace std;
 
+	namespace {
+		/**
+		 * One store per (backend, path, name): a second `database` on the
+		 * same database shares the live store instead of allocating a
+		 * competing copy behind its own lock. The registry keeps the
+		 * store alive for collections that already reference it, so
+		 * `disconnect` cannot turn live raw pointers into use-after-free.
+		 * `destroy` is the real shutdown and must not be called while
+		 * collections are in flight.
+		 */
+		string storeKey(object& config) {
+			return config.getString("backend", "file") + "|" +
+				   config.getString("path", "./data") + "|" +
+				   config.getString("name");
+		}
+
+		map<string, shared_ptr<dataStore>>& storeRegistry() {
+			static map<string, shared_ptr<dataStore>> registry;
+			return registry;
+		}
+
+		mutex& registryMutex() {
+			static mutex m;
+			return m;
+		}
+	}  // namespace
+
 	obj& database::getPrototype() {
 		static auto proto = obj{
 			{"backend", "file"},
 			{"path", "./data"},
-			{"host", "mongodb://localhost:27017"},
-			{"appName", "gold-app"},
 			{"name", "db_name"},
 			{"connect", method(&database::connect)},
 			{"disconnect", method(&database::disconnect)},
@@ -36,15 +63,27 @@ namespace gold {
 
 	var database::connect(list) {
 		auto backend = getString("backend", "file");
-		auto store = createDataStore(backend);
-		if (!store)
-			return genericError("Unknown data store backend: " + backend);
 		auto dbName = getString("name");
 		auto path = getString("path", "./data");
-		if (!store->open(dbName, path)) {
-			delete store;
-			return genericError("Failed to open data store");
+
+		// Reconnecting to an already-open store reuses it; one store per
+		// path/name means one consistent lock for everyone.
+		const string key = storeKey(*this);
+		lock_guard<mutex> registryGuard(registryMutex());
+		dataStore* store = nullptr;
+		auto existing = storeRegistry().find(key);
+		if (existing != storeRegistry().end())
+			store = existing->second.get();
+		else {
+			unique_ptr<dataStore> fresh(createDataStore(backend));
+			if (!fresh)
+				return genericError("Unknown data store backend: " + backend);
+			if (!fresh->open(dbName, path))
+				return genericError("Failed to open data store");
+			store = fresh.release();
+			storeRegistry()[key] = shared_ptr<dataStore>(store);
 		}
+
 		setPtr("store", store);
 		setString("backend", store->name());
 		auto names = store->getDatabaseNames();
@@ -61,14 +100,17 @@ namespace gold {
 		auto store = (dataStore*)getPtr("store");
 		if (store) {
 			store->close();
-			delete store;
 			setPtr("store", nullptr);
+			// Not deleted: the registry owns the store, so any live
+			// `collection` handle keeps a valid pointer.
 		}
 		return var();
 	}
 
 	var database::destroy(list) {
 		disconnect();
+		lock_guard<mutex> registryGuard(registryMutex());
+		storeRegistry().erase(storeKey(*this));
 		return var();
 	}
 
@@ -147,11 +189,14 @@ namespace gold {
 	var collection::dropIndex(list args) {
 		auto store = (dataStore*)getPtr("store");
 		if (!store) return genericError("Not connected");
-		if (args.size() == 0) return genericError("Missing collection name");
-		auto indexName = args[0].getString();
-		if (!store->dropIndex(indexName))
-			return genericError("Failed to drop index");
-		return true;
+		auto cName = getString("name");
+		if (cName.empty()) return genericError("No collection name");
+		// The argument is this collection's index; the store API drops a
+		// collection's advisory index data, so pass the collection, not
+		// the index name (which could never name a collection).
+		(void)args;
+		return store->dropIndex(cName) ? var(true)
+									   : genericError("Failed to drop index");
 	}
 
 	var collection::deleteOne(list args) {
@@ -429,9 +474,10 @@ namespace gold {
 	}
 
 	uint64_t getMonoTime() {
+		// Monotonic: timestamps only compare against each other, so a wall
+		// clock that jumps (NTP, daylight saving) must not shift them.
 		return duration_cast<std::chrono::milliseconds>(
-						 std::chrono::system_clock::now()
-							 .time_since_epoch())
+					   std::chrono::steady_clock::now().time_since_epoch())
 			.count();
 	}
 

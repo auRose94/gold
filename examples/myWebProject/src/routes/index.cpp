@@ -32,21 +32,14 @@ namespace gg {
 									"flexible, and powerful framework that will "
 									"create great apps."}),
 							 p({"This project makes REST requests over HTTP "
-									"but can use WebSockets to deliver data. "
-									"This project was meant to be a starting "
-									"point but it's actually based off another "
-									"project I'm working on. New features are "
-									"likely going to be added to that project "
-									"and sent down stream to this one."}),
-							 p({"This project uses the Apache 2 License, "
-									"which means you have to give credit to me. "
-									"It's the least you could do. I also want to "
-									"advertise that I do have a PayPal you can "
-									"donate to, that will help me work on this "
-									"project and spend more time on it."}),
-							 a({atts{
-										{"href", "https://www.paypal.me/corynil"}},
-									"Donate Here!"})}),
+									"and serves HTML rendered from gold "
+									"data: routes are functions, pages are "
+									"built with the HTML element builders, "
+									"and documents persist through the "
+									"file-backed dataStore."}),
+							 p({"Browse the example: register a user, edit "
+									"the session, and look at the route "
+									"sources in `src/routes`."})}),
 					}),
 				})});
 		};

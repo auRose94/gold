@@ -12,11 +12,13 @@ namespace gold {
 	 * Embedded document-oriented data store backend. Backends persist
 	 * gold objects (JSON/BSON) keyed by "_id". The existing
 	 * database/collection/model facade sits on top of this interface, so
-	 * swapping engines is a config line ("backend": "file" | "mongo").
+	 * swapping engines is a config line ("backend": "file").
 	 *
 	 * Filters are gold objects of field -> value (equality); an object
 	 * value `{"$in", [...]}` matches when the field (a list) intersects
-	 * the given list. Update documents use `{"$set", {...}}`.
+	 * the given list. Update documents use `{"$set", {...}}`,
+	 * `{"$unset", {...}}` (remove fields) and `{"$inc", {...}}`
+	 * (add to numeric fields); an update with none of these is an error.
 	 */
 	class dataStore {
 	 public:
@@ -63,7 +65,11 @@ namespace gold {
 		virtual var replace(const std::string& collection,
 			const object& filter, const object& doc) = 0;
 
-		/** Indexes are advisory for the "file" backend. Returns true. */
+		/**
+		 * Advisory for backends without real indexes: `addIndexes` records
+		 * the requested keys; `dropIndex` clears a collection's recorded
+		 * metadata. Neither changes query behavior on the "file" backend.
+		 */
 		virtual bool addIndexes(const std::string& collection,
 			const object& keys) = 0;
 		virtual bool dropIndex(const std::string& collection) = 0;

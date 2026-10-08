@@ -187,7 +187,9 @@ if(GOLD_BUILD_UI AND GOLD_BUILD_WEB)
 		target_compile_options(goldUITests PRIVATE -Wall -Wextra -pedantic)
 	endif()
 	target_include_directories(goldUITests PRIVATE "include" "include/ui" "tests")
-	target_link_libraries(goldUITests PRIVATE gold::ui)
+	# The ui module uses the web module's HTML/CSS parsers internally but
+	# links them privately; tests that touch elements need web explicitly.
+	target_link_libraries(goldUITests PRIVATE gold::ui gold::web)
 	target_compile_features(goldUITests PRIVATE cxx_std_26)
 	add_test(NAME goldUITests COMMAND goldUITests)
 endif()

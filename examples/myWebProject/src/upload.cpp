@@ -302,8 +302,9 @@ namespace gg {
 
 			func onDataCallback = [=](list args) -> gold::var {
 				auto data = args[0].getString();
-				auto req = args[2].getObject<request>();
-				auto res = args[3].getObject<response>();
+				// onData hands the handler (buffer, request, response).
+				auto req = args[1].getObject<request>();
+				auto res = args[2].getObject<response>();
 				auto sesh =
 					req.callMethod("getSession").getObject<session>();
 				auto u = req.callMethod("getUser").getObject<user>();

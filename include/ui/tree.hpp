@@ -100,7 +100,8 @@ namespace gold {
 			string toHTML() const;
 			/** Recompute sibling indices after the DOM was mutated. */
 			void reindex();
-			/** True when any node (or an ancestor) changed shape. */
+			/** Cheap hash of shape, ids, text and attributes, used to
+			 *  notice an external DOM mutation. */
 			uint32_t fingerprint() const;
 
 		 private:

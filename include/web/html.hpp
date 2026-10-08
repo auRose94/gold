@@ -166,6 +166,13 @@ namespace gold {
 		const vector<string>& voidTags();
 		bool isVoidTag(const string& tag);
 
+		/** Decode character references (`&amp;`, `&#65;`, `&#x42;`) in text
+		 *  and attribute values; unknown or truncated entities survive. */
+		string decodeEntities(const string& text);
+		/** Escape text (or, attribute=true, a value about to be quoted) so a
+		 *  string can be embedded in markup. */
+		string escapeHTML(const string& text, bool attribute = false);
+
 		string trim(const string& s);
 		bool isNumericValue(const string& s);
 	}
