@@ -156,8 +156,10 @@ namespace gold {
 		const int _line)
 		: exception(), object() {
 		setString("msg", string(message));
-		setString("file", _file);
-		setString("func", _func);
+		setString("file", _file ? _file : "unknown");
+		// __FUNCTION__ cannot be a default argument (it is function-scope
+		// only); errors default to "unknown" unless a caller names itself.
+		setString("func", _func ? _func : "unknown");
 		setInt32("line", _line);
 	}
 

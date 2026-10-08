@@ -150,9 +150,14 @@ namespace gold {
 
 		struct sdlRegistrar {
 			sdlRegistrar() {
-				registerInputSystem("sdl", []() -> inputSystem* {
+				// This TU ships as the SDL3 plugin (libgoldSdl3): register
+				// both the concrete name for direct selection and the
+				// generic "sdl" alias.
+				auto factory = []() -> inputSystem* {
 					return new sdlInputSystem();
-				});
+				};
+				registerInputSystem("sdl", factory);
+				registerInputSystem("sdl3", factory);
 			}
 		};
 		sdlRegistrar sdlReg;

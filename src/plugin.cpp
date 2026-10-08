@@ -202,6 +202,16 @@ namespace gold {
 #endif
 	}
 
+	std::vector<std::string> plugin::pluginCandidates(const std::string& name) {
+		// A generic config alias may be served by several concrete plugin
+		// libraries; try them in preference order and keep whatever
+		// registers (later candidates never overwrite an earlier one —
+		// the createX hooks stop loading at the first registry hit).
+		if (name == "sdl") return {"sdl3", "sdl2"};
+		if (name == "sdlgpu") return {"sdl3"};
+		return {name};
+	}
+
 	std::vector<std::string> plugin::sonames(const std::string& name) {
 		// The version numbers here are ABI probes, not exact pins: the
 		// loader takes the first that opens. Parity candidates (a

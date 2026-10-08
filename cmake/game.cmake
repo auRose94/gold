@@ -8,7 +8,6 @@ add_library(
 	SHARED
 		shaderSprite.hpp
 		src/game/audioSystem.cpp
-		src/game/audioSystemSDL.cpp
 		src/game/boxShape.cpp
 		src/game/camera.cpp
 		src/game/component.cpp
@@ -18,14 +17,12 @@ add_library(
 		src/game/graphics.cpp
 		src/game/inputSystem.cpp
 		src/game/inputSystemEvdev.cpp
-		src/game/inputSystemSDL.cpp
 		src/game/light.cpp
 		src/game/mesh.cpp
 		src/game/meshRenderer.cpp
 		src/game/meshShape.cpp
 		src/game/physicsBody.cpp
 		src/game/renderBackend.cpp
-		src/game/renderBackendSDL.cpp
 		src/game/renderable.cpp
 		src/game/shape.cpp
 		src/game/sphereShape.cpp
@@ -35,7 +32,6 @@ add_library(
 		src/game/window.cpp
 		src/game/windowSystem.cpp
 		src/game/windowSystemHeadless.cpp
-		src/game/windowSystemSDL.cpp
 		src/game/windowSystemWayland.cpp
 		3rdParty/generated/wayland/xdg-shell-protocol.c
 		src/game/world.cpp
@@ -78,13 +74,53 @@ endif()
 
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
+	# Unconditional probes: results are cached, and skipping the call on a
+	# cached found-flag would skip the imported-target creation too.
 	pkg_check_modules(SDL3 QUIET IMPORTED_TARGET sdl3)
 	pkg_check_modules(WAYLAND_CLIENT QUIET IMPORTED_TARGET wayland-client)
 	pkg_check_modules(WAYLAND_EGL QUIET IMPORTED_TARGET wayland-egl)
 	pkg_check_modules(LIBEVDEV QUIET IMPORTED_TARGET libevdev)
 endif()
-if(NOT SDL3_FOUND)
-	message(FATAL_ERROR "gold::game requires SDL3 (sdl3 pkg-config module)")
+if(SDL3_FOUND)
+	add_library(
+		goldSDL3
+		SHARED
+			src/game/audioSystemSDL.cpp
+			src/game/inputSystemSDL.cpp
+			src/game/renderBackendSDL.cpp
+			src/game/windowSystemSDL.cpp
+	)
+	add_library(
+		gold::sdl3 ALIAS goldSDL3
+	)
+	set_target_properties(
+		goldSDL3
+		PROPERTIES
+			OUTPUT_NAME libgoldSdl3
+			PREFIX ""
+			LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+	)
+	target_compile_options(goldSDL3 PRIVATE -Wall -Wextra -pedantic)
+	target_include_directories(
+		goldSDL3
+		PRIVATE
+			"include"
+			"include/game"
+	)
+	# The SDL window backend acquires EGL surfaces when SDL runs on
+	# Wayland, so the plugin carries that interop too.
+	target_link_libraries(
+		goldSDL3
+		PRIVATE
+			gold::game
+			PkgConfig::SDL3
+	)
+	target_compile_features(goldSDL3 PRIVATE cxx_std_26)
+	if(PkgConfig_FOUND AND WAYLAND_EGL_FOUND)
+		target_link_libraries(goldSDL3 PRIVATE PkgConfig::WAYLAND_EGL)
+	endif()
+else()
+	message(STATUS "gold: system SDL3 not found; building gold::game without the SDL backends (headless/wayland/evdev only)")
 endif()
 
 target_link_libraries (
@@ -99,7 +135,6 @@ target_link_libraries (
 		BulletInverseDynamicsUtils 
 		BulletInverseDynamics 
 		LinearMath
-		PkgConfig::SDL3
 		${OPENGL_LIBRARIES}
 )
 if(PkgConfig_FOUND AND WAYLAND_CLIENT_FOUND)

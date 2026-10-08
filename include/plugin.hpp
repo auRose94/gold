@@ -48,6 +48,13 @@ namespace gold {
 		 *  directory, then the module loader's configured library path. */
 		static std::vector<std::string> searchPaths();
 
+		/** The plugin names to try for a config-style backend name, in
+		 *  preference order. Generic aliases ("sdl") expand to the
+		 *  concrete candidates ("sdl3" then the queued "sdl2"); known
+		 *  names map to themselves. */
+		static std::vector<std::string> pluginCandidates(
+			const std::string& name);
+
 		// ------------------------------------------------------------ system
 		/**
 		 * Open a third-party C library directly. Probes each candidate

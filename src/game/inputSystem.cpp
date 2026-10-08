@@ -30,12 +30,14 @@ namespace gold {
 			auto it = factories().find(name);
 			if (it != factories().end()) return it->second();
 		}
-		// Miss: a backend plugin may provide it — load then retry. Loading
-		// runs outside the registry mutex (registrars take it).
-		plugin::load(name);
-		std::lock_guard<std::mutex> guard(registryMutex());
-		auto it = factories().find(name);
-		if (it != factories().end()) return it->second();
+		// Miss: a backend plugin may provide it (self-registers on load);
+		// try each candidate. Loading runs outside the registry mutex.
+		for (const auto& candidate : plugin::pluginCandidates(name)) {
+			if (!plugin::load(candidate)) continue;
+			std::lock_guard<std::mutex> guard(registryMutex());
+			auto it = factories().find(name);
+			if (it != factories().end()) return it->second();
+		}
 		return nullptr;
 	}
 

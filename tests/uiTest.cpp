@@ -1043,8 +1043,8 @@ TEST(ui_crt_panel_renders_and_reacts) {
 
 	// The button hover style repaints the whole button, not one pixel.
 	object buttonRect = rectOf(button);
-	const rect pad{buttonRect.getDouble("x") + 2.0f,
-		buttonRect.getDouble("y") + 2.0f, 6.0f, 6.0f};
+	const rect pad{(float)(buttonRect.getDouble("x") + 2.0f),
+		(float)(buttonRect.getDouble("y") + 2.0f), 6.0f, 6.0f};
 	const int before =
 		countPixelsNear(ui.target(), pad, 0, 170, 0);
 	EXPECT_EQ(before, 0);

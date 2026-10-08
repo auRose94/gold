@@ -684,7 +684,7 @@ namespace gold {
 		genericError(
 			string_view message,
 			const char* _file = __FILE__,
-			const char* _func = __FUNCTION__,
+			const char* _func = nullptr,
 			const int _line = __LINE__);
 		operator string() const;
 		friend ostream& operator<<(ostream& os, genericError& dt);

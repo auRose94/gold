@@ -1,4 +1,3 @@
-using namespace std;
 #include <camera.hpp>
 #include <component.hpp>
 #include <engine.hpp>
@@ -12,6 +11,10 @@ using namespace std;
 #include <texture.hpp>
 #include <transform.hpp>
 #include <goldjs.hpp>
+
+// After the includes: std must be a defined namespace by then (clang
+// rejects the directive against an implicitly-declared namespace).
+using namespace std;
 
 using namespace gold;
 

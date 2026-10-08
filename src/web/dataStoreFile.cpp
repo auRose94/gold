@@ -438,12 +438,14 @@ namespace gold {
 			auto it = storeFactories().find(name);
 			if (it != storeFactories().end()) return it->second();
 		}
-		// Miss: a backend plugin may provide it — load then retry. Loading
-		// runs outside the registry mutex (registrars take it).
-		plugin::load(name);
-		lock_guard<mutex> guard(storeMutex());
-		auto it = storeFactories().find(name);
-		if (it != storeFactories().end()) return it->second();
+		// Miss: a backend plugin may provide it (self-registers on load);
+		// try each candidate. Loading runs outside the registry mutex.
+		for (const auto& candidate : plugin::pluginCandidates(name)) {
+			if (!plugin::load(candidate)) continue;
+			lock_guard<mutex> guard(storeMutex());
+			auto it = storeFactories().find(name);
+			if (it != storeFactories().end()) return it->second();
+		}
 		return nullptr;
 	}
 

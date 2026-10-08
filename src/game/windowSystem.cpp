@@ -117,14 +117,16 @@ namespace gold {
 			auto it = factories().find(name);
 			if (it != factories().end()) return it->second();
 		}
-		// Not statically registered: try loading it as a shared module. A
-		// backend plugin self-registers at load time via its static
-		// initializers, so loading is all that is needed. Load outside the
-		// registry mutex: the plugin's own registration takes it too.
-		plugin::load(name);
-		std::lock_guard<std::mutex> guard(factoryMutex());
-		auto it = factories().find(name);
-		if (it != factories().end()) return it->second();
+		// Not statically registered: it may live in a backend plugin (the
+		// concrete candidate .so self-registers at load time). Loading
+		// runs outside the registry mutex (the plugin's own registration
+		// takes it); stop at the first hit.
+		for (const auto& candidate : plugin::pluginCandidates(name)) {
+			if (!plugin::load(candidate)) continue;
+			std::lock_guard<std::mutex> guard(factoryMutex());
+			auto it = factories().find(name);
+			if (it != factories().end()) return it->second();
+		}
 		return nullptr;
 	}
 

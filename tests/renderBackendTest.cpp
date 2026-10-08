@@ -1,5 +1,6 @@
 #include "game/renderBackend.hpp"
 #include "goldtest.hpp"
+#include "plugin.hpp"
 
 using namespace gold;
 
@@ -15,13 +16,20 @@ TEST(render_backend_registration_and_invalid_lifecycle) {
 		delete bgfx;
 	}
 
-	auto sdl = createRenderBackend(renderBackendType::SDLGPU);
-	EXPECT_TRUE(sdl != nullptr);
-	if (sdl) {
-		EXPECT_EQ(string(sdl->name()), string("sdlgpu"));
-		EXPECT_FALSE(sdl->beginFrame());
-		EXPECT_FALSE(sdl->endFrame());
-		delete sdl;
+	// The SDL_GPU backend ships in the SDL3 plugin: when it is available,
+	// the string registry loads it on demand.
+	if (plugin::probe("sdl3")) {
+		auto sdl = createRenderBackend("sdlgpu");
+		EXPECT_TRUE(sdl != nullptr);
+		if (sdl) {
+			EXPECT_EQ(string(sdl->name()), string("sdlgpu"));
+			EXPECT_FALSE(sdl->isValid());
+			EXPECT_FALSE(sdl->beginFrame());
+			EXPECT_FALSE(sdl->endFrame());
+			sdl->destroy();
+			EXPECT_FALSE(sdl->isValid());
+			delete sdl;
+		}
 	}
 }
 

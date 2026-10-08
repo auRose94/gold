@@ -84,6 +84,23 @@ TEST(uisurface_selects_renderer_through_registry) {
 	delete s;
 }
 
+TEST(window_backend_loads_from_the_sdl_plugin) {
+	// The SDL3 backends ship in libgoldSDL3 (built when the system SDL3
+	// dev package exists): the registry hook loads the plugin on a miss.
+	if (!plugin::probe("sdl3")) return;  // no SDL3 on this machine
+
+	auto* sys = createWindowSystem("sdl");
+	EXPECT_TRUE(sys != nullptr);
+	if (sys) {
+		EXPECT_EQ(string(sys->name()), string("sdl"));
+		delete sys;
+	}
+
+	auto* input = createInputSystem("sdl");
+	EXPECT_TRUE(input != nullptr);
+	if (input) delete input;
+}
+
 TEST(window_gold_events) {
 	// Headless backend never produces events.
 	auto sys = createWindowSystem("headless");

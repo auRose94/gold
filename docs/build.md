@@ -52,8 +52,11 @@ ctest --test-dir build --output-on-failure
 
 - **OpenSSL** — required (PBKDF2 password hashing, URL-safe base64, and the
   web module). e.g. `libssl-dev` on Debian/Ubuntu.
-- **SDL3** — required by the game module's `"sdl"` window backend. e.g.
-  `sdl3` on Arch, `libsdl3-dev` on Debian.
+- **SDL3** — optional: the game module's SDL backends (window/input/audio
+  + SDL_GPU render) are the loadable `libgoldSdl3` plugin, built when the
+  system `sdl3` pkg-config module is found. Without it the engine degrades
+  to wayland/evdev/headless and bgfx's Noop renderer. e.g. `sdl3` on Arch,
+  `libsdl3-dev` on Debian.
 - **bgfx** (optional) — see `GOLD_USE_SYSTEM_BGFX` above.
 
 Other dependencies (bullet, freetype, uWebSockets/uSockets) still build from

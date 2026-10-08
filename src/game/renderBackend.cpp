@@ -439,12 +439,14 @@ namespace gold {
 			auto it = namedFactories().find(name);
 			if (it != namedFactories().end()) return it->second();
 		}
-		// Miss: a render plugin may provide it — load then retry. Loading
-		// runs outside the registry mutex (the plugin's registrar takes it).
-		plugin::load(name);
-		std::lock_guard<std::mutex> guard(registryMutex());
-		auto it = namedFactories().find(name);
-		if (it != namedFactories().end()) return it->second();
+		// Miss: a render plugin may provide it (self-registers on load);
+		// try each candidate. Loading runs outside the registry mutex.
+		for (const auto& candidate : plugin::pluginCandidates(name)) {
+			if (!plugin::load(candidate)) continue;
+			std::lock_guard<std::mutex> guard(registryMutex());
+			auto it = namedFactories().find(name);
+			if (it != namedFactories().end()) return it->second();
+		}
 		return nullptr;
 	}
 

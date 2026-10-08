@@ -24,7 +24,7 @@ namespace gold {
 		var ultralight_renderer::load(list args) {
 			object config;
 			if (args.size() == 1 && args[0].isObject()) config = args[0].getObject();
-			else if (args.size() > 0) config = object({{"html", args[0]}});
+			else if (args.size() > 0) config = object(jo("html", args[0]));
 
 			if (config) {
 				if (config.getType("html") != typeNull)

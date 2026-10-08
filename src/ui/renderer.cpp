@@ -113,7 +113,7 @@ namespace gold {
 		var software_renderer::load(list args) {
 			object config;
 			if (args.size() == 1 && args[0].isObject()) config = args[0].getObject();
-			else if (args.size() > 0) config = object({{"html", args[0]}});
+			else if (args.size() > 0) config = object(jo("html", args[0]));
 
 			if (config) {
 				if (config.getType("html") != typeNull)
@@ -152,7 +152,7 @@ namespace gold {
 			} else if (args.size() >= 1 && args[0].isObject() &&
 					   args[0].getObject().getType("tag") != typeNull) {
 				// One builder element acts as the whole document.
-				list elements({args[0]});
+				list elements = ja(args[0]);
 				tree_ = buildTree(elements);
 				html_ = tree_.toHTML();
 			} else {
