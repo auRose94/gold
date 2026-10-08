@@ -87,7 +87,10 @@ host via the `script` facade (`setGlobal`/`getGlobal`/`eval`/`call`).
 - `examples/` — runnable projects (`langExample`, `blahajExample`,
   `conwaysGameOfLife`, `myWebProject`).
 - `docs/` — module docs; `docs/index.md` is the entry point.
-- `3rdParty/` — git submodules (SDL, bgfx, bullet3, etc.). Do not edit.
+- `3rdParty/` — remaining vendored deps only (`bullet3`, `uWebSockets`/
+  `uSockets` stopgaps, `bgfx.cmake` fallback, `generated/` build input).
+  Do not edit; these migrate to runtime-loaded plugins (`include/plugin.hpp`,
+  `docs/backends/plugins.md`) phase by phase — dead deps were removed.
 
 ## Test suite
 
