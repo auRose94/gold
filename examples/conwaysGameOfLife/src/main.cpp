@@ -1,3 +1,9 @@
+#include <filesystem>
+#include <fstream>
+#include <random>
+#include <string>
+#include <vector>
+
 #include <camera.hpp>
 #include <component.hpp>
 #include <engine.hpp>
@@ -5,9 +11,7 @@
 #include <graphics.hpp>
 #include <iostream>
 #include <mesh.hpp>
-#include <random>
 #include <sprite.hpp>
-#include <string>
 #include <texture.hpp>
 #include <transform.hpp>
 #include <goldjs.hpp>
@@ -18,7 +22,21 @@ using namespace std;
 
 using namespace gold;
 
-int main() {
+namespace {
+	/** The assets live next to the executable (the build tree symlinks
+	 *  them into the example's output dir; a bundled install does the
+	 *  same), so run-from-anywhere flows resolve them there first. */
+	string assetsDir(const char* argv0) {
+		namespace fs = std::filesystem;
+		if (argv0) {
+			auto base = fs::absolute(argv0).parent_path();
+			if (fs::is_directory(base / "assets")) return base.string();
+		}
+		return "./assets";
+	}
+}  // namespace
+
+int main(int argc, char** argv) {
 	using list = gold::list;
 	engine main =
 		engine("GoldRoseCode", "ConwaysGameOfLife");
@@ -35,7 +53,10 @@ int main() {
 
 	cout << itemsX << "x" << itemsY << endl;
 
-	auto circleTexture = gpuTexture(jo("path", "./assets/circle.dds", "flags", "min_anis;mag_point;mip_point"));
+	const string assets = assetsDir(argc > 0 ? argv[0] : nullptr);
+	auto circleTexture = gpuTexture(
+		jo("path", assets + "/circle.dds",
+			"flags", "min_anis;mag_point;mip_point"));
 
 	component simulator;
 

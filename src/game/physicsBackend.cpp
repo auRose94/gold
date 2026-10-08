@@ -59,6 +59,7 @@ namespace gold {
 	}
 
 	physicsBackend* createPhysicsBackend(const std::string& name) {
+		plugin::addModulePath((void*)registerPhysicsBackend);
 		{
 			std::lock_guard<std::mutex> guard(registryMutex());
 			auto it = factories().find(name);

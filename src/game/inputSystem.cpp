@@ -25,6 +25,7 @@ namespace gold {
 	}
 
 	inputSystem* createInputSystem(const std::string& name) {
+		plugin::addModulePath((void*)registerInputSystem);
 		{
 			std::lock_guard<std::mutex> guard(registryMutex());
 			auto it = factories().find(name);

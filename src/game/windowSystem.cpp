@@ -112,6 +112,9 @@ namespace gold {
 	}
 
 	windowSystem* createWindowSystem(const string& name) {
+		// Point the loader at this module's directory: plugins ship next
+		// to the modules they extend (build tree or install prefix).
+		plugin::addModulePath((void*)registerWindowSystem);
 		{
 			std::lock_guard<std::mutex> guard(factoryMutex());
 			auto it = factories().find(name);

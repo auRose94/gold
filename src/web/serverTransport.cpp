@@ -53,6 +53,7 @@ namespace gold {
 	}
 
 	serverTransport* createServerTransport(const list& names) {
+		plugin::addModulePath((void*)registerServerTransport);
 		auto copy = names;
 		for (auto it = copy.begin(); it != copy.end(); ++it) {
 			auto name = it->getString();

@@ -1,5 +1,6 @@
 #include "plugin.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <map>
 #include <mutex>
@@ -37,6 +38,12 @@ namespace gold {
 		std::string& lastErrorStorage() {
 			static std::string error;
 			return error;
+		}
+
+		// Directories anchored by host modules (addModulePath).
+		std::vector<std::string>& modulePaths() {
+			static std::vector<std::string> paths;
+			return paths;
 		}
 
 		void recordError(const std::string& message) {
@@ -90,17 +97,57 @@ namespace gold {
 		}
 	}  // namespace
 
-	std::vector<std::string> plugin::searchPaths() {
-		std::vector<std::string> out;
-		char* env = getenv("GOLD_PLUGIN_PATH");
-		if (env && *env) {
-			std::stringstream stream(env);
-			std::string item;
-			while (std::getline(stream, item, ':'))
-				if (!item.empty()) out.push_back(item);
+	namespace {
+		/** Unlocked internals; public functions take mtx() around them. */
+		std::vector<std::string> searchPathsUnlocked() {
+			std::vector<std::string> out;
+			char* env = getenv("GOLD_PLUGIN_PATH");
+			if (env && *env) {
+				std::stringstream stream(env);
+				std::string item;
+				while (std::getline(stream, item, ':'))
+					if (!item.empty()) out.push_back(item);
+			}
+			out.push_back(executableDir());
+			// Modules a binary links (libgoldGame.so etc.) point at their
+			// plugin siblings: in the build tree they sit beside the
+			// modules at the build root; installed they ship in the same
+			// prefix dir.
+			for (const auto& dir : modulePaths()) out.push_back(dir);
+			return out;
 		}
-		out.push_back(executableDir());
-		return out;
+	}  // namespace
+
+	std::vector<std::string> plugin::searchPaths() {
+		std::lock_guard<std::mutex> guard(mtx());
+		return searchPathsUnlocked();
+	}
+
+	void plugin::addModulePath(void* address) {
+		if (!address) return;
+		std::lock_guard<std::mutex> guard(mtx());
+#ifdef _WIN32
+		HMODULE module = nullptr;
+		if (!GetModuleHandleExA(
+				GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+					GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+				(LPCSTR)address, &module) ||
+			!module)
+			return;
+		char path[MAX_PATH];
+		if (!GetModuleFileNameA(module, path, MAX_PATH)) return;
+		std::string file = path;
+#else
+		Dl_info info{};
+		if (!dladdr(address, &info) || !info.dli_fname) return;
+		std::string file = info.dli_fname;
+#endif
+		auto slash = file.find_last_of("/\\");
+		const std::string dir =
+			slash == std::string::npos ? "." : file.substr(0, slash);
+		auto& paths = modulePaths();
+		if (std::find(paths.begin(), paths.end(), dir) == paths.end())
+			paths.push_back(dir);
 	}
 
 	std::string plugin::lastError() {
@@ -118,9 +165,10 @@ namespace gold {
 		if (loaded().count(name) > 0) return true;
 		const std::string file = pluginFileName(name);
 		// Search each directory; remember the first loader diagnostic that
-		// looked plausible so an absent file explains itself.
+		// looked plausible so an absent file explains itself. NOTE: this
+		// whole body runs under mtx() — use the unlocked path helper.
 		std::string diagnostics;
-		for (const auto& dir : searchPaths()) {
+		for (const auto& dir : searchPathsUnlocked()) {
 #ifdef _WIN32
 			void* handle = LoadLibraryA((dir + "\\" + file).c_str());
 #else
@@ -142,7 +190,7 @@ namespace gold {
 		}
 		if (diagnostics.empty())
 			setHeldError(file + " not found in " +
-						 std::to_string(searchPaths().size()) +
+						 std::to_string(searchPathsUnlocked().size()) +
 						 " search path(s)");
 		else
 			setHeldError(diagnostics);

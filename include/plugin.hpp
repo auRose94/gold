@@ -45,8 +45,20 @@ namespace gold {
 
 		/** Directories searched for plugins and system libraries, in
 		 *  order: $GOLD_PLUGIN_PATH (colon-separated), the executable's
-		 *  directory, then the module loader's configured library path. */
+		 *  directory, the directories of registered host modules (the
+		 *  modules a binary links — plugins ship next to them), then
+		 *  the module loader's configured library path. */
 		static std::vector<std::string> searchPaths();
+
+		/**
+		 * Anchor a search directory to the module containing `address`
+		 * (a function or data symbol inside a gold module, e.g. the
+		 * calling registry's own createX function). Resolved via
+		 * dladdr/GetModuleHandleEx once; repeat calls are cheap no-ops.
+		 * This is how a linked game module (wherever it lives) points
+		 * the loader at its plugin siblings.
+		 */
+		static void addModulePath(void* address);
 
 		/** The plugin names to try for a config-style backend name, in
 		 *  preference order. Generic aliases ("sdl") expand to the

@@ -434,6 +434,7 @@ namespace gold {
 	}
 
 	renderBackend* createRenderBackend(const std::string& name) {
+		plugin::addModulePath((void*)registerRenderBackendName);
 		{
 			std::lock_guard<std::mutex> guard(registryMutex());
 			auto it = namedFactories().find(name);

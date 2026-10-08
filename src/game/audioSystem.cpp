@@ -25,6 +25,7 @@ namespace gold {
 	}
 
 	audioSystem* createAudioSystem(const std::string& name) {
+		plugin::addModulePath((void*)registerAudioSystem);
 		{
 			std::lock_guard<std::mutex> guard(audioMutex());
 			auto it = factories().find(name);

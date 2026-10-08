@@ -752,6 +752,7 @@ namespace gold {
 		}
 
 		renderer* createRenderer(const std::string& name) {
+		plugin::addModulePath((void*)registerRenderer);
 			{
 				std::lock_guard<std::mutex> guard(rendererMutex());
 				auto it = rendererFactories().find(name);
