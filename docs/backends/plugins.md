@@ -17,9 +17,11 @@ backend name "fixtureWindow"  ->  libgoldFixtureWindow.so
 ```
 
 Generic config aliases expand through `plugin::pluginCandidates`:
-`"sdl"` probes `sdl3` then the queued `sdl2` adapter; `"sdlgpu"` probes
-`sdl3`. A plugin that provides an alias registers both its concrete name
-and the alias, and the first candidate found wins.
+`"sdl"` probes `sdl3` first, then the SDL2 parity adapter (`libgoldSdl2` —
+window/input/audio only; SDL2 has no SDL_GPU, so rendering falls back to
+bgfx); `"sdlgpu"` probes `sdl3`. A plugin that provides an alias
+registers both its concrete name and the alias, and the first candidate
+found wins.
 
 Loading one is all that is needed: the plugin's static initializers call
 the standard registrars (`registerWindowSystem`,

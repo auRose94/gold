@@ -123,6 +123,53 @@ else()
 	message(STATUS "gold: system SDL3 not found; building gold::game without the SDL backends (headless/wayland/evdev only)")
 endif()
 
+# The SDL2 parity adapter: when only SDL2 exists, windows/input/audio
+# still work (rendering falls to bgfx — SDL2 has no SDL_GPU). Built only
+# when the system sdl2 development headers are present; the alias chain
+# "sdl" probes sdl3 first, then sdl2.
+if(PkgConfig_FOUND)
+	pkg_check_modules(SDL2 QUIET IMPORTED_TARGET sdl2)
+	if(SDL2_FOUND)
+		add_library(
+			goldSDL2
+			SHARED
+				src/game/audioSystemSdl2.cpp
+				src/game/inputSystemSdl2.cpp
+				src/game/windowSystemSdl2.cpp
+		)
+		add_library(
+			gold::sdl2 ALIAS goldSDL2
+		)
+		set_target_properties(
+			goldSDL2
+			PROPERTIES
+				OUTPUT_NAME libgoldSdl2
+				PREFIX ""
+				LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+		)
+		target_compile_options(goldSDL2 PRIVATE -Wall -Wextra -pedantic)
+		target_include_directories(
+			goldSDL2
+			PRIVATE
+				"include"
+				"include/game"
+		)
+		target_link_libraries(
+			goldSDL2
+			PRIVATE
+				gold::game
+				PkgConfig::SDL2
+			)
+		target_compile_features(goldSDL2 PRIVATE cxx_std_26)
+		if(PkgConfig_FOUND AND WAYLAND_EGL_FOUND)
+			# The SDL2 window backend creates wl_egl_windows the same way.
+			target_link_libraries(goldSDL2 PRIVATE PkgConfig::WAYLAND_EGL)
+		endif()
+	else()
+		message(STATUS "gold: system SDL2 not found; the sdl2 parity adapter is not built")
+	endif()
+endif()
+
 target_link_libraries (
 	goldGame 
 	PUBLIC 

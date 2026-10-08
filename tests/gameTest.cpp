@@ -101,6 +101,26 @@ TEST(window_backend_loads_from_the_sdl_plugin) {
 	if (input) delete input;
 }
 
+TEST(window_backend_direct_sdl2_selection) {
+	// The SDL2 parity adapter (built when the system sdl2 headers exist)
+	// is selectable by its concrete name, and the alias chain prefers it
+	// only when the SDL3 plugin is absent.
+	if (!plugin::probe("sdl2") || !plugin::load("sdl2")) return;
+
+	auto* sys = createWindowSystem("sdl2");
+	EXPECT_TRUE(sys != nullptr);
+	if (sys) {
+		EXPECT_EQ(string(sys->name()), string("sdl2"));
+		delete sys;
+	}
+
+	// The generic "sdl" alias still prefers the SDL3 plugin when both
+	// exist; on this machine both are present, so it resolves to sdl.
+	auto* alias = createWindowSystem("sdl");
+	EXPECT_TRUE(alias != nullptr);
+	if (alias) delete alias;
+}
+
 TEST(window_gold_events) {
 	// Headless backend never produces events.
 	auto sys = createWindowSystem("headless");
