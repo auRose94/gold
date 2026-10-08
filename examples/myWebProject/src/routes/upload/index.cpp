@@ -14,7 +14,7 @@ namespace gg {
 	using namespace gg::bs;
 	using div = HTML::div;
 	using link = HTML::link;
-	gold::list upload::uploadIndex(session sesh, user u, upload item) {
+	gold::list upload::uploadIndex(gg::session sesh, user u, upload item) {
 		auto q = string();
 		if (sesh && !sesh.getBool("useCookies"))
 			q = "?s=" + sesh.getString("_id");

@@ -12,7 +12,7 @@ namespace gg {
 	using namespace gold;
 	using namespace gg::bs;
 	using div = HTML::div;
-	gold::list user::userHome(session sesh) {
+	gold::list user::userHome(gg::session sesh) {
 		auto u = sesh.getUser().getObject<user>();
 		auto greetings =
 			string("Hello, ") + u.getString("firstName") + "!";

@@ -8,6 +8,6 @@
 
 namespace gg {
 	using namespace gold;
-	gold::HTML::ul navbar(user u, session sesh, string current);
+	gold::HTML::ul navbar(user u, gg::session sesh, string current);
 	gold::HTML::ul navbar(request req);
 }

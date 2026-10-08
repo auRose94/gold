@@ -1,10 +1,8 @@
 #include "server.hpp"
-
-#include <App.h>
+#include "session.hpp"
+#include "serverTransport.hpp"
 
 #include <filesystem>
-#include <fstream>
-#include <functional>
 #include <iostream>
 
 #include "file.hpp"
@@ -12,7 +10,6 @@
 
 namespace gold {
 	using namespace std;
-	using namespace uWS;
 	namespace fs = std::filesystem;
 
 	static auto httpReturnStatusMap = map<uint16_t, string>({
@@ -86,118 +83,18 @@ namespace gold {
 
 	});
 
-	static auto mimeMap = map<string, string>({
-		{".bin", "application/octet-stream"},
-		{".zip", "application/zip"},
-		{".rar", "application/x-rar-compressed"},
-		{".json", "application/json"},
-		{".bson", "application/bson"},
-		{".js", "application/javascript"},
-		{".xml", "application/xml"},
-		{".gz", "application/gzip"},
-		{".bz", "application/x-bzip"},
-		{".bz2", "application/x-bzip2"},
-		{".azw", "application/vnd.amazon.ebook"},
-		{".doc", "application/msword"},
-		{".ogx", "application/ogg"},
-		{".pdf", "application/pdf"},
-		{".tar", "application/x-tar"},
-		{".xhtml", "application/xhtml+xml"},
-		{".xls", "application/vnd.ms-excel"},
-		{".7z", "application/x-7z-compressed"},
-		{".abw", "application/x-abiword"},
-		{".arc", "application/x-freearc"},
-		{".html", "text/html"},
-		{".csv", "text/csv"},
-		{".css", "text/css"},
-		{".rtf", "text/rtf"},
-		{".txt", "text/plain"},
-		{".ics", "text/calendar"},
-		{".apng", "image/apng"},
-		{".bmp", "image/bmp"},
-		{".gif", "image/gif"},
-		{".ico", "image/x-icon"},
-		{".jpeg", "image/jpeg"},
-		{".jpg", "image/jpeg"},
-		{".jfif", "image/jpeg"},
-		{".pjpeg", "image/jpeg"},
-		{".pjp", "image/jpeg"},
-		{".png", "image/png"},
-		{".svg", "image/svg+xml"},
-		{".tif", "image/tiff"},
-		{".tiff", "image/tiff"},
-		{".webp", "image/webp"},
-		{".wav", "audio/wave"},
-		{".aac", "audio/aac"},
-		{".mp3", "audio/mpeg"},
-		{".oga", "audio/ogg"},
-		{".opus", "audio/opus"},
-		{".weba", "audio/webm"},
-		{".mid", "audio/midi"},
-		{".midi", "audio/x-midi"},
-		{".webm", "video/webm"},
-		{".ogv", "video/ogg"},
-		{".mpeg", "video/mpeg"},
-		{".avi", "video/x-msvideo"},
-		{".ttf", "font/ttf"},
-		{".otf", "font/otf"},
-		{".woff2", "font/woff2"},
-		{".docx",
-		 "application/"
-		 "vnd.openxmlformats-officedocument.wordprocessingml."
-		 "document"},
-		{".ppt", "application/vnd.ms-powerpoint"},
-		{".pptx",
-		 "application/"
-		 "vnd.openxmlformats-officedocument.presentationml."
-		 "presentation"},
-		{".xlsx",
-		 "application/"
-		 "vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
-	});
-
-	/** Best-effort error answer for a uWS response; skipped when the route
-	 *  handler already wrote one (uWS never catches exceptions back). */
-	static void respondError(auto* res, uint16_t code,
-		const string& message = "") {
+	/** The status line for a code ("200 OK"), for transports. */
+	string httpStatusLine(uint16_t code) {
 		auto it = httpReturnStatusMap.find(code);
-		const auto& status =
-			it != httpReturnStatusMap.end() ? it->second : "500 Internal Server Error";
-		if (!res->hasResponded()) {
-			res->writeStatus(status.c_str());
-			if (!message.empty()) {
-				res->writeHeader("Content-Type", "text/plain");
-				res->end(message);
-			} else
-				res->end();
-		}
+		return it != httpReturnStatusMap.end() ? it->second : string("200 OK");
 	}
 
-	/** Wraps a gold route handler with the standard error policy: any
-	 *  exception becomes a 500 instead of unwinding into the vendored
-	 *  event loop (which would terminate the whole server). */
-	static auto guardedRoute(auto func) {
-		return [=](auto* res, auto* req) {
-			try {
-				func({request(req), response(res)});
-			} catch (genericError& e) {
-				cerr << e << endl;
-				respondError(res, 500);
-			} catch (const exception& e) {
-				cerr << e.what() << endl;
-				respondError(res, 500);
-			} catch (...) {
-				cerr << "unknown exception in route handler" << endl;
-				respondError(res, 500);
-			}
-		};
-	}
-
-	obj& server::getPrototype() {
+	object& server::getPrototype() {
 		static auto proto = obj({
 			{"host", "127.0.0.1"},
 			{"port", 8080},
 			{"cacheControl", "max-age=120"},
+			{"transport", "uws"},
 			{"start", method(&server::start)},
 			{"get", method(&server::get)},
 			{"post", method(&server::post)},
@@ -240,211 +137,101 @@ namespace gold {
 			{"getParameter", method(&request::getParameter)},
 			{"getQuery", method(&request::getQuery)},
 			{"getUrl", method(&request::getUrl)},
-			// Yield control so other matching routes keep running; without
-			// these bindings a `req.setYield` silently no-ops and the
-			// response is never written.
+			// Yield control so other matching routes keep running.
 			{"setYield", method(&request::setYield)},
 			{"getYield", method(&request::getYield)},
 		});
 		return proto;
 	}
 
+	// ------------------------------------------------------------- server
+
 	var server::start(list) {
-		auto host = getString("host");
-		auto port = getInt32("port");
-		auto handle = (App*)getPtr("handle");
-		auto def = obj({});
-		auto mounts = getObject("mounts");
-		if (handle != nullptr) {
-			auto handler = [&](auto* res, auto* req) {
-				try {
-					auto p = string(req->getUrl());
-					auto f = mounts.getObject<file>(p);
-					if (!f) {
-						auto assetIndex = p.find("/assets/");
-						if (assetIndex != string::npos) {
-							p = p.substr(0, assetIndex) +
-									p.substr(assetIndex + 8);
-							f = mounts.getObject<file>(p);
-						}
-						if (!f) {
-							auto indexIndex = p.find("/index.");
-							if (indexIndex != string::npos) {
-								p = p.substr(0, indexIndex);
-								f = mounts.getObject<file>(p);
-							}
-						}
-					}
-					auto chash = req->getHeader("if-none-match");
-					auto control = getString("cacheControl");
-					if (f) {
-						auto loaded = f.load();
-						if (loaded.isView()) {
-							auto hash = f.hash().getString();
-							if (hash.compare(chash) == 0) {
-								// Not the phrase "304 Not Changed": the
-								// HTTP status text is "Not Modified".
-								res->writeStatus("304 Not Modified");
-								res->writeHeader("Cache-Control", control);
-								res->end();
-							} else {
-								auto bin = loaded.getStringView();
-								res->writeStatus(HTTP_200_OK);
-								auto ext = fs::path(p).extension().string();
-								// Find, not []: unknown types must not
-								// mutate the shared map per request.
-								auto mimeIt = mimeMap.find(ext);
-								const string ct =
-									mimeIt != mimeMap.end()
-										? mimeIt->second
-										: "application/octet-stream";
-								res->writeHeader("Content-Type", ct);
-								res->writeHeader("Cache-Control", control);
-								res->writeHeader("ETag", hash);
-								res->end(bin);
-							}
-						} else {
-							res->writeStatus("404 Not Found");
-							res->end();
-						}
-						} else {
-							res->writeStatus("404 Not Found");
-							res->end();
-						}
-					} catch (genericError& e) {
-						cerr << e << endl;
-						respondError(res, 500);
-					} catch (const exception& e) {
-						cerr << e.what() << endl;
-						respondError(res, 500);
-					} catch (...) {
-						respondError(res, 500);
-					}
-				};
-
-			for (auto it = mounts.begin(); it != mounts.end(); ++it) {
-				auto url = it->first;
-				handle->get(url, handler);
-			}
-
-			// Unmatched requests must not hang the client: a per-verb
-			// catch-all answers 404 after the user's own routes (registered
-			// earlier, so they keep matching first) and after any user
-			// error handler.
-			handle->get("/*", [](auto* res, auto*) {
-				respondError(res, 404);
-			});
-			handle->post("/*", [](auto* res, auto*) {
-				respondError(res, 404);
-			});
-			handle->put("/*", [](auto* res, auto*) {
-				respondError(res, 404);
-			});
-			handle->patch("/*", [](auto* res, auto*) {
-				respondError(res, 404);
-			});
-			handle->del("/*", [](auto* res, auto*) {
-				respondError(res, 404);
-			});
-			handle->options("/*", [](auto* res, auto*) {
-				respondError(res, 404);
-			});
-
-			bool bound = false;
-			handle->listen(host, port, [port, host, &bound](auto* token) {
-				if (token) {
-					bound = true;
-					std::cout << "Serving " << host << " over " << port
-									 << std::endl;
-				}
-			});
-			// A failed bind must not fall through into `.run()`: the loop
-			// would spin forever and report success to the caller.
-			if (!bound)
-				return genericError(
-					"Failed to bind " + host + ":" + to_string(port));
-			handle->run();
-			return var(true);
-		}
-		return var(false);
+		// Not initialized: the pre-transport contract returned false
+		// without entering a loop — keep it.
+		if (!getBool("initialized")) return var(false);
+		// The transport (uWS stopgap or the libwebsockets port, both
+		// loadable plugins) consumes the buffered routes + config and
+		// blocks on its own loop.
+		auto names = list();
+		const auto transport = getString("transport", "uws");
+		if (!transport.empty()) names.pushString(transport);
+		auto resolved = createServerTransport(names);
+		if (!resolved)
+			return genericError(
+				"No server transport available (" + transport + ")");
+		auto run = resolved->run(*this);
+		delete resolved;
+		return run;
 	}
 
-	var server::get(list args) {
-		auto handle = (App*)getPtr("handle");
-		if (!handle) return genericError("server handle null");
-		auto pattern = args[0].getString();
-		auto func = args[1].getFunction();
+	namespace {
+		/** Buffer one (pattern, func) onto the verb's route list. */
+		void bufferRoute(object& self, const string& verb,
+			const string& pattern, func handler) {
+			auto routes = self.getObject("routes");
+			if (!routes) {
+				routes = obj({});
+				self.setObject("routes", routes);
+			}
+			auto byVerb = routes.getObject(verb);
+			if (!byVerb) {
+				byVerb = obj({});
+				routes.setObject(verb, byVerb);
+			}
+			byVerb.setFunc(pattern, handler);
+		}
+	}  // namespace
 
-		if (!func)
-			return genericError("missing callback");
-		else
-			handle->get(pattern.c_str(), guardedRoute(func));
+	var server::get(list args) {
+		auto pattern = args[0].getString();
+		auto handler = args[1].getFunction();
+		if (!handler) return genericError("missing callback");
+		bufferRoute(*this, "get", pattern, handler);
 		return var();
 	}
 
 	var server::post(list args) {
-		auto handle = (App*)getPtr("handle");
-		if (!handle) return genericError("server handle null");
 		auto pattern = args[0].getString();
-		auto func = args[1].getFunction();
-		if (!func)
-			return genericError("missing callback");
-		else
-			handle->post(pattern.c_str(), guardedRoute(func));
+		auto handler = args[1].getFunction();
+		if (!handler) return genericError("missing callback");
+		bufferRoute(*this, "post", pattern, handler);
 		return var();
 	}
 
 	var server::put(list args) {
-		auto handle = (App*)getPtr("handle");
-		if (!handle) return genericError("server handle null");
 		auto pattern = args[0].getString();
-		auto func = args[1].getFunction();
-		if (!func)
-			return genericError("missing callback");
-		else
-			handle->put(pattern.c_str(), guardedRoute(func));
+		auto handler = args[1].getFunction();
+		if (!handler) return genericError("missing callback");
+		bufferRoute(*this, "put", pattern, handler);
 		return var();
 	}
 
 	var server::patch(list args) {
-		auto handle = (App*)getPtr("handle");
-		if (!handle) return genericError("server handle null");
 		auto pattern = args[0].getString();
-		auto func = args[1].getFunction();
-		if (!func)
-			return genericError("missing callback");
-		else
-			handle->patch(pattern.c_str(), guardedRoute(func));
+		auto handler = args[1].getFunction();
+		if (!handler) return genericError("missing callback");
+		bufferRoute(*this, "patch", pattern, handler);
 		return var();
 	}
 
 	var server::del(list args) {
-		auto handle = (App*)getPtr("handle");
-		if (!handle) return genericError("server handle null");
 		auto pattern = args[0].getString();
-		auto func = args[1].getFunction();
-		if (!func)
-			return genericError("missing callback");
-		else
-			handle->del(pattern.c_str(), guardedRoute(func));
+		auto handler = args[1].getFunction();
+		if (!handler) return genericError("missing callback");
+		bufferRoute(*this, "del", pattern, handler);
 		return var();
 	}
 
 	var server::options(list args) {
-		auto handle = (App*)getPtr("handle");
-		if (!handle) return genericError("server handle null");
 		auto pattern = args[0].getString();
-		auto func = args[1].getFunction();
-		if (!func)
-			return genericError("missing callback");
-		else
-			handle->options(pattern.c_str(), guardedRoute(func));
+		auto handler = args[1].getFunction();
+		if (!handler) return genericError("missing callback");
+		bufferRoute(*this, "options", pattern, handler);
 		return var();
 	}
 
 	var server::setMountPoint(list args) {
-		auto handle = (App*)getPtr("handle");
-		if (!handle) return genericError("server handle null");
 		auto mounts = getObject("mounts");
 		for (auto it = args.begin(); it != args.end(); ++it) {
 			try {
@@ -460,51 +247,31 @@ namespace gold {
 				return genericError(msg);
 			}
 		}
-
 		return var();
 	}
 
 	var server::setErrorHandler(list args) {
-		auto handle = (App*)getPtr("handle");
-		if (!handle) return genericError("server handle null");
-		auto func = args[0].getFunction();
-
-		if (!func)
-			return genericError("missing callback");
-		else
-			handle->get("/*", guardedRoute(func));
+		auto handler = args[0].getFunction();
+		if (!handler) return genericError("missing callback");
+		setFunc("errorHandler", handler);
 		return var();
 	}
 
 	var server::initialize(list) {
-		auto kFN = getString("keyFileName");
-		auto cFN = getString("certFileName");
-		auto p = getString("passphrase");
-		auto dh = getString("dhParamsFileName");
-		auto ca = getString("caFileName");
-		auto sslPreferLowMemoryUsage =
-			getBool("sslPreferLowMemoryUsage", false);
-		auto settings = us_socket_context_options_t{
-			.key_file_name = (kFN.size() > 0) ? kFN.c_str() : nullptr,
-			.cert_file_name =
-				(cFN.size() > 0) ? cFN.c_str() : nullptr,
-			.passphrase = (p.size() > 0) ? p.c_str() : nullptr,
-			.dh_params_file_name =
-				(dh.size() > 0) ? dh.c_str() : nullptr,
-			.ca_file_name = (ca.size() > 0) ? ca.c_str() : nullptr,
-			.ssl_prefer_low_memory_usage = sslPreferLowMemoryUsage,
-		};
-		setPtr("handle", new App(settings));
 		auto mounts = obj({});
 		setObject("mounts", mounts);
+		auto routes = obj({});
+		setObject("routes", routes);
+		setBool("initialized", true);
 		return var();
 	}
 
 	var server::destroy(list) {
-		auto handle = (App*)getPtr("handle");
-		if (handle) delete handle;
-		// Null the pointer so a second destroy can't delete a freed App.
-		setPtr("handle", nullptr);
+		// Transports own their own handles and free them when their run
+		// ends; the server's pointer fields are just data and safe to
+		// clear twice.
+		erase("handle");
+		setBool("initialized", false);
 		return var();
 	}
 
@@ -516,31 +283,18 @@ namespace gold {
 		initialize({});
 	}
 
+	// ----------------------------------------------------------- response
+
 	response::response() : obj() {}
 
-	response::response(HttpResponse<true>* res) : obj() {
+	response::response(session* s) : obj() {
 		setParent(getPrototype());
-		setPtr("handle", res);
-		setBool("ssl", true);
-		setObject("headers", obj({}));
-	}
-
-	response::response(HttpResponse<false>* res) : obj() {
-		setParent(getPrototype());
-		setPtr("handle", res);
-		setBool("ssl", false);
+		setPtr("session", s);
 		setObject("headers", obj({}));
 	}
 
 	var response::writeContinue(list) {
-		auto ssl = getBool("ssl");
-		if (ssl) {
-			auto res = (HttpResponse<true>*)getPtr("handle");
-			res->writeContinue();
-		} else {
-			auto res = (HttpResponse<false>*)getPtr("handle");
-			res->writeContinue();
-		}
+		if (auto s = (session*)getPtr("session")) s->writeContinue();
 		return var();
 	}
 
@@ -558,207 +312,110 @@ namespace gold {
 		return var();
 	}
 
+	/** Serialize a staged body arg into bytes + content type. */
+	static binary stagedBody(const var& arg, response& self) {
+		auto bin = binary();
+		if (arg.isObject(HTML::iHTML::getPrototype())) {
+			string htmlStr = string(arg);
+			bin.insert(bin.end(), htmlStr.begin(), htmlStr.end());
+			self.writeHeader({"Content-Type", "text/html"});
+		} else if (arg.isObject()) {
+			bin = arg.getObject().getJSONBin();
+			self.writeHeader({"Content-Type", "application/json"});
+		} else if (arg.isList()) {
+			bin = arg.getList().getJSONBin();
+			self.writeHeader({"Content-Type", "application/json"});
+		} else if (arg.isView())
+			bin = arg.getBinary();
+		return bin;
+	}
+
 	var response::end(list args) {
-		// Ending twice in one handler trips the uWS assert; silently keep
+		auto s = (session*)getPtr("session");
+		if (!s) return genericError("response has no connection");
+		// Ending twice in one handler trips some transports' asserts; keep
 		// the first end.
 		if (hasResponded(list()).getBool()) return var();
 		auto bin = binary();
-		if (args.size() > 0 &&
-			args[0].isObject(HTML::iHTML::getPrototype())) {
-			string htmlStr = string(args[0]);
-			bin.insert(bin.end(), htmlStr.begin(), htmlStr.end());
-			writeHeader({"Content-Type", "text/html"});
-		} else if (args.size() > 0 && args[0].isObject()) {
-			bin = args[0].getObject().getJSONBin();
-			writeHeader({"Content-Type", "application/json"});
-		} else if (args.size() > 0 && args[0].isList()) {
-			bin = args[0].getList().getJSONBin();
-			writeHeader({"Content-Type", "application/json"});
-		} else if (args.size() > 0 && args[0].isView())
-			bin = args[0].getBinary();
+		if (args.size() > 0) bin = stagedBody(args[0], *this);
 
 		auto headers = getObject("headers");
-		auto code = getUInt16("code");
-		// Find, not []: an unknown code must not insert into the shared
-		// map (produces a wrong status line and races concurrent requests).
-		auto statusIt = httpReturnStatusMap.find(code);
-		const string status =
-			statusIt != httpReturnStatusMap.end() ? statusIt->second
-												  : string(HTTP_200_OK);
-
-		auto strV = string_view((char*)bin.data(), bin.size());
-		auto ssl = getBool("ssl");
-		if (ssl) {
-			auto res = (HttpResponse<true>*)getPtr("handle");
-			res->writeStatus(status);
-			for (auto it = headers.begin(); it != headers.end();
-					 ++it) {
-				auto key = it->first;
-				if (it->second.isString()) {
-					auto strValue = it->second.getString();
-					res->writeHeader(key, strValue);
-				} else if (it->second.isNumber()) {
-					auto uValue = it->second.getUInt32();
-					res->writeHeader(key, uValue);
-				}
-			}
-			res->end(strV);
-		} else {
-			auto res = (HttpResponse<false>*)getPtr("handle");
-			res->writeStatus(status);
-			for (auto it = headers.begin(); it != headers.end();
-					 ++it) {
-				auto key = it->first;
-				if (it->second.isString()) {
-					auto strValue = it->second.getString();
-					res->writeHeader(key, strValue);
-				} else if (it->second.isNumber()) {
-					auto uValue = it->second.getUInt32();
-					res->writeHeader(key, uValue);
-				}
-			}
-			res->end(strV);
+		const auto status = httpStatusLine(getUInt16("code"));
+		s->writeStatusRaw(status);
+		for (auto it = headers.begin(); it != headers.end(); ++it) {
+			auto key = it->first;
+			s->writeHeaderRaw(key, string(it->second));
 		}
+		s->end(string(string_view((char*)bin.data(), bin.size())));
 		return var();
 	}
 
 	var response::tryEnd(list args) {
+		auto s = (session*)getPtr("session");
+		if (!s) return genericError("response has no connection");
 		auto bin = binary();
-		if (args[0].isObject(HTML::iHTML::getPrototype())) {
-			string htmlStr = string(args[0]);
-			bin.insert(bin.end(), htmlStr.begin(), htmlStr.end());
-			writeHeader({"Content-Type", "text/html"});
-		} else if (args[0].isObject()) {
-			bin = args[0].getObject().getJSONBin();
-			writeHeader({"Content-Type", "application/json"});
-		} else if (args[0].isList()) {
-			bin = args[0].getList().getJSONBin();
-			writeHeader({"Content-Type", "application/json"});
-		} else if (args[0].isView())
-			bin = args[0].getBinary();
-
+		if (args.size() > 0) bin = stagedBody(args[0], *this);
 		auto headers = getObject("headers");
-		auto code = getUInt16("code");
-		auto statusIt = httpReturnStatusMap.find(code);
-		const string status =
-			statusIt != httpReturnStatusMap.end() ? statusIt->second
-												  : string(HTTP_200_OK);
-
-		auto strV = string_view((char*)bin.data(), bin.size());
-		auto size = args.size() >= 2 ? args[1].getInt32() : 0;
-		auto ssl = getBool("ssl");
-		if (ssl) {
-			auto res = (HttpResponse<true>*)getPtr("handle");
-			res->writeStatus(status);
-			for (auto it = headers.begin(); it != headers.end();
-					 ++it) {
-				auto key = it->first;
-				if (it->second.isString()) {
-					auto strValue = it->second.getString();
-					res->writeHeader(key, strValue);
-				} else if (it->second.isNumber()) {
-					auto uValue = it->second.getUInt32();
-					res->writeHeader(key, uValue);
-				}
-			}
-			auto p = res->tryEnd(strV, size);
-			return var(gold::list({p.first, p.second}));
-		}
-		auto res = (HttpResponse<false>*)getPtr("handle");
-		res->writeStatus(status);
-		for (auto it = headers.begin(); it != headers.end(); ++it) {
-			auto key = it->first;
-			if (it->second.isString()) {
-				auto strValue = it->second.getString();
-				res->writeHeader(key, strValue);
-			} else if (it->second.isNumber()) {
-				auto uValue = it->second.getUInt32();
-				res->writeHeader(key, uValue);
-			}
-		}
-		auto p = res->tryEnd(strV, size);
-		return var(gold::list({p.first, p.second}));
+		const auto status = httpStatusLine(getUInt16("code"));
+		s->writeStatusRaw(status);
+		for (auto it = headers.begin(); it != headers.end(); ++it)
+			s->writeHeaderRaw(it->first, string(it->second));
+	const size_t total =
+		args.size() >= 2 ? (size_t)args[1].getInt32() : 0;
+	auto p = s->tryEnd(
+		string(string_view((char*)bin.data(), bin.size())), total);
+	return var(p);
 	}
 
 	var response::write(list args) {
+		auto s = (session*)getPtr("session");
+		if (!s) return genericError("response has no connection");
 		auto bin = binary();
-		if (args[0].isObject(HTML::iHTML::getPrototype())) {
+		if (args.size() > 0 && args[0].isObject(HTML::iHTML::getPrototype())) {
 			string htmlStr = string(args[0]);
 			bin.insert(bin.end(), htmlStr.begin(), htmlStr.end());
 			writeHeader({"Content-Type", "text/html"});
-		} else if (args[0].isView())
+		} else if (args.size() > 0 && args[0].isView())
 			bin = args[0].getBinary();
-		auto strV = string_view((char*)bin.data(), bin.size());
-
-		auto ssl = getBool("ssl");
-		if (ssl) {
-			auto res = (HttpResponse<true>*)getPtr("handle");
-			return res->write(strV);
-		}
-		auto res = (HttpResponse<false>*)getPtr("handle");
-		return res->write(strV);
+		return var((int64_t)s->write(
+			string(string_view((char*)bin.data(), bin.size()))));
 	}
 
 	var response::getWriteOffset(list) {
-		auto ssl = getBool("ssl");
-		if (ssl) {
-			auto res = (HttpResponse<true>*)getPtr("handle");
-			return res->getWriteOffset();
-		}
-		auto res = (HttpResponse<false>*)getPtr("handle");
-		return res->getWriteOffset();
+		if (auto s = (session*)getPtr("session"))
+			return var((int64_t)s->writeOffset());
+		return var(0);
 	}
 
 	var response::hasResponded(list) {
-		auto ssl = getBool("ssl");
-		if (ssl) {
-			auto res = (HttpResponse<true>*)getPtr("handle");
-			return res->hasResponded();
-		}
-		auto res = (HttpResponse<false>*)getPtr("handle");
-		return res->hasResponded();
+		if (auto s = (session*)getPtr("session"))
+			return s->hasResponded();
+		return var(false);
 	}
 
 	var response::cork(list args) {
 		auto handler = args[0].getFunction();
-		auto ssl = getBool("ssl");
-		if (ssl) {
-			auto res = (HttpResponse<true>*)getPtr("handle");
-			res->cork([handler]() { handler({}); });
-			return var();
-		}
-		auto res = (HttpResponse<false>*)getPtr("handle");
-		res->cork([handler]() { handler({}); });
+		if (auto s = (session*)getPtr("session")) s->cork(handler);
 		return var();
 	}
 
 	var response::onWritable(list args) {
 		auto handler = args[0].getFunction();
-		auto ssl = getBool("ssl");
-		if (ssl) {
-			auto res = (HttpResponse<true>*)getPtr("handle");
-			res->onWritable([=](int v) { return handler({v}); });
-			return var();
-		}
-		auto res = (HttpResponse<false>*)getPtr("handle");
-		res->onWritable([=](int v) { return handler({v}); });
+		if (auto s = (session*)getPtr("session")) s->onWritable(handler);
 		return var();
 	}
 
 	var response::onAborted(list args) {
 		auto handler = args[0].getFunction();
 		auto reqObj = args[1].getObject<request>();
-		auto ssl = getBool("ssl");
-		auto callback = [=, *this]() {
-			handler({var(reqObj), var(*this)});
-		};
-		if (ssl) {
-			auto res = (HttpResponse<true>*)getPtr("handle");
-			res->onAborted(callback);
-			return var();
+		if (auto s = (session*)getPtr("session")) {
+			// The connection is dying: keep the gold values by value.
+			auto callback = [=, *this](list) -> var {
+				handler({var(reqObj), var(*this)});
+				return var();
+			};
+			s->onAborted(callback);
 		}
-		auto res = (HttpResponse<false>*)getPtr("handle");
-		res->onAborted(callback);
 		return var();
 	}
 
@@ -771,61 +428,35 @@ namespace gold {
 		};
 		auto handler = args[0].getFunction();
 		auto reqObj = args[1].getObject<request>();
-		auto ssl = getBool("ssl");
 		auto c = make_shared<dataContext>(
 			dataContext{handler, reqObj, *this, string()});
-		auto buffer = make_shared<string>();
-		auto callback = [=](string_view v, bool b) {
-			(c->buffer) = (c->buffer) + string(v);
-			if (b) c->handler({c->buffer, c->req, c->res});
-		};
-		if (ssl) {
-			auto res = (HttpResponse<true>*)getPtr("handle");
-			res->onData(callback);
+		auto s = (session*)getPtr("session");
+		if (!s) return var();
+		s->onDataRaw([=](list raw) -> var {
+			c->buffer = c->buffer + string(raw[0].getString());
+			if (raw[1].getBool())
+				c->handler({c->buffer, c->req, c->res});
 			return var();
-		}
-		auto res = (HttpResponse<false>*)getPtr("handle");
-		res->onData(callback);
+		});
 		return var();
 	}
 
+	// ------------------------------------------------------------ request
+
 	request::request() : obj() {}
 
-	request::request(uWS::HttpRequest* req) : obj() {
+	request::request(session* s) : obj() {
 		setParent(getPrototype());
-		auto headers = obj({});
-		auto params = list({});
-		auto it = req->begin();
-		for (; it != req->end(); ++it) {
-			if (it.ptr) {
-				auto k = string(it.ptr->key);
-				auto v = string(it.ptr->value);
-				auto exist = headers.getVar(k);
-				if (exist.isString()) {
-					auto arr = list({exist.getString(), v});
-					headers.setList(k, arr);
-				} else if (exist.isList()) {
-					auto arr = exist.getList();
-					arr.pushString(v);
-				} else
-					headers.setString(k, v);
-			}
-		}
-		uint32_t i = 0;
-		auto currentParm = req->getParameter(i);
-		while (currentParm.data() && currentParm.size() > 0) {
-			params.pushString(string(currentParm));
-			currentParm = req->getParameter(++i);
-		}
-		setObject("headers", headers);
-		setList("params", params);
-		setString("query", string(req->getQuery()));
-		setString("method", string(req->getMethod()));
-		setString("path", string(req->getUrl()));
-		setPtr("handle", req);
+		setPtr("session", s);
+		setObject("headers", obj({}));
+		setList("params", list({}));
+		setString("query", "");
+		setString("method", "");
+		setString("path", "");
 	}
 
 	var request::getAllHeaders(list args) {
+		(void)args;
 		return getObject("headers");
 	}
 
@@ -833,12 +464,13 @@ namespace gold {
 		auto headers = getObject("headers");
 		auto lch = args[0].getString();
 		transform(lch.begin(), lch.end(), lch.begin(), [](auto c) {
-			return std::tolower(c);
+			return std::tolower(static_cast<unsigned char>(c));
 		});
 		return headers[lch];
 	}
 
 	var request::getMethod(list args) {
+		(void)args;
 		return getString("method");
 	}
 
@@ -849,20 +481,21 @@ namespace gold {
 	}
 
 	var request::getQuery(list args) {
+		(void)args;
 		return getString("query");
 	}
 
 	var request::getUrl(list args) { return getString("path"); }
 
 	var request::getYield(list args) {
-		auto handle = (uWS::HttpRequest*)getPtr("handle");
-		return handle->getYield();
+		(void)args;
+		if (auto s = (session*)getPtr("session")) return s->yielded();
+		return var(false);
 	}
 
 	var request::setYield(list args) {
-		auto handle = (uWS::HttpRequest*)getPtr("handle");
 		auto value = args[0].getBool();
-		handle->setYield(value);
+		if (auto s = (session*)getPtr("session")) s->setYield(value);
 		return value;
 	}
 

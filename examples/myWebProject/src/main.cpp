@@ -34,11 +34,11 @@ int main() {
 		return 1;
 	}
 
-	session::getPrototype()["domain"] = "127.0.0.1:8080";
+	gg::session::getPrototype()["domain"] = "127.0.0.1:8080";
 
 	setIndexRoute(db, serv);
 
-	session::setRoutes(db, serv);
+	gg::session::setRoutes(db, serv);
 	upload::setRoutes(db, serv);
 	user::setRoutes(db, serv);
 

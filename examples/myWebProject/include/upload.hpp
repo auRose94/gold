@@ -23,16 +23,16 @@ namespace gg {
 
 		var getOwners(list args);
 
-		static var uploadCard(session sesh, user u, upload data);
+		static var uploadCard(gg::session sesh, user u, upload data);
 		static var uploadMediaItem(
-			session sesh, user u, upload data);
+			gg::session sesh, user u, upload data);
 		static list uploadOptions(
-			session sesh, user u, upload item);
+			gg::session sesh, user u, upload item);
 		static list uploadFind(
-			session sesh, user u, obj data, list items);
+			gg::session sesh, user u, obj data, list items);
 		static list uploadList(
-			session sesh, user u, obj filter, list results);
-		static list uploadIndex(session sesh, user u, upload b);
+			gg::session sesh, user u, obj filter, list results);
+		static list uploadIndex(gg::session sesh, user u, upload b);
 		static list uploadDelete(session s, user u, list data);
 		static var cropperDialog();
 

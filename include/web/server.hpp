@@ -1,9 +1,5 @@
 #pragma once
 
-#define UWS_NO_ZLIB 1
-#include <App.h>
-#include <HttpResponse.h>
-
 #include "types.hpp"
 
 #define serveArgs(args, req, res)          \
@@ -13,6 +9,14 @@
 namespace gold {
 	struct request;
 	struct response;
+	struct session;
+
+	/**
+	 * The HTTP server facade, transport-independent: routes are buffered
+	 * as gold data ("routes": verb -> {pattern -> func}), and start()
+	 * resolves a serverTransport (config "transport"; a loadable plugin
+	 * like libgoldUws or libgoldLws) whose run() consumes everything.
+	 */
 	struct server : public object {
 	 protected:
 		static object& getPrototype();
@@ -21,6 +25,8 @@ namespace gold {
 		server();
 		server(object config);
 
+		/** Blocking: resolves the transport and runs it. Returns an error
+		 *  when the bind fails instead of entering the loop. */
 		var start(list args = {});
 		var get(list args);
 		var post(list args);
@@ -34,6 +40,8 @@ namespace gold {
 		var destroy(list args = {});
 	};
 
+	/** A request: gold data (headers/params/query/method/path) staged by
+	 *  the transport that accepted the connection. */
 	struct request : public object {
 	 public:
 		static object& getPrototype();
@@ -53,15 +61,16 @@ namespace gold {
 		bool acceptingHTML();
 
 		request();
-		request(uWS::HttpRequest* req);
+		request(session* s);
 	};
 
+	/** A response: staging (status/headers/body typing) in gold data,
+	 *  raw writes delegated to the connection's session. */
 	struct response : public object {
 	 public:
 		static object& getPrototype();
 		response();
-		response(uWS::HttpResponse<false>* res);
-		response(uWS::HttpResponse<true>* res);
+		response(session* s);
 
 		var writeContinue(list args = {});
 		var writeStatus(list args);

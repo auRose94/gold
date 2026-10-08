@@ -77,7 +77,7 @@ namespace gg {
 		return op;
 	}
 
-	gold::HTML::ul navbar(user u, session sesh, string current) {
+	gold::HTML::ul navbar(user u, gg::session sesh, string current) {
 		string firstName = "User";
 		string q = "";
 		auto errors = gold::list();

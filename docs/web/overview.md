@@ -6,6 +6,10 @@ document store.
 
 ## Features
 - Express-like routing (per-method routes with pattern parameters)
+- Swappable server transports: the server facade is transport-free —
+  routes buffer as gold data and `start()` resolves a transport plugin
+  via `config "transport"` (`"uws"` is the vendored stopgap; a
+  libwebsockets port follows). See [plugins](../backends/plugins.md).
 - HTML5 rendering with pragmatic templating
 - File-based `dataStore` persistence
 - The HTML/CSS parsers that also feed the `ui` module's renderer

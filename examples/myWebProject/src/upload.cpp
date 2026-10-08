@@ -1,5 +1,7 @@
 #include "upload.hpp"
 
+#include <iostream>
+
 #include <file.hpp>
 #include <filesystem>
 #include <image.hpp>

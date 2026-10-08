@@ -31,7 +31,6 @@ target_include_directories(
 	goldShared
 	PUBLIC
 		"include"
-		3rdParty/uWebSockets/src
 )
 
 target_link_libraries (

@@ -8,6 +8,10 @@ namespace gg {
 	using list = gold::list;
 	using var = gold::var;
 	using namespace gold;
+	// Forward gg's session first: a class declared in this namespace
+	// shadows the using-directive's gold::web session in every later
+	// use (gold's session is a transport interface, not this model).
+	struct session;
 
 	struct user : public model {
 	 public:
@@ -36,10 +40,10 @@ namespace gg {
 		static string transformBirthday(string value);
 
 		// Site rendering
-		static var userCard(struct session sesh, user u, user data);
+		static var userCard(struct gg::session sesh, user u, user data);
 		static var userMediaItem(
-			struct session sesh, user u, user data);
-		static list userHome(struct session sesh);
+			struct gg::session sesh, user u, user data);
+		static list userHome(struct gg::session sesh);
 		static list userLogin(
 			string response = "",
 			string emailError = "",
