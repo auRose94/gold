@@ -7,6 +7,8 @@
 #include "raster.hpp"
 #include "font.hpp"
 
+#include <unordered_map>
+
 namespace gold {
 	namespace UI {
 
@@ -69,6 +71,23 @@ namespace gold {
 			object describe(int node) const;
 			list fireEvent(const string& type, int node, const var& data, const object& target);
 			void syncHover(int node);
+			/** Animation overlays: sync the per-node clocks against the
+			 *  currently resolved animation shorthands, then write each
+			 *  playing animation's interpolated declarations onto its
+			 *  resolved style, right before layout consumes them. */
+			void applyAnimationOverlays();
+
+			/** CSS animation state: per node (DOM index) the shorthand in
+			 *  force and the seconds elapsed on it; a changed shorthand or
+			 *  a document reload restarts the animation. */
+			struct animationClock {
+				string shorthand;
+				double elapsed = 0.0;
+			};
+			std::unordered_map<int, animationClock> animationClocks_;
+			/** True when the last animation overlay moved geometry (the
+			 *  style pass must drag the layout pass along). */
+			bool layoutAffects_ = false;
 
 			domTree tree_;
 			stylesheet sheet_;

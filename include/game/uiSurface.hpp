@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -117,6 +118,10 @@ namespace gold {
 		bool interactive_ = true;
 		bool hasFrame_ = false;
 		uint64_t uploads_ = 0;
+		// Per-draw wall-clock delta, fed to the renderer's advance() so
+		// CSS animations play without the game loop driving them.
+		std::chrono::steady_clock::time_point lastFrame_{};
+		bool lastFrameValid_ = false;
 	};
 
 	/**

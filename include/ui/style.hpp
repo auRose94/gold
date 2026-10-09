@@ -495,6 +495,57 @@ namespace gold {
 		/** Strip a trailing `!important`; returns true when it was present. */
 		bool stripImportant(string& text);
 
+		// ------------------------------------------------------ animations
+
+		/** A parsed `animation` shorthand. */
+		struct animationSpec {
+			string name;
+			float duration = 0.0f;   // seconds
+			string easing = "ease";  // timing-function name
+			float delay = 0.0f;      // seconds
+			float iterations = 1.0f;
+			bool infinite = false;
+			enum class direction : uint8_t {
+				normal,
+				reverse,
+				alternate,
+				alternateReverse,
+			};
+			enum class fill : uint8_t { none, forwards, backwards, both };
+			direction dir = direction::normal;
+			fill fillMode = fill::none;
+		};
+
+		/** Parse the `animation` shorthand: name duration timing delay
+		 *  iteration-count direction fill-mode. Times are `2s`/`800ms`, the
+		 *  bare-number token is the iteration count, and the first token
+		 *  that matches nothing else is the name; unrecognized tokens after
+		 *  that are ignored. */
+		animationSpec parseAnimationShorthand(const string& value);
+
+		/** The keyframe timeline position in [0,1] at `elapsed` seconds,
+		 *  with delay, iteration count, direction and fill applied (0 or 1
+		 *  for a holding fill). A negative return means the animation is
+		 *  not playing. */
+		float animationProgress(const animationSpec& spec, double elapsed);
+
+		/** The named timing function's eased value of `f` in [0,1]
+		 *  (linear, ease, ease-in, ease-out, ease-in-out as the standard
+		 *  cubic beziers). */
+		float easeValue(const string& easing, float f);
+
+		/**
+		 * The declarations overlay for a playing animation: every property
+		 * in the bracketing keyframe steps, interpolated (numbers, colors,
+		 * and non-percentage lengths resolved to px; pairs that cannot
+		 * interpolate take the far step's value). Empty when the animation
+		 * is not playing or the sheet has no such keyframes. Percentages
+		 * and non-numeric values stay out of v1.
+		 */
+		object keyframeDeclarations(const animationSpec& spec,
+			const stylesheet& sheet, const styleContext& ctx,
+			float elementFontSize, float rootFontSize, double elapsed);
+
 		/** Which declarations `applyDeclarations` should touch. */
 		enum class importantMode : uint8_t { normal, only, skip };
 

@@ -2077,5 +2077,329 @@ namespace gold {
 			return out;
 		}
 
+		// ------------------------------------------------------- animations
+
+		namespace {
+			/** A bare time token ("2s", "800ms" — with the unit) as seconds. */
+			bool timeToken(const string& t, float& seconds) {
+				if (t.size() < 2) return false;
+				const bool ms = t.compare(t.size() - 2, 2, "ms") == 0;
+				const bool s = t.back() == 's' && !ms;
+				if (!ms && !s) return false;
+				const string digits = t.substr(0, t.size() - (ms ? 2 : 1));
+				char* end = nullptr;
+				const float v = strtof(digits.c_str(), &end);
+				if (end != digits.c_str() + digits.size()) return false;
+				seconds = ms ? v / 1000.0f : v;
+				return true;
+			}
+
+			/** A whole-token number (the iteration-count form). */
+			bool bareNumber(const string& t, float& value) {
+				if (t.empty()) return false;
+				char* end = nullptr;
+				const float v = strtof(t.c_str(), &end);
+				if (end != t.c_str() + t.size()) return false;
+				value = v;
+				return true;
+			}
+
+			/** The whole text parses as a plain number (a keyframe value). */
+			bool wholeNumber(const string& s, float& value) {
+				char* end = nullptr;
+				const float v = strtof(s.c_str(), &end);
+				const bool ok = end != s.c_str() && *end == '\0';
+				if (ok) value = v;
+				return ok;
+			}
+
+			string formatNumber(float v) {
+				char buf[32];
+				snprintf(buf, sizeof(buf), "%.6g", (double)v);
+				return buf;
+			}
+
+			string formatColorText(const color& c) {
+				char buf[48];
+				snprintf(buf, sizeof(buf), "rgba(%d,%d,%d,%.3f)",
+					(int)roundf(c.r * 255.0f), (int)roundf(c.g * 255.0f),
+					(int)roundf(c.b * 255.0f), c.a);
+				return buf;
+			}
+
+			/** Interpolate one property's value text between the two
+			 *  bracketing keyframe values at eased fraction `f`: plain
+			 *  numbers, colors, and non-percentage lengths (resolved to px
+			 *  so units may differ: 10px → 2em answers in px). */
+			bool lerpPropertyValue(const string& name, const string& aText,
+				const string& bText, float f, const styleContext& ctx,
+				float elementFontSize, float rootFontSize, string& out) {
+				(void)name;
+				if (aText == bText) {
+					out = aText;
+					return true;
+				}
+				float a, b;
+				if (wholeNumber(aText, a) && wholeNumber(bText, b)) {
+					out = formatNumber(a + (b - a) * f);
+					return true;
+				}
+				color ca, cb;
+				if (parseColor(aText, ca) && parseColor(bText, cb)) {
+					out = formatColorText(color{
+						ca.r + (cb.r - ca.r) * f,
+						ca.g + (cb.g - ca.g) * f,
+						ca.b + (cb.b - ca.b) * f,
+						ca.a + (cb.a - ca.a) * f,
+						true});
+					return true;
+				}
+				length la, lb;
+				if (parseLength(aText, la) && parseLength(bText, lb) &&
+					la.defined() && lb.defined() && !la.isPercent() &&
+					!lb.isPercent()) {
+					const float pa = resolveLength(la, 0.0f, elementFontSize,
+						rootFontSize, ctx);
+					const float pb = resolveLength(lb, 0.0f, elementFontSize,
+						rootFontSize, ctx);
+					out = formatNumber(pa + (pb - pa) * f) + "px";
+					return true;
+				}
+				return false;
+			}
+		}  // namespace
+
+		float easeValue(const string& easing, float f) {
+			const string curve = lowerStr(trimStr(easing));
+			// The standard named curves as cubic-bezier (x1, y1, x2, y2).
+			static const float kEase[4] = {0.25f, 0.1f, 0.25f, 1.0f};
+			static const float kEaseIn[4] = {0.42f, 0.0f, 1.0f, 1.0f};
+			static const float kEaseOut[4] = {0.0f, 0.0f, 0.58f, 1.0f};
+			static const float kEaseInOut[4] = {0.42f, 0.0f, 0.58f, 1.0f};
+			const float* params = nullptr;
+			if (curve == "linear") return f;
+			else if (curve == "ease-in") params = kEaseIn;
+			else if (curve == "ease-out") params = kEaseOut;
+			else if (curve == "ease-in-out") params = kEaseInOut;
+			else params = kEase;  // "ease" and anything unknown
+			if (f <= 0.0f) return 0.0f;
+			if (f >= 1.0f) return 1.0f;
+
+			auto bez = [&params](float u, int axis) -> float {
+				// B(u) = 3v^2 u p1 + 3 v u^2 p2 + u^3, with p0=0 and p3=1.
+				const float v = 1.0f - u;
+				return 3 * v * v * u * params[2 * axis] +
+					   3 * v * u * u * params[2 * axis + 1] + u * u * u;
+			};
+			// Solve the x curve for `f`, then evaluate y. The standard
+			// curves are monotone in x, so bisection is stable.
+			float lo = 0.0f, hi = 1.0f;
+			for (int i = 0; i < 24; ++i) {
+				const float mid = (lo + hi) * 0.5f;
+				if (bez(mid, 0) < f) lo = mid;
+				else hi = mid;
+			}
+			return bez((lo + hi) * 0.5f, 1);
+		}
+
+		animationSpec parseAnimationShorthand(const string& value) {
+			animationSpec spec;
+			bool nameSet = false;
+			bool seenDuration = false;
+			for (const string& part : splitValues(value)) {
+				const string t = lowerStr(part);
+				float seconds;
+				if (timeToken(t, seconds)) {
+					if (!seenDuration) {
+						spec.duration = seconds;
+						seenDuration = true;
+					} else
+						spec.delay = seconds;
+					continue;
+				}
+				if (bareNumber(t, seconds)) {
+					spec.iterations = seconds;
+					continue;
+				}
+				if (t == "infinite") {
+					spec.infinite = true;
+					continue;
+				}
+				if (t == "linear" || t == "ease-in" || t == "ease-out" ||
+					t == "ease-in-out") {
+					spec.easing = t;
+					continue;
+				}
+				if (t == "ease") {
+					spec.easing = t;
+					continue;
+				}
+				if (t == "alternate") {
+					spec.dir = spec.dir ==
+									   animationSpec::direction::reverse
+								   ? animationSpec::direction::alternateReverse
+								   : animationSpec::direction::alternate;
+					continue;
+				}
+				if (t == "reverse") {
+					spec.dir = spec.dir ==
+									   animationSpec::direction::alternate
+								   ? animationSpec::direction::alternateReverse
+								   : animationSpec::direction::reverse;
+					continue;
+				}
+				if (t == "alternate-reverse") {
+					spec.dir = animationSpec::direction::alternateReverse;
+					continue;
+				}
+				if (t == "forwards" || t == "both") {
+					spec.fillMode =
+						t == "both" ? animationSpec::fill::both
+									: animationSpec::fill::forwards;
+					continue;
+				}
+				if (t == "backwards") {
+					spec.fillMode = animationSpec::fill::backwards;
+					continue;
+				}
+				// "normal", fill "none", "paused"/"running" (v1 keeps them
+				// inert, along with step functions), and anything else after
+				// the name.
+				if (!nameSet) {
+					spec.name = part;  // the author's case is kept
+					nameSet = true;
+				}
+			}
+			return spec;
+		}
+
+		float animationProgress(const animationSpec& spec, double elapsed) {
+			if (spec.duration <= 0.0f) return -1.0f;
+			if (elapsed < (double)spec.delay) {
+				// Backwards fills hold the first frame; the direction
+				// decides which keyframe that is.
+				const bool backFill =
+					spec.fillMode == animationSpec::fill::backwards ||
+					spec.fillMode == animationSpec::fill::both;
+				if (!backFill) return -1.0f;
+				return spec.dir == animationSpec::direction::reverse ||
+							   spec.dir ==
+								   animationSpec::direction::alternateReverse
+						   ? 1.0f
+						   : 0.0f;
+			}
+			const double local = elapsed - (double)spec.delay;
+			if (!spec.infinite &&
+				local >= (double)spec.iterations * (double)spec.duration) {
+				// Finished: fill none releases; the others hold the final
+				// frame, whose phase depends on the iteration count and
+				// the direction.
+				if (spec.fillMode == animationSpec::fill::none) return -1.0f;
+				const int iters = (int)spec.iterations;
+				switch (spec.dir) {
+				case animationSpec::direction::reverse:
+					return 0.0f;
+				case animationSpec::direction::alternate:
+					return iters % 2 == 1 ? 1.0f : 0.0f;
+				case animationSpec::direction::alternateReverse:
+					return iters % 2 == 0 ? 1.0f : 0.0f;
+				default:
+					return 1.0f;
+				}
+			}
+			const double iter = floor(local / (double)spec.duration);
+			const double cycle = fmod(local, (double)spec.duration);
+			float t = (float)(cycle / (double)spec.duration);
+			bool flip = false;
+			switch (spec.dir) {
+			case animationSpec::direction::reverse:
+				t = 1.0f - t;
+				break;
+			case animationSpec::direction::alternate:
+				flip = (int)iter % 2 != 0;
+				break;
+			case animationSpec::direction::alternateReverse:
+				flip = (int)iter % 2 == 0;
+				break;
+			default:
+				break;
+			}
+			if (flip) t = 1.0f - t;
+			return t;
+		}
+
+		object keyframeDeclarations(const animationSpec& spec,
+			const stylesheet& sheet, const styleContext& ctx,
+			float elementFontSize, float rootFontSize, double elapsed) {
+			object out;
+			const keyframesBlock* block = sheet.findKeyframes(spec.name);
+			if (!block || block->steps.empty()) return out;
+			const float t = animationProgress(spec, elapsed);
+			if (t < 0.0f) return out;
+
+			const vector<keyframeStep>& steps = block->steps;
+			const keyframeStep* from = nullptr;
+			const keyframeStep* to = nullptr;
+			float fraction = 0.0f;
+			if (t <= steps.front().offset) {
+				from = to = &steps.front();
+			} else if (t >= steps.back().offset) {
+				from = to = &steps.back();
+			} else {
+				for (size_t i = 0; i + 1 < steps.size(); ++i) {
+					if (steps[i].offset <= t && t <= steps[i + 1].offset) {
+						from = &steps[i];
+						to = &steps[i + 1];
+						const float span = to->offset - from->offset;
+						fraction =
+							span > 0.0f ? (t - from->offset) / span : 0.0f;
+						break;
+					}
+				}
+			}
+			if (!from) return out;
+			const float eased = easeValue(spec.easing, fraction);
+
+			// Object accessors are non-const; alias the two steps' gold
+			// declarations onto non-const handles (no data is copied).
+			object fromDecls = from->declarations;
+			object toDecls = to->declarations;
+
+			// The property union across the bracketing steps: pairs present
+			// in both interpolate; single-sided values apply verbatim (v1
+			// does not fall back to the base style mid-cycle).
+			vector<string> names;
+			auto collectNames = [&names](const object& decls) {
+				object d = decls;
+				for (auto it = d.begin(); it != d.end(); ++it)
+					if (it->first.empty() || it->first.back() != '!')
+						if (find(names.begin(), names.end(), it->first) ==
+							names.end())
+							names.push_back(it->first);
+			};
+			collectNames(fromDecls);
+			collectNames(toDecls);
+
+			for (const string& name : names) {
+				const bool hasA = fromDecls.getType(name) != typeNull;
+				const bool hasB = toDecls.getType(name) != typeNull;
+				const string aText =
+					hasA ? valueText(fromDecls.getVar(name)) : string();
+				const string bText =
+					hasB ? valueText(toDecls.getVar(name)) : string();
+				if (aText.empty() || bText.empty()) {
+					out.setString(name, aText.empty() ? bText : aText);
+					continue;
+				}
+				string lerp;
+				if (lerpPropertyValue(name, aText, bText, eased, ctx,
+						elementFontSize, rootFontSize, lerp))
+					out.setString(name, lerp);
+				else
+					out.setString(name, bText);
+			}
+			return out;
+		}
+
 	}  // namespace UI
 }  // namespace gold

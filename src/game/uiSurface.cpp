@@ -198,6 +198,18 @@ namespace gold {
 		if (args.size() == 0) return genericError("uiSurface draw requires a view");
 		const auto view = args[0].getUInt16();
 
+		// Tick the renderer one wall-clock frame ahead of the dirty check,
+		// so CSS animations play without the game loop driving anything.
+		// WebKit surfaces ignore the delta (their animations are internal).
+		const auto now = std::chrono::steady_clock::now();
+		if (lastFrameValid_) {
+			const double delta =
+				std::chrono::duration<double>(now - lastFrame_).count();
+			if (delta > 0.0) ui_->advance(list({delta}));
+		}
+		lastFrame_ = now;
+		lastFrameValid_ = true;
+
 		// The renderer only does work when something changed, so a static
 		// screen costs one comparison per frame.
 		if (ui_->dirty()) {

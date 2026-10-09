@@ -144,6 +144,8 @@ namespace gold {
 		}
 
 		var software_renderer::setHTML(list args) {
+			// New document: node indexes (and animation clocks) restart.
+			animationClocks_.clear();
 			if (args.size() >= 1 && args[0].isList()) {
 				// Markup built with the HTML builder: gold objects straight
 				// into the DOM. (Still available after a reload via `markup`.)
@@ -246,10 +248,98 @@ namespace gold {
 		}
 
 		var software_renderer::advance(list args) {
-			// No animations run yet, so time alone never dirties the tree; the
-			// hook is here so a game loop can call it unconditionally.
-			(void)args;
+			// CSS animations tick here: the per-node clocks gain `dt`
+			// seconds and playing animations dirty the style pass (their
+			// interpolated values re-apply in render()). uiSurface::draw
+			// measures wall-clock deltas and advances on its own.
+			const double dt =
+				args.size() > 0 && args[0].isNumber()
+					? args[0].getDouble()
+					: 0.0;
+			if (dt > 0.0) {
+				// Tick and dirty only while a state can change: a playing
+				// or filling animation, plus the tick that releases a
+				// fill-less animation (its values drop back to the base
+				// style, which the committed pixels must follow).
+				bool anyStateChange = false;
+				bool anyRelease = false;
+				for (auto& entry : animationClocks_) {
+					const auto spec =
+						parseAnimationShorthand(entry.second.shorthand);
+					if (spec.duration <= 0.0f) continue;
+					if (spec.infinite) {
+						anyStateChange = true;
+						entry.second.elapsed += dt;
+						continue;
+					}
+					const double end =
+						(double)spec.delay + (double)spec.iterations *
+												 (double)spec.duration;
+					const double before = entry.second.elapsed;
+					entry.second.elapsed += dt;
+					if (before < end || entry.second.elapsed < end)
+						anyStateChange = true;
+					if (before < end && entry.second.elapsed >= end &&
+						spec.fillMode == animationSpec::fill::none)
+						anyRelease = true;
+				}
+				if (anyStateChange) styleDirty_ = true;
+				if (anyRelease) paintDirty_ = true;
+			}
 			return dirty();
+		}
+
+		void software_renderer::applyAnimationOverlays() {
+			if (styles_.size() != tree_.nodes.size()) {
+				layoutAffects_ = false;
+				return;
+			}
+			// 0 = nothing applied, 1 = paint-only values (opacity/color),
+			// 2 = something that also affects layout.
+			int applied = 0;
+			for (size_t i = 0; i < styles_.size(); ++i) {
+				const auto& shorthand = styles_[i].animationShorthand;
+				auto it = animationClocks_.find((int)i);
+				if (shorthand.empty()) {
+					if (it != animationClocks_.end())
+						animationClocks_.erase(it);
+					continue;
+				}
+				if (it == animationClocks_.end() ||
+					it->second.shorthand != shorthand) {
+					animationClocks_[(int)i] =
+						animationClock{shorthand, 0.0};
+					it = animationClocks_.find((int)i);
+				}
+				const auto spec =
+					parseAnimationShorthand(it->second.shorthand);
+				// The element's own font size backs em/rem in animated
+				// lengths; percentages are not interpolated (v1).
+				const float fontPx = resolveLength(styles_[i].fontSize,
+					0.0f, styleCtx_.defaultFontSize,
+					layoutCtx_.rootFontSize, styleCtx_);
+				auto decls = keyframeDeclarations(spec, sheet_, styleCtx_,
+					fontPx, layoutCtx_.rootFontSize, it->second.elapsed);
+				if (decls) {
+					applied = 1;
+					applyDeclarations(styles_[i], decls, styleCtx_, fontPx,
+						layoutCtx_.rootFontSize);
+					for (auto it2 = decls.begin(); it2 != decls.end();
+						 ++it2) {
+						prop p;
+						if (lookupProperty(it2->first, p) &&
+							p != prop::opacity && p != prop::color &&
+							p != prop::backgroundColor &&
+							p != prop::backgroundImage) {
+							applied = 2;
+							break;
+						}
+					}
+				}
+			}
+			// Paint-only animations skip the layout pass entirely.
+			layoutAffects_ = applied == 2;
+			if (applied >= 1) paintDirty_ = true;
 		}
 
 		var software_renderer::invalidate(list args) {
@@ -274,14 +364,19 @@ namespace gold {
 			if (current != fingerprint_) {
 				refreshFingerprint();
 				styleDirty_ = true;
+				layoutDirty_ = true;  // DOM edits change structure, not just paint
 			}
 			if (!dirty()) return false;
 
 			if (styleDirty_) {
 				styleDirty_ = false;
-				layoutDirty_ = true;
 				styles_ = resolveStyles(tree_, sheet_, styleCtx_);
 				stats_.stylePasses++;
+				// Animation overlays land right after the cascade so the
+				// layout sees their values; they only request a re-layout
+				// when they actually moved geometry.
+				applyAnimationOverlays();
+				if (layoutAffects_) layoutDirty_ = true;
 			}
 			if (layoutDirty_) {
 				layoutDirty_ = false;

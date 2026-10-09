@@ -195,13 +195,32 @@ The ray is intersected with the quad's plane, converted to UI pixels, and
 dispatched to the element under it. The texture is only re-uploaded when the
 UI changed. See `include/game/uiSurface.hpp`.
 
+## CSS animations
+
+`@keyframes` blocks parse through the stylesheet and now play back.
+`advance(dt)` ticks the per-node clocks; `uiSurface::draw` feeds it
+wall-clock deltas itself, so animated surfaces need no game-side drive.
+
+```css
+@keyframes fade { from { opacity: 0 } to { opacity: 1 } }
+.box { animation: fade 2s linear infinite alternate }
+```
+
+Shorthand order: name duration timing-function delay iteration-count
+direction fill-mode. Interpolated values: numbers (`opacity`), colors,
+and lengths (which resolve to px, so a `10px → 2em` pair answers in px);
+percentages and non-numeric values take the far step's value instead.
+A layout-affecting animation re-runs layout each frame; `opacity`/`color`
+animations cost only style + paint. A fill-less animation releases to
+the base style when it ends; `forwards`/`both` hold the last frame.
+Per-node clocks reset when the element's shorthand changes or the
+document reloads.
+
 ## Not yet implemented
 
-- CSS animations and transitions: `@keyframes` blocks are parsed and exposed
-  (`stylesheet::findKeyframes`), and `advance(dt)` is the hook a running
-  animation drives, but nothing plays them back yet. Animating
-  layout-affecting properties (which is what the dirty-tracking design
-  expects) is the next step.
+- CSS transitions: the `transition` shorthand parses but does not play
+  back (animations do, since their playback is time-driven rather than
+  change-driven).
 - `::before` / `::after` are parsed and then ignored.
 - `transform` (2D/3D), `float`, `columns`, tables, `float`-based pagination.
 - `background-image: url(...)` reaches the rasterizer through

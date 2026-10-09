@@ -247,6 +247,83 @@ TEST(ui_keyframes_are_collected) {
 	EXPECT_EQ(sheet.rules.size(), (size_t)1);
 }
 
+TEST(ui_animation_shorthand_parses) {
+	animationSpec spec = parseAnimationShorthand(
+		"pulse 2s ease-in 0.5s infinite alternate forwards");
+	EXPECT_EQ(spec.name, string("pulse"));
+	EXPECT_NEAR(spec.duration, 2.0, 0.001);
+	EXPECT_EQ(spec.easing, string("ease-in"));
+	EXPECT_NEAR(spec.delay, 0.5, 0.001);
+	EXPECT_TRUE(spec.infinite);
+	EXPECT_EQ(spec.dir, animationSpec::direction::alternate);
+	EXPECT_EQ(spec.fillMode, animationSpec::fill::forwards);
+
+	animationSpec looped = parseAnimationShorthand("spin 1.5s 3");
+	EXPECT_NEAR(looped.duration, 1.5, 0.001);
+	EXPECT_NEAR(looped.iterations, 3.0, 0.001);
+	EXPECT_FALSE(looped.infinite);
+	EXPECT_EQ(looped.easing, string("ease"));
+}
+
+TEST(ui_animation_progress_applies_delay_direction_fill) {
+	animationSpec spec = parseAnimationShorthand("a 1s linear none");
+	spec.delay = 0.5f;
+	EXPECT_NEAR(animationProgress(spec, 0.25), -1.0, 0.001);
+	EXPECT_NEAR(animationProgress(spec, 1.0), 0.5, 0.001);
+	// Finished, fill none: released.
+	EXPECT_NEAR(animationProgress(spec, 2.0), -1.0, 0.001);
+	// A forwards fill holds the end frame.
+	spec.fillMode = animationSpec::fill::forwards;
+	EXPECT_NEAR(animationProgress(spec, 2.0), 1.0, 0.001);
+	// Reverse runs the timeline backwards.
+	animationSpec rev = parseAnimationShorthand("a 1s linear reverse");
+	EXPECT_NEAR(animationProgress(rev, 0.25), 0.75, 0.001);
+	// Alternate flips each even iteration.
+	animationSpec alt =
+		parseAnimationShorthand("a 1s linear infinite alternate");
+	EXPECT_NEAR(animationProgress(alt, 0.25), 0.25, 0.001);
+	EXPECT_NEAR(animationProgress(alt, 1.25), 0.75, 0.001);
+}
+
+TEST(ui_css_animation_fades_opacity_over_time) {
+	software_renderer ui;
+	setupUI(ui, "<div class='box'></div>",
+		"@keyframes fade { from { opacity: 0 } to { opacity: 1 } } "
+		".box { width: 40px; height: 40px; background: #ff0000; "
+		"animation: fade 2s linear }");
+	// t=0: the animation's first frame (fully transparent).
+	ui.step(0.001);
+	EXPECT_TRUE(ui.paint());
+	const int a0 = alphaAt(ui.target(), 10, 10);
+	EXPECT_TRUE(a0 < 8);
+	ui.step(1.0);
+	EXPECT_TRUE(ui.paint());
+	const int a1 = alphaAt(ui.target(), 10, 10);
+	EXPECT_TRUE(a1 > 90 && a1 < 165);  // linear halfway = ~127
+	ui.step(1.0);
+	EXPECT_TRUE(ui.paint());
+	// Finished without a fill: the base style (fully opaque) stands.
+	EXPECT_TRUE(alphaAt(ui.target(), 10, 10) >= 250);
+}
+
+TEST(ui_css_animation_alternates_between_endpoints) {
+	software_renderer ui;
+	setupUI(ui, "<div class='box'></div>",
+		"@keyframes fade { from { opacity: 0 } to { opacity: 1 } } "
+		".box { width: 40px; height: 40px; background: #ff0000; "
+		"animation: fade 2s linear infinite alternate }");
+	ui.step(1.0);
+	EXPECT_TRUE(ui.paint());
+	const int half = alphaAt(ui.target(), 10, 10);
+	EXPECT_TRUE(half > 90 && half < 165);
+	// The second iteration runs backwards: 2.5s in is 25% into a
+	// reversed run, played as opacity 0.75.
+	ui.step(1.5);
+	EXPECT_TRUE(ui.paint());
+	const int swung = alphaAt(ui.target(), 10, 10);
+	EXPECT_TRUE(swung > 160 && swung < 220);
+}
+
 TEST(ui_media_queries_match_viewport) {
 	styleContext ctx;
 	ctx.viewportWidth = 800.0f;
