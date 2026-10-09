@@ -521,6 +521,96 @@ TEST(physics_bullet_box_falls_under_gravity) {
 	EXPECT_NE(backend, (physicsBackend*)nullptr);
 }
 
+TEST(entity_disable_gates_update_dispatch) {
+	// A disabled entity skips its components on dispatch; enabling
+	// resumes them. The parent flag cascades down the chain; loose
+	// components (no owning entity) always dispatch.
+	static int updateCount = 0;
+	updateCount = 0;
+	auto bump = func([](list) -> var {
+		++updateCount;
+		return var();
+	});
+
+	testEngine eng;
+	// The sequential dispatch path (an earlier test in this process
+	// leaves the parallel pool running; a config pins the sync path).
+	eng.setObject("config", jo("parallelUpdate", false));
+
+	// An owned component on an entity, a loose component, and a child
+	// entity nested under a disabled parent.
+	auto ent = entity(jo("name", "gated"));
+	auto comp = component();
+	comp.setFunc("update", bump);
+	ent.add(ja(comp));
+
+	auto loose = component();
+	loose.setFunc("update", bump);
+
+	auto parent = entity(jo("name", "parent"));
+	auto child = entity(jo("name", "child"));
+	auto childComp = component();
+	childComp.setFunc("update", bump);
+	child.add(ja(childComp));
+	parent.add(ja(child));
+
+	eng.setList("components", ja(var(comp), var(loose), var(childComp)));
+
+	eng.callMethod("update");
+	EXPECT_EQ(updateCount, 3);
+
+	// The disable gates exactly the owned component's dispatch.
+	ent.disable({});
+	eng.callMethod("update");
+	EXPECT_EQ(updateCount, 5);
+
+	// The disabled parent gates the child too (the owned one is still
+	// gated by its own flag).
+	parent.disable({});
+	eng.callMethod("update");
+	EXPECT_EQ(updateCount, 6);
+
+	// Re-enabling resumes, and the chain stays untouched otherwise.
+	parent.enable({});
+	ent.enable({});
+	eng.callMethod("update");
+	EXPECT_EQ(updateCount, 9);
+}
+
+TEST(physics_raycast_hits_box) {
+	// Gated on the bullet plugin; the ray cast is answered by the
+	// backend and reports the struck body + hit location.
+	if (!plugin::load("bullet")) return;
+	engine eng;
+	eng.setParent(engine::getPrototype());
+	world phys(jo("physics", "bullet", "gravity", vec3f(0, -10, 0)));
+	EXPECT_FALSE(phys.initialize({eng}).isError());
+	eng.setObject("world", phys);
+
+	// A static box (mass 0): boxShape's "size" feeds btBoxShape as
+	// half-extents, so the box spans +-1 per axis and a ray straight
+	// down from y=5 crosses the top face at y=+1.
+	auto bodyComp = physicsBody(jo("mass", 0.0));
+	entity ground(jo("name", "ground"));
+	ground.setObject("engine", eng);
+	ground.getTransform().setPosition({vec3f(0, 0, 0)});
+	ground.add(ja(boxShape(jo("size", vec3f(1, 1, 1))), bodyComp));
+	EXPECT_TRUE(bodyComp.callMethod("initialize").isEmpty());
+
+	auto hit = phys.raytrace({ja(0, 5, 0), ja(0, -5, 0)}).getList();
+	EXPECT_EQ(hit.size(), (uint64_t)1);
+	if (hit.size() == 0) return;
+	auto first = hit.getObject(0);
+	EXPECT_NEAR(first.getVar("position").getFloat(1), 1.0f, 0.001f);
+	EXPECT_NEAR(first.getVar("normal").getFloat(1), 1.0f, 0.001f);
+	EXPECT_TRUE(first.getDouble("distance") > 3.0f);
+	EXPECT_TRUE((bool)first.getObject("body"));
+
+	// A miss far away answers an empty list.
+	auto miss = phys.raytrace({ja(0, 5, 100), ja(0, -5, 100)}).getList();
+	EXPECT_EQ(miss.size(), (uint64_t)0);
+}
+
 TEST(varying_define_expansion) {
 	// The system shaderc rejects preprocessor directives in varying
 	// definitions, so the runtime compile expands them itself. Feed a

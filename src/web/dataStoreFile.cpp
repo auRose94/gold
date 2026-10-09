@@ -71,29 +71,82 @@ namespace gold {
 				return object();
 			}
 
-			// Match a filter object against a document. Equality for plain
-			// values; `{"$in", [...]}` matches when the field (a list)
-			// intersects the given list. (Takes non-const refs because
-			// object accessors are non-const.)
+			// Match a filter object against a document. Plain values mean
+			// equality (missing fields never match); a per-field operator
+			// object supports $eq/$ne/$in/$nin (membership both ways:
+			// the field may be a list) and $gt/$gte/$lt/$lte (gold var
+			// comparisons) plus $exists. Multiple operators AND.
 			static bool matches(object& doc, object& filter) {
 				for (auto it = filter.begin(); it != filter.end(); ++it) {
 					auto fv = it->second;
-					if (fv.getType() == typeObject) {
-						auto fo = fv.getObject();
-						auto in = fo.getVar("$in");
-						if (in.getType() != typeList) return false;
-						auto inList = in.getList();
-						auto dv = doc.getVar(it->first);
-						if (dv.getType() != typeList) return false;
-						auto docList = dv.getList();
-						bool any = false;
-						for (auto d : docList)
-							for (auto x : inList)
-								if (d == x) { any = true; break; }
-						if (!any) return false;
-					} else {
-						auto dv = doc.getVar(it->first);
-						if (!(dv == fv)) return false;
+					const auto key = it->first;
+					const bool has = doc.getType(key) != typeNull;
+					auto field = has ? doc.getVar(key) : var();
+
+					if (fv.getType() != typeObject) {
+						if (!has || !(field == fv)) return false;
+						continue;
+					}
+					auto ops = fv.getObject();
+					for (auto op = ops.begin(); op != ops.end(); ++op) {
+						const auto& name = op->first;
+						const auto& value = op->second;
+						if (name == "$exists") {
+							if (value.getBool() != has) return false;
+						} else if (name == "$eq") {
+							if (!has || !(field == value)) return false;
+						} else if (name == "$ne") {
+							// MongoDB $ne also matches absent fields.
+							if (has && field == value) return false;
+						} else if (name == "$in") {
+							if (value.getType() != typeList) return false;
+							auto wanted = value.getList();
+							bool any = false;
+							if (!has) return false;
+							if (field.getType() == typeList) {
+								// A list field matches when it intersects.
+								auto have = field.getList();
+								for (auto d : have)
+									for (auto x : wanted)
+										if (d == x) { any = true; break; }
+							} else {
+								for (auto x : wanted)
+									if (field == x) { any = true; break; }
+							}
+							if (!any) return false;
+						} else if (name == "$nin") {
+							if (value.getType() != typeList) return false;
+							auto wanted = value.getList();
+							bool any = false;
+							if (has) {
+								if (field.getType() == typeList) {
+									auto have = field.getList();
+									for (auto d : have)
+										for (auto x : wanted)
+											if (d == x) { any = true; break; }
+								} else {
+									for (auto x : wanted)
+										if (field == x) { any = true; break; }
+								}
+							}
+							if (any) return false;
+						} else if (name == "$gt" || name == "$gte" ||
+								   name == "$lt" || name == "$lte") {
+							if (!has) return false;
+							if (name == "$gt") {
+								if (!(field > value)) return false;
+							} else if (name == "$gte") {
+								if (!(field >= value)) return false;
+							} else if (name == "$lt") {
+								if (!(field < value)) return false;
+							} else {
+								if (!(field <= value)) return false;
+							}
+						} else {
+							// Unknown operator: fail closed, like an
+							// unsupported query would.
+							return false;
+						}
 					}
 				}
 				return true;
@@ -277,7 +330,8 @@ namespace gold {
 							return genericError(
 								"unsupported update operators (want $set, "
 								"$unset or $inc)");
-						writeJSON(entry.path().string(), doc);
+						if (!writeJSON(entry.path().string(), doc))
+							return genericError("failed to write document");
 						return var(doc);
 					}
 				}
@@ -304,7 +358,8 @@ namespace gold {
 							return genericError(
 								"unsupported update operators (want $set, "
 								"$unset or $inc)");
-						writeJSON(entry.path().string(), doc);
+						if (!writeJSON(entry.path().string(), doc))
+							return genericError("failed to write document");
 						++count;
 					}
 				}
@@ -390,8 +445,7 @@ namespace gold {
 				auto dir = colDir(cname);
 				fs::create_directories(dir);
 				auto meta = jo("indexes", var(list{var(keys)}));
-				writeJSON(dir + "/.index.json", meta);
-				return true;
+				return writeJSON(dir + "/.index.json", meta);
 			}
 
 			bool dropIndex(const std::string& cname) override {

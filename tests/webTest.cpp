@@ -444,3 +444,71 @@ TEST(css_parser_quoted_values_with_semicolons_and_braces) {
 int main() {
 	return goldtest::runAll();
 }
+
+TEST(html_void_tags_serialize_without_end_tags) {
+	// Parses → serializes: void elements must not emit "</br>"-style end
+	// tags (double renders when a browser re-parses them).
+	auto roots = Parser::parseHTML(
+		"<div><br><img src='a.png'><hr/></div>");
+	auto br = roots.getObject(0, HTML::iHTML())
+				  .getList("items")
+				  .getObject(0, HTML::iHTML());
+	auto rendered = (string)br;
+	EXPECT_EQ(rendered, std::string("<br>"));
+
+	auto img = roots.getObject(0, HTML::iHTML())
+				   .getList("items")
+				   .getObject(1, HTML::iHTML());
+	EXPECT_EQ((string)img, std::string("<img src=\"a.png\">"));
+
+	// A whole fragment keeps its structure: only the void children lose
+	// their end tags.
+	auto div = roots.getObject(0, HTML::iHTML());
+	auto html = (string)div;
+	EXPECT_TRUE(html.find("</div>") != string::npos);
+	EXPECT_TRUE(html.find("</br>") == string::npos);
+	EXPECT_TRUE(html.find("</img>") == string::npos);
+	EXPECT_TRUE(html.find("</hr>") == string::npos);
+
+	// Building a page that mixes void and normal elements round-trips
+	// through the same path.
+	auto page = HTML::body(list({HTML::img(list({jo("src", "b.png")})),
+		HTML::p(list({"text"}) )}));
+	auto out = (string)page;
+	EXPECT_TRUE(out.find("<img src=\"b.png\">") != string::npos);
+	EXPECT_TRUE(out.find("</img>") == string::npos);
+	EXPECT_TRUE(out.find("</p>") != string::npos);
+}
+
+TEST(css_at_rules_do_not_leak_into_rules) {
+	// The plain parser skips at-rules whole: block forms balance their
+	// braces, statement forms end at ';'. Pre-fix, "@media (...) { p { x }
+	// }" split at the FIRST '}', misparsing the inner selectors.
+	auto rules = CSS::parseCSS(
+		"@charset \"utf-8\";\n"
+		"@media (max-width: 600px) { p { color: red } }\n"
+		"@import url(\"x.css\");\n"
+		"@keyframes spin { to { left: 1px } }\n"
+		".kept { margin: 0 }\n"
+		"div.kept { color: blue }\n");
+	EXPECT_EQ(rules.size(), (uint64_t)2);
+	EXPECT_EQ(rules.getObject(0, CSS::Rule()).getString("selector"),
+		string(".kept"));
+	EXPECT_EQ(rules.getObject(0, CSS::Rule())
+				  .getObject("declarations")
+				  .getInt64("margin", -1),
+		(int64_t)0);
+	EXPECT_EQ(rules.getObject(1, CSS::Rule()).getString("selector"),
+		string("div.kept"));
+	EXPECT_EQ(
+		rules.getObject(1, CSS::Rule()).getObject("declarations").getString(
+			"color"),
+		string("blue"));
+
+	// parseRule called directly with an at-rule consumes it and returns
+	// nothing, leaving pos past the block.
+	size_t pos = 0;
+	CSS::Rule atRule = CSS::parseRule("@media screen { a { b: c } }", pos);
+	EXPECT_EQ(atRule.getString("selector"), string(""));
+	EXPECT_EQ(pos, (size_t)string("@media screen { a { b: c } }").size());
+}

@@ -29,6 +29,31 @@ namespace gold {
 			return true;
 		}
 
+		/** The position after a complete at-rule: to the balanced '}' for
+		 *  block forms, to ';' for statement forms, or end-of-input. This
+		 *  simple parser does not expand at-rules; skipping them keeps
+		 *  their braces from leaking into rule parsing. */
+		static size_t skipAtRule(const string& css, size_t pos) {
+			size_t depth = 0;
+			while (pos < css.size()) {
+				const char c = css[pos];
+				if (c == '/' && pos + 1 < css.size() && css[pos + 1] == '*') {
+					const auto end = css.find("*/", pos + 2);
+					pos = end == string::npos ? css.size() : end + 2;
+					continue;
+				}
+				if (depth == 0 && c == ';') return pos + 1;
+				if (c == '{') { depth++; }
+				else if (c == '}') {
+					depth--;
+					if (depth == 0) return pos + 1;
+					if (depth < 0) return pos + 1;  // stray close
+				}
+				pos++;
+			}
+			return css.size();
+		}
+
 		list parseCSS(const string& css) {
 			list rules;
 			size_t pos = 0;
@@ -49,6 +74,13 @@ namespace gold {
 					continue;
 				}
 
+				// At-rules (@media/@import/@keyframes/...) are not plain
+				// selector+declarations rules; skip them whole.
+				if (css[pos] == '@') {
+					pos = skipAtRule(css, pos);
+					continue;
+				}
+
 				Rule rule = parseRule(css, pos);
 				if (rule.getString("selector") != "") {
 					rules.pushVar(var(rule));
@@ -64,6 +96,12 @@ namespace gold {
 			// Skip whitespace
 			while (pos < css.size() && isspace(css[pos])) pos++;
 			if (pos >= css.size()) return rule;
+
+			// An at-rule handed directly to parseRule skips clean.
+			if (css[pos] == '@') {
+				pos = skipAtRule(css, pos);
+				return rule;
+			}
 
 			// Find the opening brace for selector
 			size_t braceStart = css.find('{', pos);

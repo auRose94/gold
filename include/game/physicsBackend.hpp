@@ -43,6 +43,18 @@ namespace gold {
 		/** Batch the wireframe of every body through the debug sink. */
 		virtual void debugDraw(object world) = 0;
 
+		/** Ray-cast from world-space `from` to `to`; an empty list means
+		 *  no hit, a hit is one object {position, normal, distance, body}
+		 *  (position/normal vec3s, distance in world units, body the
+		 *  physicsBody component that was struck). The built-in backends
+		 *  default to no hit. */
+		virtual list raycast(object world, float from[3], float to[3]) {
+			(void)world;
+			(void)from;
+			(void)to;
+			return list();
+		}
+
 		/** Materialize the shape component's payload ("shape" pointer)
 		 *  from its descriptor ("shapeKind" + size/mesh/node fields). */
 		virtual bool createShape(object shape) = 0;

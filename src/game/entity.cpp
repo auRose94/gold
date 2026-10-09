@@ -89,18 +89,14 @@ namespace gold {
 	}
 
 	var entity::enable(list) {
-		if (!getBool("enabled")) {
-			setBool("enabled", true);
-			// Do something
-		}
+		// The flag is the switch: dispatch (engine::callMethod/drawScene)
+		// skips components whose owning entity chain is disabled.
+		if (!getBool("enabled")) setBool("enabled", true);
 		return var();
 	}
 
 	var entity::disable(list) {
-		if (getBool("enabled")) {
-			setBool("enabled", false);
-			// Do something
-		}
+		if (getBool("enabled")) setBool("enabled", false);
 		return var();
 	}
 

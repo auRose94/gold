@@ -165,6 +165,23 @@ namespace gold {
 		}
 	}
 
+	namespace {
+		/** A component whose owning entity chain ("object" ref and its
+		 *  "parent" chain) has a disabled ancestor skips update/draw
+		 *  dispatch. Loose components (no owning entity) always run. */
+		bool gatedByDisabledEntity(object& comp) {
+			auto owner = comp.getObject<entity>("object");
+			if (!owner) return false;
+			auto cur = owner;
+			for (;;) {
+				if (!cur.getBool("enabled", true)) return true;
+				auto parent = cur.getObject<entity>("parent");
+				if (!parent) return false;
+				cur = parent;
+			}
+		}
+	}  // namespace
+
 	void engine::callMethod(string m, list args) {
 		auto comps = getList("components");
 		// Parallel dispatch of component updates across the promise worker
@@ -177,20 +194,21 @@ namespace gold {
 			list jobs;
 			for (auto it = comps.begin(); it != comps.end(); ++it) {
 				auto comp = it->getObject<component>();
-				if (comp) {
-					// func preserves dynamic dispatch through the prototype
-					// chain; the promise prepends self, which we ignore.
-					auto f = func([comp](list) mutable -> var {
-						return comp.callMethod("update");
-					});
-					jobs.pushObject(promise(comp, f, args));
-				}
+				if (!comp || gatedByDisabledEntity(comp)) continue;
+				// func preserves dynamic dispatch through the prototype
+				// chain; the promise prepends self, which we ignore.
+				auto f = func([comp](list) mutable -> var {
+					return comp.callMethod("update");
+				});
+				jobs.pushObject(promise(comp, f, args));
 			}
 			awaitList(jobs);
 			return;
 		}
 		for (auto it = comps.begin(); it != comps.end(); ++it) {
 			auto comp = it->getObject<component>();
+			if (!comp) continue;
+			if (gatedByDisabledEntity(comp)) continue;
 			comp.callMethod(m, args);
 		}
 	}
@@ -227,6 +245,8 @@ namespace gold {
 		for (auto it = renderables.begin(); it != renderables.end();
 				 ++it) {
 			auto comp = it->getObject<renderable>();
+			// Disabled entities' renderables do not draw.
+			if (gatedByDisabledEntity(comp)) continue;
 			auto meshR = it->getObject<meshRenderer>();
 			if ((bool)meshR) {
 				auto drawArgs = list();

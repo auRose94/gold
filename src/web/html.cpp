@@ -132,10 +132,14 @@ namespace gold {
 			// one so round-tripping a parse produces the original markup.
 			if (buffer.size() > 1 && buffer.back() == ' ') buffer.pop_back();
 			buffer += ">";
+			// Void elements have no children and no end tag: "</br>"-style
+			// output would round-trip as TWO breaks.
+			const bool voidTag = Parser::isVoidTag(tag);
 			auto defHTML = iHTML();
 			// Script/style bodies are source text, not character data, so
 			// they round-trip verbatim (their parser branch reads raw).
 			const bool escapeText = tag != "script" && tag != "style";
+			if (voidTag) return buffer;
 			for (auto it = items.begin(); it != items.end(); ++it) {
 				if (it->isObject(getPrototype())) {
 					auto obj = it->getObject<iHTML>();

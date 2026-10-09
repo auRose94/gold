@@ -10,6 +10,7 @@
 
 #include <btBulletDynamicsCommon.h>
 
+#include "goldjs.hpp"
 #include "engine.hpp"
 #include "entity.hpp"
 #include "mesh.hpp"
@@ -201,6 +202,49 @@ namespace gold {
 				auto* world = (btDiscreteDynamicsWorld*)w.getPtr("dynamicsWorld");
 				if (!world) return;
 				world->debugDrawWorld();
+			}
+
+			list raycast(object w, float from[3], float to[3]) override {
+				auto* world =
+					(btDiscreteDynamicsWorld*)w.getPtr("dynamicsWorld");
+				if (!world) return list();
+				btVector3 rayFrom(from[0], from[1], from[2]);
+				btVector3 rayTo(to[0], to[1], to[2]);
+				btCollisionWorld::ClosestRayResultCallback ray(rayFrom, rayTo);
+				world->rayTest(rayFrom, rayTo, ray);
+				if (!ray.hasHit()) return list();
+
+				// The struck body's gold component, found by pointer
+				// identity against the world's registered bodies list.
+				object bodyComp;
+				auto bodies = w.getList("bodies");
+				for (auto it = bodies.begin(); it != bodies.end(); ++it) {
+					auto comp = it->getObject<physicsBody>();
+					if ((btRigidBody*)comp.getPtr("body") ==
+						ray.m_collisionObject) {
+						bodyComp = comp;
+						break;
+					}
+				}
+
+				const auto& point = ray.m_hitPointWorld;
+				const auto& normal = ray.m_hitNormalWorld;
+				const float spanX = to[0] - from[0];
+				const float spanY = to[1] - from[1];
+				const float spanZ = to[2] - from[2];
+				const float span = sqrtf(
+					spanX * spanX + spanY * spanY + spanZ * spanZ);
+				auto hit = jo(
+					"position",
+					var(vec3f((float)point.x(), (float)point.y(),
+						(float)point.z())),
+					"normal",
+					var(vec3f((float)normal.x(), (float)normal.y(),
+						(float)normal.z())),
+					"distance",
+					ray.m_closestHitFraction * span);
+				if (bodyComp) hit["body"] = var(bodyComp);
+				return list({hit});
 			}
 
 			bool createShape(object shapeComp) override {

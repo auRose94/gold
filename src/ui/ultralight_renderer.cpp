@@ -31,14 +31,14 @@ namespace gold {
 					setHTML(list({config.getString("html")}));
 				if (config.getType("css") != typeNull)
 					setCSS(list({config.getString("css")}));
-				if (config.getType("width") != typeNull) {
-					const float w = (float)config.getDouble("width");
-					updateViewport(w, 480.0f);
-				}
-				if (config.getType("height") != typeNull) {
-					const float h = (float)config.getDouble("height");
-					updateViewport(640.0f, h);
-				}
+				// Read both dimensions first: applying each as its own
+				// resize would clobber the other back to the default.
+				float w = width_, h = height_;
+				if (config.getType("width") != typeNull)
+					w = (float)config.getDouble("width");
+				if (config.getType("height") != typeNull)
+					h = (float)config.getDouble("height");
+				if (w != width_ || h != height_) updateViewport(w, h);
 			}
 			return var(this);
 		}

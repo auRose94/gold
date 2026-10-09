@@ -68,7 +68,11 @@ namespace gold {
 		float to[3];
 		args[0].getList().assign(typeFloat, from, 3);
 		args[1].getList().assign(typeFloat, to, 3);
-		return var();
+		// The backend answers the cast; the built-in none backend (and an
+		// uninitialized world) reports no hit.
+		auto backend = (physicsBackend*)getPtr("physicsBackend");
+		if (!backend) return var(list());
+		return var(backend->raycast(*this, from, to));
 	}
 
 	var world::initialize(list args) {
