@@ -963,6 +963,23 @@ TEST(ui_font_glyph_bitmap_is_cached) {
 	EXPECT_TRUE(first->height > 0);
 }
 
+TEST(ui_font_cache_eviction_returns_the_new_glyph) {
+	fontManager fonts;
+	// Push past the 8192-entry eviction with distinct tofu codepoints.
+	// The old order (insert, then clear, then `return &cache[key]`) wiped
+	// the insertion and handed back AND cached an empty bitmap.
+	bool sawEmpty = false;
+	for (uint32_t i = 0; i < 9000; ++i) {
+		const auto* g = fonts.glyph(0x3000 + i, "sans-serif", 16.0f);
+		if (!g || !g->valid()) {
+			sawEmpty = true;
+			break;
+		}
+	}
+	EXPECT_FALSE(sawEmpty);
+	EXPECT_TRUE(fonts.glyph('A', "sans-serif", 12.0f)->valid());
+}
+
 TEST(ui_font_utf8_round_trip) {
 	vector<uint32_t> decoded = fontManager::decodeUTF8("a\xC3\xA9\xE2\x82\xAC");
 	EXPECT_EQ(decoded.size(), (size_t)3);
