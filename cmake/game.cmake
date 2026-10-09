@@ -24,6 +24,7 @@ add_library(
 		src/game/physicsBackend.cpp
 		src/game/physicsBody.cpp
 		src/game/renderBackend.cpp
+		src/game/renderBackendBgfx.cpp
 		src/game/renderable.cpp
 		src/game/shape.cpp
 		src/game/sphereShape.cpp
