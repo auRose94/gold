@@ -19,46 +19,54 @@ What's in the box?
 * A TypeScript-like scripting language (`gold::lang`): optional type
   annotations, classes, arrows, template literals — values and scopes are
   gold objects, and scripts share gold data/backends with the host
-* Express.JS "like" HTTP(S)/WebSocket server
+* Express.JS "like" HTTP(S)/WebSocket server (libwebsockets transport as a
+  loadable plugin)
 * HTML5 rendering (with form handling/pragmatic templating)
 * Embedded document store ("file" backend: JSON files on disk; pluggable
   via the dataStore interface) and basic MVC system 
 * Server-side image loading (not connected to game).
-* Object & component based game engine
-* Basic window handling
-* 3D matrix transformation hierarchies
-* Texture loading(2D/3D/Cube)
+* Object & component based game engine: entities with transform
+  hierarchies, cameras, punctual lights, environment maps, glTF mesh
+  import rendered through a PBR shader (or flat/unlit), sprites, physics
+  (bullet as a plugin), and a headless-friendly frame loop
 * HTML/CSS UI renderer: cascade, block/flex/grid layout, anti-aliased CPU
   rasterizer, text through the system FreeType (dlopen'd, with a built-in
   fallback font) — re-renders only when the UI changes, and drives
   in-world surfaces (`uiSurface`: a CRT on a desk) with pointer
   picking and click/hover events
-* Auto shader compilation, with inlining
+* Pluggable everything: window, input, audio, render and physics backends
+  live behind pure interfaces, registered by name, selected from your
+  config or **the command line** (`--render-backend=sdlgpu`), with
+  fallback chains; optional backends are dynamically-loaded plugins
+  (`libgoldSdl3.so`, `libgoldBgfx.so`, ...) — nothing platform-specific
+  is baked in
+* Auto shader compilation, with inlining — through the backend that owns
+  it; the compiler tool never links into the framework
 * CMake utilities
 * Still experimental threading stuff (workers/promises)
-* Optional backends are loadable plugins / dynamic dependencies, not
-  statically baked-in libraries
 * Hard parts of C++ have been abstracted to JS/Python difficulty
-* Works with GCC and Clang (MSVC is untested).
+* Works with GCC and Clang on C++26 (MSVC is untested).
 * Uses little memory actually, good enough for x64 IOT or Mobile.
 
 Where it falls short?
 * Lacks some in-depth error handling (see genericError)
 * Threading is subsystem limited and experimental (off by default)
-* Has heavy 3rdParty dependencies that have it's own dependencies
+* Has heavy 3rdParty dependencies that have it's own dependencies (but
+  they're all system packages behind loadable plugins — see the
+  dependency policy below)
 * Needs the latest bleeding edge compiler and STL library
-* Uses the C++17/20 standard
 
-What it's lacking?
-* Documentation
+What's lacking?
+* Documentation is growing (`docs/index.md` and the module tree) but far
+  from complete
 * Comments
-* Bug/error testing
-* Tests
-* A website
+* The SDL_GPU render backend is the new kid: the resource and draw path
+  work (the shark example renders through it) but it's still catching up
+  to bgfx feature-wise
 
 What's planned?
 High priority:
-* Complete asset handling and the glTF pipeline
+* Complete the SDL_GPU render backend's parity with bgfx
 * Expanded game engine stability and rendering coverage
 * Expanded web services and persistence guarantees
 
@@ -66,7 +74,6 @@ Medium priority:
 * Audio handling and resource lifecycle support
 * Controller handling
 * Async event handling
-* GUI handling
 * In-depth complex examples
 * Documentation
 
@@ -78,12 +85,35 @@ Lower priority:
 
 You can copy everything from the examples directory to get started with a basic web app or game. It's better to make this project a submodule in git instead of cloning/copying the project.
 
+Build (or grab the short way, `./build.sh`) and run the shark:
+
+```sh
+./build.sh                      # core + game + web + ui + lang, tests, examples
+ctest --test-dir build --output-on-failure
+
+./build/examples/blahajExample/BlahajExample                      # default: bgfx
+./build/examples/blahajExample/BlahajExample --render-backend=sdlgpu
+./build/examples/blahajExample/BlahajExample --window-backend=sdl2
+./build/examples/blahajExample/BlahajExample \
+  --window-backend=wayland,sdl --renderer=Vulkan path/to/model.gltf
+```
+
 All code not in 3rdParty or explicitly stated otherwise are Apache version 2.
 
 ## Building
 
-The project uses CMake (3.16+) and builds with **C++26** (GCC ≥ 13 / Clang ≥ 16;
-`CMAKE_CXX_STANDARD 26`). Submodules must be present:
+Everything (modules, tests, examples + the test run) is one script:
+
+```sh
+./build.sh            # build everything, run the suite
+./build.sh --core     # shared core only (fast, smallest dependency surface)
+./build.sh --clean    # wipe and configure from scratch
+./build.sh --no-test  # configure and build, skip the test run
+```
+
+Under it the project uses CMake (3.16+) and builds with **C++26**
+(GCC ≥ 13 / Clang ≥ 16; `CMAKE_CXX_STANDARD 26`). Submodules must be
+present:
 
 ```sh
 git submodule update --init --recursive
@@ -99,56 +129,97 @@ Build options (all default to `ON` except examples):
 * `GOLD_BUILD_LANG` – the scripting-language module (`gold::lang`)
 * `GOLD_BUILD_TESTS` – the test suite
 * `GOLD_BUILD_EXAMPLES` – build the example projects (default `OFF`; requires `GOLD_BUILD_GAME`)
-* **bgfx** is always the system package (`libbgfx.so` + headers + the
+* **bgfx** comes from the system package (`libbgfx.so` + headers + the
   `bgfx-shaderc` tool, e.g. the `bgfx-cmake` package on Arch) — the game
-  module cannot be configured without it; the vendored fallback sources
-  were removed. Shaders compile at build time and at run time through
-  the external `bgfx-shaderc` tool; the compiler is not statically
-  linked into `gold::game`.
+  module cannot be configured without it. Shaders compile at build time
+  and at run time through the external tool; the compiler is never
+  statically linked into `gold::game`.
 
-To build and test just the shared core (fast, no game/web deps):
+## Backends
+
+Every pluggable subsystem follows the same pattern: a pure virtual
+interface with **no platform types in its headers**, a `registerX(name,
+factory)` registry, and selection by name — from the engine's settings
+file (`~/.local/share/<company>/<game>/config.json`) or straight from
+the command line. A name accepts a fallback chain (a list tried in
+order), and backends an app hasn't built resolve through dynamically
+loaded plugins that self-register on load.
+
+| Subsystem | Facade | Backends |
+| --- | --- | --- |
+| Window | `window` | `sdl`/`sdl3`, `sdl2`, `wayland`, `headless` |
+| Input | `inputSystem` | `sdl`/`sdl3`, `sdl2`, `evdev` |
+| Audio | `audioSystem` | `sdl`/`sdl3`, `sdl2` |
+| Render | `gfxBackend` | `bgfx` (default), `sdlgpu` |
+| Physics | `world` | `bullet`, `none` |
+| Data store | `database` | `file` (built-in) |
+
+Selection precedence: **defaults < config.json < command line**.
 
 ```sh
-cmake -S . -B build -DGOLD_BUILD_GAME=OFF -DGOLD_BUILD_WEB=OFF
-cmake --build build --target goldTests
-ctest --test-dir build --output-on-failure
+./myApp --window-backend=NAME[,FALLBACK...]   # window/input system pick
+./myApp --render-backend=NAME                 # render backend pick
+./myApp --renderer=NAME                       # the renderer-API hint
 ```
 
-With the game module enabled the suite also builds `goldGameTests` for
-window/input backend and gold-event dispatch coverage; `ctest` runs both.
+`--window-backend` understands the comma fallback chain. `engine`
+constructs with `argc`/`argv` and applies the flags over the settings
+file; unknown flags and positional arguments pass through untouched.
 
-To build the example projects in-tree:
+The window config always appends `headless` as the last resort, so apps
+never hard-fail on a missing compositor:
 
-```sh
-cmake -S . -B build -DGOLD_BUILD_EXAMPLES=ON
-cmake --build build --target ConwaysGameOfLife MyWebProject
+```json
+{ "backend": ["wayland", "sdl", "headless"] }
 ```
 
-To inspect a glTF asset (or another glTF/GLB file):
+Plugins follow the `libgold<Name>.so` naming convention for the backend
+they provide — `libgoldSdl3.so` (window/input/audio + the `sdlgpu`
+renderer), `libgoldSdl2.so` (SDL2 parity), `libgoldBgfx.so` (the bgfx
+renderer), `libgoldBullet.so` (physics), `libgoldLws.so` (the web
+transport). The loader searches `GOLD_PLUGIN_PATH`, then the
+executable's directory, then the module directory; an unknown render
+backend name falls back to bgfx rather than failing the app.
 
-```sh
-cmake --build build --target BlahajExample
-./build/examples/blahajExample/BlahajExample
-# Or pass any glTF/GLB path, e.g. the shipped shark model:
-./build/examples/blahajExample/BlahajExample \
-  examples/blahajExample/assets/models/props/Blahaj/Blahaj_Low_poly_blahaj1_Low_poly_blahaj1.gltf
+Native window/input backends: `"sdl"`/`"sdl3"` registers both names and
+ships Wayland and X11 drivers (on Wayland gold creates the
+`wl_egl_window` the render backend needs); `"wayland"` is a native
+xdg-shell implementation; `"headless"` is built in. Input arrives as
+gold objects — keyboard/mouse through the window event stream, and the
+SDL input backend adds gamepad, touch and sensor events. The engine loop
+is a plain pump + dispatch, no platform switch:
+
+```cpp
+gold::object ev;
+while (ws->poll(ev))
+    win.handleEvent({ev});
 ```
 
-> Crypto (PBKDF2 password hashing, URL-safe base64) is provided by the system
-> OpenSSL library, which is also required by the web module. The bundled
-> Crypto++ submodule has been removed. Install it with your system package
-> manager if missing (e.g. `libssl-dev` on Debian/Ubuntu).
->
-> The game module uses system SDL3 (`libSDL3`, `sdl3` pkg-config module) for
-> its `"sdl"` window backend; the bundled SDL2 submodule has been removed.
-> Install it if missing (e.g. `sdl3` on Arch, `libsdl3-dev` on Debian).
+### Render backends
 
-## Security notes
+Rendering is abstracted behind `renderBackend` (gold-native types — no
+bgfx or Vulkan types in headers; handles are opaque `uint16` indices).
+The default implementation wraps bgfx; `sdlgpu` drives SDL_GPU
+(Vulkan-class, SPIR-V) through the same interface — entity/component
+resource tables, the view/model pipeline, PBR draws, readback
+screenshots and frame pacing (the shark renders through it; parity work
+continues). An unknown backend falls back to bgfx, so a missing plugin
+degrades instead of breaking, and implementing the interface directly
+against a driver is the migration path for whichever renderer you want.
 
-* `object::generateHash` uses PBKDF2-HMAC-SHA256 with 600,000 iterations
-  (OWASP-recommended) rather than the old 1,024. This is intentionally slow
-  for password hashing; existing stored hashes are unaffected but should be
-  re-derived on next login.
+The engine loop runs at a configurable frame rate (`"frameTime"` ms in
+the game's `config.json`, default 16 → 60fps) so it does not peg the CPU
+when the compositor does not present/vsync; the SDL backend picks
+MAILBOX presentation so that cap cannot straddle a vsync deadline.
+
+### Events & handlers are gold data
+
+Backends emit window/input events as gold `object`s
+(`{"type","resized","width",800,"height",600}`, `{"type","key_down",
+"keyCode",...}`), so they are serializable, loggable, and dispatchable.
+The `window` prototype exposes handler slots — `onQuit`, `onResized`,
+`onKeyDown`, `onMouseWheel`, etc. — whose defaults update window state;
+apps override them with `setFunc`/`setMethod`.
 
 ## Module layout
 
@@ -170,6 +241,13 @@ cmake --build build --target BlahajExample
 Because the game/web modules are shared libraries, example executables link
 dynamically instead of statically baking in the entire framework (the game
 example dropped from ~240MB to under 1MB).
+
+The test suite is a set of CTest targets over the whole stack —
+`goldTests` (core), `goldFileErrorTests`, `goldSubsystemTests`,
+`goldLangTests`, `goldGameTests`, `goldRenderBackendTests`,
+`goldSDLGpuTests`, `goldWebTests`, `goldWebPersistenceTests`,
+`goldServerTests`, `goldUITests` — run with
+`ctest --test-dir build --output-on-failure`.
 
 ### Scripting language (`gold::lang`)
 
@@ -201,59 +279,6 @@ The web module's persistence is a `dataStore` backend behind the
 This replaces the MongoDB driver entirely (no server, no driver), keeping
 the same document-oriented API.
 
-### Window system backends
-
-Window creation is abstracted behind `windowSystem` (a pure interface with no
-SDL/bgfx types in its headers). The `window` object is a facade over a
-backend chosen by name:
-
-* `"sdl"` / `"sdl3"` — SDL3 window + input events (registered under both
-  names). SDL3 ships Wayland and X11 drivers (native handles come from SDL
-  window properties; on Wayland gold creates the `wl_egl_window` the EGL
-  render backend needs).
-* `"wayland"` — native Wayland (xdg-shell) window + wl_seat input.
-* `"headless"` — no real window; for tests, CI, and offscreen rendering.
-
-Backends are registered via `registerWindowSystem()`. The `"backend"` config
-accepts a string or a list of names tried in order (fallback chain);
-`"headless"` is always appended last so apps never hard-fail on a missing
-compositor:
-
-```json
-{ "backend": ["wayland", "sdl", "headless"] }
-```
-
-### Input backends
-
-`inputSystem` abstracts device capture. Backends:
-
-* `"evdev"` — real device capture via libevdev (`/dev/input/event*`).
-* `"sdl"` — SDL3's unified input: gamepad (`gamepad_button`/`gamepad_axis`/
-  `gamepad_touchpad` events), touch (`touch_down`/`touch_move`/...), and
-  sensors (`sensor`). Keyboard/mouse continue to arrive through the window
-  event stream; the SDL input backend re-pushes those events so the window
-  backend still sees them.
-
-### Audio backends
-
-`audioSystem` abstracts playback. Backends:
-
-* `"sdl"` — SDL3 audio: opens the default device, loads WAVs, and plays
-  them through SDL3 audio streams (overlapping playback, per-stream volume).
-
-### Render backends
-
-The render backend binds to the platform window through `windowSystem::native()`.
-Select it with the graphics config `"renderBackend"` (`"bgfx"` default,
-`"sdlgpu"` for the SDL3 GPU backend, `"vulkan"` reserved); it falls back to
-bgfx when unavailable. The SDL3 GPU backend currently drives the window's
-swapchain (device init, clear, present); the full resource/draw pipeline is
-in progress.
-
-The engine loop runs at a configurable frame rate (`"frameTime"` ms in the
-game's `config.json`, default 16 → 60fps) so it does not peg the CPU when
-the compositor does not present/vsync.
-
 ### JavaScript-style ergonomics
 
 `var` is a universal dynamic value, and `include/goldjs.hpp` adds JS/TS-flavored
@@ -283,44 +308,6 @@ Property access returns a `varRef` proxy (read + write), and the `jo`/`ja`
 object/array builders, `tpl` template strings, and `each`/`mapArr`/`filter`/
 `findArr`/`join` array helpers remove most boilerplate.
 
-### Events & handlers are gold data
-
-Backends emit window/input events as gold `object`s (`{"type","resized",
-"width",800,"height",600}`, `{"type","key_down","keyCode",...}`), so they are
-serializable, loggable, and dispatchable. The `window` prototype exposes
-handler slots — `onQuit`, `onResized`, `onMoved`, `onKeyDown`, `onMouseMove`,
-etc. — whose defaults update window state. Apps override them with
-`setFunc`/`setMethod`:
-
-```cpp
-win.setFunc("onResized", func([&](gold::list args) -> gold::var {
-    auto ev = args[0].getObject();   // or args[1] for self+event
-    return ev.getInt32("width");
-}));
-```
-
-The engine loop is then a plain pump+dispatch with no platform switch:
-
-```cpp
-gold::object ev;
-while (ws->poll(ev))
-    win.handleEvent({ev});
-```
-
-### Render backends
-
-Rendering is abstracted behind `renderBackend` (gold-native types — no bgfx
-or Vulkan types in headers). `gfxBackend` creates the backend through
-`createRenderBackend(renderBackendType)`:
-
-* `BGFX` (default) — the current implementation, wrapping bgfx.
-* `Vulkan` / `OpenGL` — reserved for future direct implementations.
-
-Handles are opaque `uint16` indices owned by the backend, so a Vulkan backend
-can replace bgfx without changing the engine's resource classes. This is the
-migration path to deprecate bgfx: implement the `renderBackend` interface
-against Vulkan and swap it in.
-
 ## Dependency policy
 
 Runtime loads, not vendored source. Optional subsystems are shared
@@ -332,13 +319,25 @@ soname with graceful fallbacks (the UI's built-in 5x7 font when FreeType
 is absent). Selection policy: system package → platform-parity package →
 feature absent.
 
-Still vendored as stopgaps: `bullet3` (queued: physics plugin) and
-libwebsockets (the web transport, a loadable plugin over the system
-package). JSON and the
-binary data formats (BSON/CBOR/MsgPack/UBJSON) are implemented in-tree
-(`src/goldjson.cpp`); the web document store is in-tree too (`dataStore`
-with a "file" backend in `src/web/dataStoreFile.cpp`). Crypto++/snappy,
-mongo-c-driver, zlib, libuv, SDL/SDL_image/SDL_ttf and brtshaderc were
-removed entirely (dead in the build graph, or replaced by system
-packages — OpenSSL provides PBKDF2/base64 and SDL3 comes from the
-system).
+Everything platform-shaped ships as a plugin over a **system package**:
+SDL3 (`libgoldSdl3.so`: window/input/audio/render), SDL2
+(`libgoldSdl2.so`: window/input/audio parity), bgfx (`libgoldBgfx.so`:
+the renderer, plus the build-time shader compiler tool), bullet
+(`libgoldBullet.so`: physics), libwebsockets (`libgoldLws.so`: the web
+transport). Nothing platform-shaped is vendored anymore — the in-tree
+sources are JSON/binary codec implementations (`src/goldjson.cpp`), the
+web document store (`src/web/dataStoreFile.cpp`), and the generated
+build input in `3rdParty/generated`. Crypto++/snappy, mongo-c-driver,
+zlib, libuv, SDL/SDL_image/SDL_ttf and brtshaderc were removed entirely
+(dead in the build graph, or replaced — OpenSSL provides PBKDF2/base64).
+
+Install the system packages your chosen backends need (`sdl3`, `sdl2`,
+`bgfx-cmake`/`libbgfx.so`, `bullet`, `libwebsockets`, `openssl`); the
+core-only build (`./build.sh --core`) needs none of them.
+
+## Security notes
+
+* `object::generateHash` uses PBKDF2-HMAC-SHA256 with 600,000 iterations
+  (OWASP-recommended) rather than the old 1,024. This is intentionally slow
+  for password hashing; existing stored hashes are unaffected but should be
+  re-derived on next login.
