@@ -1,5 +1,6 @@
 #include "game/renderBackend.hpp"
 #include "game/graphics.hpp"
+#include "game/renderStateBits.hpp"
 #include "shaderSprite.hpp"
 #include "goldtest.hpp"
 #include "goldjs.hpp"
@@ -252,6 +253,162 @@ TEST(sdlgpu_compileStage_compiles_source_stages) {
 
 	backend->destroyShader(vs);
 	backend->destroyShader(fs);
+	backend->destroy();
+	delete backend;
+	std::filesystem::remove_all(dir);
+}
+
+TEST(sdlgpu_offscreen_triangle_draw) {
+	envGuard guard;
+	auto backend = createRenderBackend("sdlgpu");
+	if (!backend || !backend->initialize(nativeWindow(),
+			jo("width", 64, "height", 32))) {
+		fprintf(stderr, "SKIP: no SDL_GPU device\n");
+		EXPECT_TRUE(true);
+		return;
+	}
+
+	// A tiny program: the vs echoes positions (no matrices), the fs
+	// writes the u_color0 uniform.
+	const auto dir = std::filesystem::temp_directory_path() /
+		("gold-sdl-gpu-test-" + std::to_string(getpid()) + "-draw");
+	std::filesystem::create_directories(dir);
+	{
+		std::ofstream out(dir / "varying.def.sc");
+		out << "vec4 v_color:COLOR0 = vec4(0.0, 0.0, 0.0, 0.0);\n"
+			"\n"
+			"vec3 a_position:POSITION;\n";
+	}
+	{
+		std::ofstream out(dir / "vs_tri.sc");
+		out << "$input a_position\n"
+			"$output v_color\n"
+			"\n"
+			"#include <bgfx_shader.sh>\n"
+			"\n"
+			"void main() {\n"
+			"\tgl_Position = vec4(a_position, 1.0);\n"
+			"\tv_color = vec4(0.0, 1.0, 0.0, 1.0);\n"
+			"}\n";
+		std::ofstream outFs(dir / "fs_tri.sc");
+		outFs << "$input v_color\n"
+			"$output\n"
+			"\n"
+			"#include <bgfx_shader.sh>\n"
+			"\n"
+			"uniform vec4 u_color0;\n"
+			"\n"
+			"void main() {\n"
+			"\tgl_FragColor = u_color0;\n"
+			"}\n";
+	}
+
+	auto vs = backend->compileStage(jo(
+		"type", "vertex",
+		"path", std::string(dir / "vs_tri.sc"),
+		"defines", "",
+		"varying", std::string(dir / "varying.def.sc"),
+		"includeDirs", ja("/usr/include/bgfx")));
+	EXPECT_TRUE(vs.valid());
+	auto fs = backend->compileStage(jo(
+		"type", "fragment",
+		"path", std::string(dir / "fs_tri.sc"),
+		"defines", "",
+		"varying", std::string(dir / "varying.def.sc"),
+		"includeDirs", ja("/usr/include/bgfx")));
+	EXPECT_TRUE(fs.valid());
+	if (!vs.valid() || !fs.valid()) {
+		backend->destroy();
+		delete backend;
+		std::filesystem::remove_all(dir);
+		return;
+	}
+	auto program = backend->createProgram(vs, fs);
+	EXPECT_TRUE(program.valid());
+	auto colorUniform = backend->createUniform(
+		"u_color0", renderUniformType::Vec4);
+	EXPECT_TRUE(colorUniform.valid());
+
+	// A 64x32 offscreen target.
+	auto fb = backend->createFrameBuffer(
+		jo("width", 64, "height", 32,
+			"format", uint32_t(texFormat::RGBA8)));
+	EXPECT_TRUE(fb.valid());
+	auto fbTex = backend->getTexture(fb, 0);
+	EXPECT_TRUE(fbTex.valid());
+
+	// Vertex layout: position, 3 floats = a 12-byte stride.
+	auto layout = vertexLayout()
+		.begin()
+		.add(vertexLayout::attrib::Position,
+			vertexLayout::attribType::Float, 3)
+		.end();
+
+	// A triangle in clip space: bottom-left corner down (+y = down in
+	// the Vulkan NDC), the wide top edge at y=0.
+	float tri[9] = {
+		-0.5f, 0.5f, 0.5f,
+		0.5f, 0.5f, 0.5f,
+		0.0f, -0.5f, 0.5f,
+	};
+	vector<uint8_t> vBytes((const uint8_t*)tri,
+		(const uint8_t*)tri + sizeof(tri));
+	auto vb = backend->createVertexBuffer(vBytes.data(),
+		uint32_t(vBytes.size()), layout, 0);
+	EXPECT_TRUE(vb.valid());
+	uint16_t indices[3] = {0, 2, 1};
+	auto ib = backend->createIndexBuffer(indices, sizeof(indices), 0);
+	EXPECT_TRUE(ib.valid());
+
+	// Frame 1: create + upload (the copy pass at frame end).
+	EXPECT_TRUE(backend->beginFrame());
+	// White uniform: the triangle = white; the clear + top = green from
+	// the varyings? The fs writes ONLY u_color0. The clear = red.
+	float white[4] = {1, 1, 1, 1};
+	backend->setUniform(colorUniform, white, 1);
+	backend->viewClear(0, ClearColor, 0xFF0000FF, 1.0f, 0);
+	backend->viewRect(0, 0, 0, 64, 32);
+	backend->setViewFrameBuffer(0, fb);
+	if (backend->endFrame()) {
+		// Frame 2: bind + draw + readback.
+		EXPECT_TRUE(backend->beginFrame());
+		backend->setUniform(colorUniform, white, 1);
+		backend->viewClear(0, ClearColor, 0xFF0000FF, 1.0f, 0);
+		backend->viewRect(0, 0, 0, 64, 32);
+		backend->setViewFrameBuffer(0, fb);
+		backend->setTextureUniform(0, renderHandle{}, fbTex, 0);
+		backend->setState(WriteR | WriteG | WriteB | WriteA
+			| uint64_t(DepthAlways) << 5, 0);
+		backend->setTransform(nullptr);
+		backend->setVertexBuffer(0, vb, 0, 0);
+		backend->setIndexBuffer(ib, 0, 0);
+		backend->submit(0, program, 0, 0);
+		backend->touch(0);
+
+		uint8_t readback[64 * 32 * 4];
+		bool ok = true;
+		if (backend->endFrame()) {
+			ok = backend->readTexture(fbTex, readback, 0);
+			if (ok) {
+				// The triangle's pixels = white, the top rows = red.
+				const uint8_t* px = readback;
+				EXPECT_EQ(px[0], 255);
+				EXPECT_EQ(px[1], 0);
+				EXPECT_EQ(px[2], 0);
+				const size_t mid = (16 * 64 + 32) * 4;
+				EXPECT_EQ(readback[mid], 255);
+				EXPECT_EQ(readback[mid + 1], 255);
+				EXPECT_EQ(readback[mid + 2], 255);
+			} else
+				EXPECT_TRUE(ok);
+		}
+	}
+	backend->destroyBuffer(vb);
+	backend->destroyBuffer(ib);
+	backend->destroyProgram(program);
+	backend->destroyShader(vs);
+	backend->destroyShader(fs);
+	// The framebuffer's owned textures ride the device destroy.
 	backend->destroy();
 	delete backend;
 	std::filesystem::remove_all(dir);

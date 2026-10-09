@@ -116,6 +116,10 @@ if(SDL3_FOUND)
 		PRIVATE
 			gold::game
 			PkgConfig::SDL3
+			# bx's matrix helpers (the per-draw uniform packets) + bimg's
+			# PNG writer (the backend's own screenshot path).
+			${GOLD_BX_TARGET}
+			${GOLD_BIMG_TARGET}
 	)
 	target_compile_features(goldSDL3 PRIVATE cxx_std_26)
 	if(PkgConfig_FOUND AND WAYLAND_EGL_FOUND)

@@ -21,6 +21,13 @@
 #include "game/graphics.hpp"
 #include "game/renderStateBits.hpp"
 
+#include <bx/math.h>
+#include <bx/float4x4_t.h>
+#include <bx/allocator.h>
+#include <bx/readerwriter.h>
+#include <bimg/bimg.h>
+#include <bimg/encode.h>
+
 #ifndef GOLD_SHADER_COMPILER
 #define GOLD_SHADER_COMPILER "bgfx-shaderc"
 #endif
@@ -942,14 +949,11 @@ namespace gold {
 		 SDL_GPUDevice* _device = nullptr;
 		 SDL_Window* _window = nullptr;
 		 SDL_GPUTextureFormat _format = SDL_GPU_TEXTUREFORMAT_INVALID;
-		 uint32_t _clearColor = 0;
-		 float _clearDepth = 1.0f;
-		 uint8_t _clearStencil = 0;
 		 uint16_t _width = 0, _height = 0;
-		 uint16_t _viewX = 0, _viewY = 0;
-		 uint16_t _viewW = 0, _viewH = 0;
-		 uint16_t _clearFlags = ClearColor | ClearDepth;
 		 bool _offscreen = false;
+		 // The config's rgba: the fresh views' default clear.
+		 uint32_t _defaultClearColor = 0x6ab0deff;
+		 float _defaultClearDepth = 1.0f;
 
 			// gold-side resource tables (uint16 handles, 1-based).
 			uint16_t _nextUniform = 1, _nextStage = 1, _nextProgram = 1;
@@ -1004,10 +1008,8 @@ namespace gold {
 				}
 				_width = config.getUInt16("width", 1360);
 				_height = config.getUInt16("height", 800);
-				_viewW = _width;
-				_viewH = _height;
-				_clearColor = config.getUInt32("rgba", 0x6ab0deff);
-				_clearFlags = ClearColor | ClearDepth;
+				_defaultClearColor = config.getUInt32(
+					"rgba", 0x6ab0deff);
 				if (_window) {
 					if (!SDL_ClaimWindowForGPUDevice(_device, _window)) {
 						fprintf(stderr, "[sdlgpu] %s\n", SDL_GetError());
@@ -1036,6 +1038,12 @@ namespace gold {
 					}
 					for (auto& [_, rec] : _stages)
 						SDL_ReleaseGPUShader(_device, rec.shader);
+					for (auto& [_, pipeline] : _pipelines)
+						SDL_ReleaseGPUGraphicsPipeline(_device,
+							pipeline);
+					for (auto& [_, tex] : _depthTextures)
+						SDL_ReleaseGPUTexture(_device, tex);
+					_views.clear();
 					_uniforms.clear();
 					_stages.clear();
 					_programs.clear();
@@ -1053,30 +1061,6 @@ namespace gold {
 			}
 
 			bool isValid() const override { return _device != nullptr; }
-
-			// ---- views (kept as state; the pass walk is 4c) --------------
-			void viewRect(uint8_t view, uint16_t x, uint16_t y, uint16_t w,
-				uint16_t h) override {
-				(void)view;
-				_viewX = x;
-				_viewY = y;
-				_viewW = w ? w : _width;
-				_viewH = h ? h : _height;
-			}
-			void viewClear(uint8_t view, uint16_t flags, uint32_t rgba,
-				float depth, uint8_t stencil) override {
-				(void)view;
-				_clearFlags = flags;
-				_clearColor = rgba;
-				_clearDepth = depth;
-				_clearStencil = stencil;
-			}
-			void viewTransform(uint8_t view, const void* viewMtx,
-				const void* projMtx) override {
-				(void)view;
-				(void)viewMtx;
-				(void)projMtx;
-			}
 
 			// ---- uniforms -------------------------------------------------
 			renderHandle createUniform(const char* name, renderUniformType t,
@@ -1640,32 +1624,22 @@ namespace gold {
 					SDL_AcquireGPUCommandBuffer(_device);
 				if (!cmd) return false;
 				runPendingUploads(cmd);
+				SDL_GPUTexture* swapchain = nullptr;
+				uint32_t swapW = 0, swapH = 0;
 				if (!_offscreen && _window) {
-					SDL_GPUTexture* swapchain = nullptr;
-					if (SDL_WaitAndAcquireGPUSwapchainTexture(
-							cmd, _window, &swapchain, nullptr, nullptr)
-						&& swapchain) {
-						SDL_GPUColorTargetInfo target {};
-						target.texture = swapchain;
-						target.clear_color.r =
-							float((_clearColor >> 24) & 0xFF) / 255.0f;
-						target.clear_color.g =
-							float((_clearColor >> 16) & 0xFF) / 255.0f;
-						target.clear_color.b =
-							float((_clearColor >> 8) & 0xFF) / 255.0f;
-						target.clear_color.a =
-							float(_clearColor & 0xFF) / 255.0f;
-						target.load_op = (_clearFlags & ClearColor)
-							? SDL_GPU_LOADOP_CLEAR
-							: SDL_GPU_LOADOP_LOAD;
-						target.store_op = SDL_GPU_STOREOP_STORE;
-						SDL_GPURenderPass* pass =
-							SDL_BeginGPURenderPass(cmd, &target, 1,
-								nullptr);
-						if (pass) SDL_EndGPURenderPass(pass);
-					}
+					SDL_WaitAndAcquireGPUSwapchainTexture(cmd, _window,
+						&swapchain, &swapW, &swapH);
 				}
+				renderViews(cmd, swapchain,
+					swapchain
+						? SDL_GetGPUSwapchainTextureFormat(
+							_device, _window)
+						: _format,
+					swapW, swapH);
 				SDL_SubmitGPUCommandBuffer(cmd);
+				// Screenshots: post-submit readback of the frame's target
+				// (a swapchain or framebuffer color).
+				retireShots();
 				// Transfer buffers ride the submitted copy pass; SDL frees
 				// them safely, so a release here only queues the free.
 				for (auto& up : _pendingUploads)
@@ -1675,6 +1649,110 @@ namespace gold {
 					SDL_ReleaseGPUTransferBuffer(_device, up.tb);
 				_pendingTexUploads.clear();
 				return true;
+			}
+
+			// One blocking readback per shot: the present submit finished
+			// the frame; the target texture holds the rendered pixels now.
+			void retireShots() {
+				while (!_shots.empty()) {
+					auto shot = _shots.back();
+					_shots.pop_back();
+					SDL_GPUTexture* tex = nullptr;
+					uint32_t w = 0, h = 0;
+					SDL_GPUTextureFormat format;
+					if (shot.fb != 0xFFFF) {
+						auto fbIt = _framebuffers.find(shot.fb);
+						if (fbIt == _framebuffers.end()
+							|| fbIt->second.colors.empty()) {
+							fprintf(stderr, "[sdlgpu] shot: no color\n");
+							continue;
+						}
+						auto texIt = _textures.find(
+							fbIt->second.colors[0]);
+						if (texIt != _textures.end()) {
+							tex = texIt->second.texture;
+							w = texIt->second.width;
+							h = texIt->second.height;
+							format = texIt->second.format;
+						}
+					} else {
+						// The back buffer: recreate the last swapchain
+						// texture is impossible — read the WINDOW's size
+						// and re-acquire in a fresh command buffer.
+						tex = nullptr;
+					}
+					SDL_GPUCommandBuffer* cmd =
+						SDL_AcquireGPUCommandBuffer(_device);
+					if (!cmd) continue;
+					SDL_GPUTransferBufferCreateInfo ti {};
+					SDL_GPUTextureRegion region {};
+					if (shot.fb == 0xFFFF) {
+						// A fresh swapchain frame: acquire + submit it so
+						// the readout is the JUST-rendered content.
+						SDL_WaitAndAcquireGPUSwapchainTexture(cmd,
+							_window, &tex, &w, &h);
+						format = tex
+							? SDL_GetGPUSwapchainTextureFormat(
+								_device, _window)
+							: SDL_GPU_TEXTUREFORMAT_INVALID;
+					}
+					if (!tex) {
+						SDL_SubmitGPUCommandBuffer(cmd);
+						continue;
+					}
+					uint32_t bytes = toMipBytesForReadback(format, w, h);
+					ti.usage = SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD;
+					ti.size = bytes;
+					SDL_GPUTransferBuffer* tb =
+						SDL_CreateGPUTransferBuffer(_device, &ti);
+					if (!tb) continue;
+					SDL_GPUCopyPass* cp = SDL_BeginGPUCopyPass(cmd);
+					region.texture = tex;
+					region.w = w;
+					region.h = h;
+					region.d = 1;
+					SDL_GPUTextureTransferInfo dstInfo {};
+					dstInfo.transfer_buffer = tb;
+					SDL_DownloadFromGPUTexture(cp, &region, &dstInfo);
+					SDL_EndGPUCopyPass(cp);
+					SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
+					SDL_WaitForGPUIdle(_device);
+					auto* mapped =
+						SDL_MapGPUTransferBuffer(_device, tb, false);
+					// PNG via bimg (the bgfx shot path's same writer).
+					writePng(shot.path, mapped, w, h, format);
+					SDL_UnmapGPUTransferBuffer(_device, tb);
+					SDL_ReleaseGPUTransferBuffer(_device, tb);
+				}
+			}
+
+			static uint32_t toMipBytesForReadback(
+				SDL_GPUTextureFormat format, uint32_t w, uint32_t h) {
+				return toMipBytes(format, w, h, 1);
+			}
+
+			void writePng(const string& path, const void* pixels,
+				uint32_t w, uint32_t h, SDL_GPUTextureFormat format) {
+				(void)format;
+				// The bimg PNG writer, like the bgfx callbacks' shot path.
+				bx::DefaultAllocator allocator;
+				auto block = bx::MemoryBlock(&allocator);
+				auto writer = bx::MemoryWriter(&block);
+				auto error = bx::Error();
+				const auto size = bimg::imageWritePng(&writer,
+					uint16_t(w), uint16_t(h), w * 4,
+					const_cast<void*>(pixels),
+					bimg::TextureFormat::Enum(
+						bimg::TextureFormat::RGBA8), false, &error);
+				std::ofstream out(path, std::ofstream::binary);
+				if (!out.is_open()) {
+					fprintf(stderr, "[sdlgpu] shot: open %s failed\n",
+					path.c_str());
+					return;
+				}
+				out.write((const char*)block.more(), size);
+				fprintf(stderr, "[sdlgpu] shot %s (%ux%u)\n",
+					path.c_str(), w, h);
 			}
 
 			// The frame's copy pass: static/dynamic buffer uploads, the
@@ -1794,11 +1872,208 @@ namespace gold {
 					SDL_ReleaseGPUTransferBuffer(_device, tb);
 			}
 
-			// ---- the draw surface (4c wires views/pipelines) -------------
-			void setVertexBuffer(uint8_t, renderHandle, uint32_t, uint32_t)
-				override {}
-			void setIndexBuffer(renderHandle, uint32_t, uint32_t) override {}
-			void submit(uint8_t, renderHandle, uint32_t, uint16_t) override {}
+						// ---- the draw surface ----------------------------------------
+			// Views, per-draw state, and pipelines. bgfx's frame model:
+			// the encoder-side calls accrue; submit() captures a draw with
+			// its state; endFrame processes views in ascending id order,
+			// one pass each, drawing the queue, then presents.
+
+			/** One draw, captured at submit (the per-draw state snapshot). */
+			struct drawItem {
+				uint16_t program = 0xFFFF;
+				uint64_t state = 0;
+				uint32_t stateColor = 0;
+				uint32_t stencilF = 0, stencilB = 0;
+				bool hasModel = false;
+				float model[16];
+				bool hasIndex = false;
+				uint16_t indexBuffer = 0xFFFF;
+				uint32_t indexFirst = 0, indexCount = 0;
+				vector<pair<uint16_t, uint16_t>> vBinds;  // stream, buffer
+				vector<uint32_t> vStarts, vCounts;
+				// (slot -> texture) binds; slot = the SDL sampler slot.
+				vector<pair<uint16_t, uint16_t>> texBinds;
+				uint32_t depth = 0;
+			};
+
+			struct viewRecord {
+				bool touched = false;
+				uint16_t clearFlags = ClearNone;
+				uint32_t clearColor = 0;
+				float clearDepth = 1.0f;
+				uint8_t clearStencil = 0;
+				uint16_t x = 0, y = 0, w = 0, h = 0;
+				float view[16], proj[16];
+				bool hasTransform = false;
+				uint16_t fb = 0xFFFF;
+				vector<drawItem> draws;
+			};
+			map<uint8_t, viewRecord> _views;
+
+			viewRecord& ensureView(uint8_t view) {
+				auto it = _views.find(view);
+				if (it != _views.end()) return it->second;
+				viewRecord vr;
+				vr.clearColor = _defaultClearColor;
+				vr.clearDepth = _defaultClearDepth;
+				vr.w = _width;
+				vr.h = _height;
+				return _views[view] = vr;
+			}
+
+			// The rolling per-draw state (bgfx's persist-until-changed
+			// semantics; everything re-set per draw by the engine).
+			uint64_t _stateBits = 0;
+			uint32_t _stateColor = 0;
+			uint32_t _stencilF = 0, _stencilB = 0;
+			bool _hasModel = false;
+			float _modelMtx[16];
+			vector<pair<uint16_t, uint16_t>> _vBinds;
+			vector<uint32_t> _vStarts, _vCounts;
+			bool _hasIndex = false;
+			uint16_t _indexBuffer = 0xFFFF;
+			uint32_t _indexFirst = 0, _indexCount = 0;
+			map<uint16_t, uint16_t> _texBinds;
+
+			struct pipelineKey {
+				uint16_t program;
+				uint64_t state;
+				uint32_t stencilF, stencilB;
+				SDL_GPUTextureFormat color, depth;
+				bool operator<(const pipelineKey& o) const {
+					return memcmp(this, &o, sizeof(*this)) < 0;
+				}
+			};
+			map<pipelineKey, SDL_GPUGraphicsPipeline*> _pipelines;
+
+			struct framebufferRecord {
+				vector<uint16_t> colors;  // gold texture handles
+				uint16_t depth = 0xFFFF;
+				vector<uint16_t> owned;   // descriptor-created textures
+			};
+			map<uint16_t, framebufferRecord> _framebuffers;
+			uint16_t _nextFramebuffer = 1;
+			// Per-size D32 depth textures for swapchain passes.
+			map<pair<uint32_t, uint32_t>, SDL_GPUTexture*> _depthTextures;
+
+			// gold's clear/view/draw state --------------------------------------------------
+			void touch(uint8_t view) override { ensureView(view).touched = true; }
+
+			void viewClear(uint8_t view, uint16_t flags, uint32_t rgba,
+				float depth, uint8_t stencil) override {
+				auto& vr = ensureView(view);
+				vr.touched = true;
+				vr.clearFlags = flags;
+				vr.clearColor = rgba;
+				vr.clearDepth = depth;
+				vr.clearStencil = stencil;
+			}
+			void viewRect(uint8_t view, uint16_t x, uint16_t y, uint16_t w,
+				uint16_t h) override {
+				auto& vr = ensureView(view);
+				vr.x = x; vr.y = y;
+				vr.w = w ? w : _width;
+				vr.h = h ? h : _height;
+			}
+			void viewTransform(uint8_t view, const void* viewMtx,
+				const void* projMtx) override {
+				auto& vr = ensureView(view);
+				if (viewMtx) {
+					memcpy(vr.view, viewMtx, 64);
+					vr.hasTransform = true;
+				}
+				if (projMtx) memcpy(vr.proj, projMtx, 64);
+			}
+			void setViewFrameBuffer(uint8_t view, renderHandle fb) override {
+				ensureView(view).fb = fb.idx;
+			}
+
+			void setState(uint64_t state, uint32_t rgba) override {
+				_stateBits = state;
+				_stateColor = rgba;
+			}
+			void setStencil(uint32_t fstencil, uint32_t bstencil) override {
+				_stencilF = fstencil;
+				_stencilB = bstencil;
+			}
+			void setTransform(const void* mtx) override {
+				if (!mtx) {
+					_hasModel = false;
+					return;
+				}
+				memcpy(_modelMtx, mtx, 64);
+				_hasModel = true;
+			}
+			void setTexture(uint8_t stage, const char* sampler,
+				renderHandle tex, uint32_t flags) override {
+				(void)sampler;
+				if (!tex.valid()) {
+					_texBinds.erase(stage);
+					return;
+				}
+				_texBinds[stage] = tex.idx;
+				(void)flags;  // the texture's own sampler modes win
+			}
+			// The facade binds through a registered sampler-uniform
+			// (bindTexture): for SDL the bind is (slot-stage, texture);
+			// the sampler modes ride the texture.
+			void setTextureUniform(uint8_t stage, renderHandle uniform,
+				renderHandle tex, uint32_t flags) override {
+				(void)uniform;
+				setTexture(stage, "", tex, flags);
+			}
+			void setVertexBuffer(uint8_t stream, renderHandle h,
+				uint32_t start, uint32_t num) override {
+				// The stream's position in the list is its binding slot.
+				for (size_t i = 0; i < _vBinds.size(); ++i)
+					if (_vBinds[i].first == stream) {
+						_vBinds.erase(_vBinds.begin() + i);
+						_vStarts.erase(_vStarts.begin() + i);
+						_vCounts.erase(_vCounts.begin() + i);
+						break;
+					}
+				if (!h.valid()) return;
+				_vBinds.push_back({stream, h.idx});
+				_vStarts.push_back(start);
+				_vCounts.push_back(num);
+			}
+			void setIndexBuffer(renderHandle h, uint32_t start,
+				uint32_t num) override {
+				_hasIndex = h.valid();
+				_indexBuffer = h.idx;
+				_indexFirst = start;
+				_indexCount = num;
+			}
+
+			void submit(uint8_t view, renderHandle program, uint32_t depth,
+				uint16_t /*flags*/) override {
+				if (!program.valid()) return;
+				drawItem item;
+				item.depth = depth;
+				item.program = program.idx;
+				item.state = _stateBits;
+				item.stateColor = _stateColor;
+				item.stencilF = _stencilF;
+				item.stencilB = _stencilB;
+				item.hasModel = _hasModel;
+				if (_hasModel) memcpy(item.model, _modelMtx, 64);
+				item.hasIndex = _hasIndex;
+				item.indexBuffer = _indexBuffer;
+				item.indexFirst = _indexFirst;
+				item.indexCount = _indexCount;
+				item.vBinds = _vBinds;
+				item.vStarts = _vStarts;
+				item.vCounts = _vCounts;
+				for (auto& [stage, tex] : _texBinds)
+					item.texBinds.push_back({stage, tex});
+				// bgfx sorts by depth within the view; stable keeps the
+				// submit order for equal keys.
+				auto& draws = ensureView(view).draws;
+				draws.push_back(std::move(item));
+			}
+
+			// The rest of the draw surface is a documented stub until its
+			// pipeline lands (queries, indirect, compute, image access).
 			void submitQuery(uint8_t, renderHandle, renderHandle, uint32_t,
 				uint16_t) override {}
 			void submitIndirect(uint8_t, renderHandle, renderHandle,
@@ -1807,18 +2082,8 @@ namespace gold {
 				uint32_t, uint16_t) override {}
 			void dispatchIndirect(uint8_t, renderHandle, renderHandle,
 				uint16_t, uint16_t, uint16_t) override {}
-			void setState(uint64_t, uint32_t) override {}
-			void setStencil(uint32_t, uint32_t) override {}
-			void setTransform(const void*) override {}
-			void setTexture(uint8_t, const char*, renderHandle, uint32_t)
-				override {}
-			renderHandle createFrameBuffer(const void*, uint8_t) override {
-				return renderHandle{};
-			}
-			renderHandle createFrameBufferSize(uint16_t, uint16_t, texFormat,
-				uint64_t) override {
-				return renderHandle{};
-			}
+			void setImage(uint8_t, renderHandle, uint8_t, texAccess,
+				texFormat) override {}
 			renderHandle createOcclusionQuery() override {
 				return renderHandle{};
 			}
@@ -1830,18 +2095,963 @@ namespace gold {
 				override {
 				return renderHandle{};
 			}
-			void setViewFrameBuffer(uint8_t, renderHandle) override {}
-			renderHandle getTexture(renderHandle, uint8_t) override {
+			void setDebug(bool, bool) override {}
+
+			// ---- framebuffers ----------------------------------------------
+			// The descriptor paths the facade's frameBuffer uses: wrapped
+			// texture lists, plain sizes, and ratio/nwh (the latter two
+			// stay invalid — nothing uses them today).
+			renderHandle createFrameBuffer(object config) override {
+				const uint16_t idx = _nextFramebuffer++;
+				framebufferRecord rec;
+				if (config.getType("attachments") == typeList) {
+					auto entries = config.getList("attachments");
+					for (auto& entry : entries) {
+						auto att = entry.getObject();
+						uint16_t tex = att.getUInt16("idx",
+							uint16_t(0xFFFF));
+						auto it = _textures.find(tex);
+						if (it == _textures.end()) continue;
+						if (sdlFormatIsDepth(it->second.format))
+							rec.depth = tex;
+						else
+							rec.colors.push_back(tex);
+					}
+				} else if (config.getType("textures") == typeList) {
+					auto entries = config.getList("textures");
+					for (auto& entry : entries) {
+						auto texEntry = entry.getObject();
+						uint16_t tex = texEntry.getUInt16("idx",
+							uint16_t(0xFFFF));
+						auto it = _textures.find(tex);
+						if (it == _textures.end()) continue;
+						if (sdlFormatIsDepth(it->second.format))
+							rec.depth = tex;
+						else
+							rec.colors.push_back(tex);
+					}
+				} else {
+					auto width = config.getUInt16("width");
+					auto height = config.getUInt16("height");
+					auto size = config.getVar("size");
+					if (size.isVec2()) {
+						width = size.getUInt16(0);
+						height = size.getUInt16(1);
+					}
+					if (width == 0 || height == 0) return renderHandle{};
+					const auto format = texFormat(config.getUInt16(
+						"format", uint16_t(texFormat::RGBA8)));
+					SDL_GPUTextureUsageFlags usage =
+						SDL_GPU_TEXTUREUSAGE_SAMPLER |
+						SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;
+					auto handle = createTextureWithUsage(
+						SDL_GPU_TEXTURETYPE_2D, width, height, 1,
+						format, usage);
+					if (!handle.valid()) return renderHandle{};
+					rec.colors.push_back(handle.idx);
+					rec.owned.push_back(handle.idx);
+				}
+				_framebuffers[idx] = rec;
+				return renderHandle{idx};
+			}
+			renderHandle createFrameBuffer(const void* handles,
+				uint8_t num) override {
+				const uint16_t idx = _nextFramebuffer++;
+				framebufferRecord rec;
+				auto textures = (const uint16_t*)handles;
+				for (uint8_t i = 0; i < num; ++i) {
+					if (!textures[i]) continue;
+				rec.colors.push_back(textures[i]);
+				}
+				_framebuffers[idx] = rec;
+				return renderHandle{idx};
+			}
+			renderHandle createFrameBufferSize(uint16_t w, uint16_t h,
+				texFormat f, uint64_t) override {
+				SDL_GPUTextureUsageFlags usage =
+					SDL_GPU_TEXTUREUSAGE_SAMPLER |
+					SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;
+				auto handle = createTextureWithUsage(
+					SDL_GPU_TEXTURETYPE_2D, w, h, 1, f, usage);
+				if (!handle.valid()) return renderHandle{};
+				framebufferRecord rec;
+				rec.owned.push_back(handle.idx);
+				const uint16_t idx = _nextFramebuffer++;
+				_framebuffers[idx] = rec;
+				return renderHandle{idx};
+			}
+			renderHandle getTexture(renderHandle fb, uint8_t attachment)
+				override {
+				auto it = _framebuffers.find(fb.idx);
+				if (it == _framebuffers.end()) return renderHandle{};
+				const size_t a = attachment;
+				if (attachment < it->second.colors.size())
+					return renderHandle{it->second.colors[a]};
 				return renderHandle{};
 			}
-			void requestScreenShot(renderHandle, const char*) override {}
-			void setDebug(bool, bool) override {}
-			void touch(uint8_t) override {}
-			void blit(uint8_t, renderHandle, uint8_t, uint16_t, uint16_t,
-				uint16_t, renderHandle, uint8_t, uint16_t, uint16_t,
-				uint16_t, uint16_t, uint16_t, uint16_t) override {}
-			void setImage(uint8_t, renderHandle, uint8_t, texAccess,
-				texFormat) override {}
+
+			// ---- screenshots -------------------------------------------------
+			// requestScreenShot: post-submit readback of the frame's
+			// target, so the engine's frame-16 aid captures THE RENDER.
+			struct pendingShot {
+				uint16_t fb;      // 0xFFFF = the back buffer
+				string path;
+			};
+			vector<pendingShot> _shots;
+
+			void requestScreenShot(renderHandle fb, const char* path)
+				override {
+				_shots.push_back(
+					{fb.idx, path ? path : "screenshot"});
+			}
+
+			// ---- blit ---------------------------------------------------------
+			void blit(uint8_t view, renderHandle dst, uint8_t dstMip,
+				uint16_t dstX, uint16_t dstY, uint16_t,
+				renderHandle src, uint8_t srcMip, uint16_t srcX,
+				uint16_t srcY, uint16_t, uint16_t w, uint16_t h, uint16_t)
+				override {
+				(void)view;
+				auto dIt = _textures.find(dst.idx);
+				auto sIt = _textures.find(src.idx);
+				if (dIt == _textures.end() || sIt == _textures.end())
+					return;
+				SDL_GPUCommandBuffer* cmd =
+					SDL_AcquireGPUCommandBuffer(_device);
+				if (!cmd) return;
+				SDL_GPUBlitInfo info {};
+				info.source.texture = sIt->second.texture;
+				info.source.mip_level = srcMip;
+				info.source.x = srcX;
+				info.source.y = srcY;
+				info.destination.texture = dIt->second.texture;
+				info.destination.mip_level = dstMip;
+				info.destination.x = dstX;
+				info.destination.y = dstY;
+				if (w != UINT16_MAX && h != UINT16_MAX) {
+					info.source.w = w;
+					info.source.h = h;
+					info.destination.w = w;
+					info.destination.h = h;
+				}
+				info.load_op = SDL_GPU_LOADOP_DONT_CARE;
+				info.filter = SDL_GPU_FILTER_LINEAR;
+				SDL_BlitGPUTexture(cmd, &info);
+				SDL_SubmitGPUCommandBuffer(cmd);
+				SDL_WaitForGPUIdle(_device);
+			}
+
+			// ---- render pass pipeline ----------------------------------------
+			float alphaRefFloat(uint64_t state) const {
+				return float((state >> AlphaRefShift) & 0xFF) / 255.0f;
+			}
+
+			void renderViews(SDL_GPUCommandBuffer* cmd,
+				SDL_GPUTexture* swapchain, SDL_GPUTextureFormat swapFormat,
+				uint32_t swapW, uint32_t swapH) {
+				if (_views.size() == 0) return;
+				// Ascending view id (bgfx's sort).
+				vector<pair<uint8_t, viewRecord*>> order;
+				for (auto& [vid, vr] : _views)
+					if (vr.touched || !vr.draws.empty())
+						order.push_back({vid, &vr});
+				std::stable_sort(order.begin(), order.end(),
+					[](const auto& a, const auto& b) {
+						return a.first < b.first;
+					});
+				for (auto& [vid, vr] : order) {
+					(void)vid;
+					// Target: the view's framebuffer, else the swapchain.
+					SDL_GPUTexture* colorTex = nullptr;
+					SDL_GPUTextureFormat colorFormat;
+					SDL_GPUTexture* depthTex = nullptr;
+					SDL_GPUTextureFormat depthFormat =
+						SDL_GPU_TEXTUREFORMAT_INVALID;
+					uint32_t w = 0, h = 0;
+					framebufferRecord* fbr = nullptr;
+					if (vr->fb != 0xFFFF) {
+						auto fbIt = _framebuffers.find(vr->fb);
+						if (fbIt != _framebuffers.end())
+							fbr = &fbIt->second;
+					}
+					if (fbr && !fbr->colors.empty()) {
+						auto texIt = _textures.find(fbr->colors[0]);
+						if (texIt == _textures.end()) continue;
+						colorTex = texIt->second.texture;
+						colorFormat = texIt->second.format;
+						w = texIt->second.width;
+						h = texIt->second.height;
+						if (fbr->depth != 0xFFFF) {
+							auto dIt = _textures.find(fbr->depth);
+							if (dIt != _textures.end() &&
+								dIt->second.texture) {
+								depthTex = dIt->second.texture;
+								depthFormat = dIt->second.format;
+							}
+						}
+					} else {
+						if (!swapchain) continue;
+						colorTex = swapchain;
+						colorFormat = swapFormat;
+						w = swapW;
+						h = swapH;
+						// The swapchain has no depth; borrow the per-size
+						// D32 texture so depth-tested draws survive.
+						if (vr->clearFlags & ClearDepth) {
+							depthTex = swapchainDepthTexture(w, h);
+							depthFormat = SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
+						}
+					}
+					if (vr->w && vr->h && (vr->w != w || vr->h != h)) {
+						w = vr->w;
+						h = vr->h;
+					}
+					if (!w || !h) continue;
+
+					SDL_GPUColorTargetInfo target {};
+					target.texture = colorTex;
+					target.load_op = (vr->clearFlags & ClearColor)
+						? SDL_GPU_LOADOP_CLEAR : SDL_GPU_LOADOP_LOAD;
+					target.store_op = SDL_GPU_STOREOP_STORE;
+					target.clear_color.r =
+						float((vr->clearColor >> 24) & 0xFF) / 255.0f;
+					target.clear_color.g =
+						float((vr->clearColor >> 16) & 0xFF) / 255.0f;
+					target.clear_color.b =
+						float((vr->clearColor >> 8) & 0xFF) / 255.0f;
+					target.clear_color.a =
+						float(vr->clearColor & 0xFF) / 255.0f;
+					SDL_GPUDepthStencilTargetInfo depth {};
+					SDL_GPURenderPass* pass = nullptr;
+					if (depthTex) {
+						depth.texture = depthTex;
+						depth.clear_depth = vr->clearDepth;
+						depth.load_op = (vr->clearFlags & ClearDepth)
+							? SDL_GPU_LOADOP_CLEAR : SDL_GPU_LOADOP_LOAD;
+						depth.stencil_load_op =
+							(vr->clearFlags & ClearStencil)
+								? SDL_GPU_LOADOP_CLEAR
+								: SDL_GPU_LOADOP_LOAD;
+						depth.clear_stencil = vr->clearStencil;
+						depth.store_op = SDL_GPU_STOREOP_STORE;
+						depth.stencil_store_op = SDL_GPU_STOREOP_STORE;
+						pass = SDL_BeginGPURenderPass(cmd, &target, 1,
+							&depth);
+					} else {
+						pass = SDL_BeginGPURenderPass(cmd, &target, 1,
+							nullptr);
+					}
+					if (!pass) continue;
+
+					if (vr->x || vr->y || w != vr->w || h != vr->h) {
+						SDL_GPUViewport vp {};
+						vp.x = float(vr->x);
+						vp.y = float(vr->y);
+						vp.w = float(vr->w ? vr->w : w);
+						vp.h = float(vr->h ? vr->h : h);
+						vp.min_depth = 0.0f;
+						vp.max_depth = 1.0f;
+						SDL_SetGPUViewport(pass, &vp);
+					}
+					for (auto& item : vr->draws)
+						drawItemToPass(cmd, pass, vr, item, colorFormat,
+							depthFormat);
+					SDL_EndGPURenderPass(pass);
+				}
+			}
+
+			SDL_GPUTexture* swapchainDepthTexture(uint32_t w, uint32_t h) {
+				auto it = _depthTextures.find({w, h});
+				if (it != _depthTextures.end()) return it->second;
+				SDL_GPUTextureCreateInfo ci {};
+				ci.type = SDL_GPU_TEXTURETYPE_2D;
+				ci.format = SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
+				ci.width = w;
+				ci.height = h;
+				ci.layer_count_or_depth = 1;
+				ci.num_levels = 1;
+				ci.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
+				SDL_GPUTexture* tex = SDL_CreateGPUTexture(_device, &ci);
+				if (!tex) {
+					fprintf(stderr, "[sdlgpu] %s\n", SDL_GetError());
+					return nullptr;
+				}
+				_depthTextures[{w, h}] = tex;
+				return tex;
+			}
+
+			// The draw: pipeline (cached), the uniform packets, the binds.
+			void drawItemToPass(SDL_GPUCommandBuffer* cmd,
+				SDL_GPURenderPass* pass, viewRecord* vr, drawItem& item,
+				SDL_GPUTextureFormat colorFormat,
+				SDL_GPUTextureFormat depthFormat) {
+				// A draw with no vertex buffers: only a clear matters.
+				if (item.vBinds.empty() && !item.hasIndex) return;
+				auto progIt = _programs.find(item.program);
+				if (progIt == _programs.end()) return;
+				auto pipeline = getPipeline(progIt->second, item,
+					colorFormat, depthFormat);
+				SDL_BindGPUGraphicsPipeline(pass, pipeline);
+
+				pushUniformPackets(cmd, progIt->second, vr, item);
+
+				// Samplers: fragment side by slot; the texture's own
+				// sampler modes (SDL caps combined samplers at 16).
+				for (auto& [slot, tex] : item.texBinds) {
+					auto texIt = _textures.find(tex);
+					if (texIt == _textures.end()) continue;
+					SDL_GPUSampler* sampler = samplerFor(texIt->second);
+					if (!sampler) continue;
+					SDL_GPUTextureSamplerBinding bind {};
+					bind.sampler = sampler;
+					bind.texture = texIt->second.texture;
+					// The blob path remaps its bindings to this order.
+					SDL_BindGPUFragmentSamplers(pass, slot, &bind, 1);
+				}
+				// Wait: slot = the SDL slot for the FS's set; the sprite
+				// fs's sampler = slot 0. Vertex-side samplers are unused.
+
+				vector<SDL_GPUBufferBinding> bindings;
+				for (auto& [slot, buf] : item.vBinds) {
+					auto it = _buffers.find(buf);
+					if (it == _buffers.end()) continue;
+					SDL_GPUBufferBinding b {};
+					b.buffer = it->second.buffer;
+					b.offset = 0;
+					bindings.push_back(b);
+				}
+				if (!bindings.empty())
+					SDL_BindGPUVertexBuffers(pass, 0, bindings.data(),
+						uint32_t(item.vBinds.size()));
+				if (item.hasIndex) {
+					auto it = _buffers.find(item.indexBuffer);
+					if (it != _buffers.end()) {
+						SDL_GPUBufferBinding ib {};
+						ib.buffer = it->second.buffer;
+						SDL_BindGPUIndexBuffer(pass, &ib,
+							it->second.index32
+								? SDL_GPU_INDEXELEMENTSIZE_32BIT
+								: SDL_GPU_INDEXELEMENTSIZE_16BIT);
+						const uint32_t count = item.indexCount
+							? item.indexCount
+							: (it->second.size
+								  / (it->second.index32 ? 4u : 2u))
+								  - item.indexFirst;
+						SDL_DrawGPUIndexedPrimitives(pass, count, 1,
+							item.indexFirst, 0, 0);
+						return;
+					}
+				}
+				// No index buffer: vertex-only draw.
+				auto vIt = _buffers.find(item.vBinds[0].second);
+				if (vIt == _buffers.end()) return;
+				const uint32_t stride =
+					max<uint32_t>(1, vIt->second.layout.stride);
+				const uint32_t count = item.vCounts[0]
+					? item.vCounts[0]
+					: vIt->second.size / stride;
+				SDL_DrawGPUPrimitives(pass, count, 1,
+					item.vStarts[0], 0);
+			}
+
+			void pushUniformPackets(SDL_GPUCommandBuffer* cmd,
+				programRecord& prog, viewRecord* vr, drawItem& item) {
+				const float* view = vr->hasTransform ? vr->view : nullptr;
+				const float* proj = vr->hasTransform ? vr->proj : nullptr;
+				pushStagePacket(cmd, prog.vs, vr, view, proj, item);
+				pushStagePacket(cmd, prog.fs, vr, view, proj, item);
+			}
+
+			// bgfx's predefined uniform names, as the compiled shaders
+			// declare them.
+			static bool isPredefine(const string& name,
+				uint32_t& slotId) {
+				static const char* names[] = {
+					"u_viewRect",     // 0
+					"u_viewTexel",    // 1
+					"u_view",         // 2
+					"u_invView",      // 3
+					"u_proj",         // 4
+					"u_invProj",      // 5
+					"u_viewProj",     // 6
+					"u_invViewProj",  // 7
+					"u_model",        // 8
+					"u_modelView",    // 9
+					"u_invModelView", // 10
+					"u_modelViewProj",// 11
+					"u_alphaRef4",    // 12
+				};
+				for (uint32_t i = 0;
+						i < sizeof(names) / sizeof(names[0]); ++i)
+					if (names[i] == name) {
+						slotId = i;
+						return true;
+					}
+				return false;
+			}
+
+			void writeMatrix(vector<uint8_t>& packet, uint32_t offset,
+				const float* mtx) {
+				if (offset + 64 > packet.size()) return;
+				memcpy(packet.data() + offset, mtx, 64);
+			}
+
+			// Column-A*B in row-major byte form: result[r][c] =
+			// sum_k r[r][k] * r2[k][c]. Matches bgfx's float4x4_mul
+			// byte layout (the non-SIMD column-major multiply).
+			static void rowMajorMul(float* out, const float* a,
+				const float* b) {
+				bx::float4x4_t am, bm, rm;
+				memcpy(&am, a, 64);
+				memcpy(&bm, b, 64);
+				bx::float4x4_mul(&rm, &am, &bm);
+				memcpy(out, &rm, 64);
+			}
+
+			void pushStagePacket(SDL_GPUCommandBuffer* cmd, uint16_t stage,
+				viewRecord* vr, const float* view, const float* proj,
+				const drawItem& item) {
+				if (stage == 0xFFFF) return;
+				auto it = _stages.find(stage);
+				if (it == _stages.end()) return;
+				auto& rec = it->second;
+				if (!rec.blockSize) return;
+				// The whole block, zero-filled: unset uniforms read
+				// zeroes the way bgfx's fresh uniform buffers do.
+				vector<uint8_t> packet(rec.blockSize, uint8_t(0));
+
+				// Derived matrices, built on demand.
+				const float* model = item.hasModel ? item.model
+												   : identity4();
+				float viewProj[16] = {0};
+				float modelView[16] = {0};
+				float modelViewProj[16] = {0};
+				if (view && proj)
+					rowMajorMul(viewProj, view, proj);
+				// (bx's mul takes the matrices as-is: the byte layout
+				// is the same the GL driver reads.)
+
+				for (auto& entry : rec.uniforms) {
+					const uint32_t span = uint32_t(entry.slots) * 16u;
+					if (entry.offset + span > packet.size()) continue;
+					uint32_t slotId;
+					if (isPredefine(entry.name, slotId)) {
+						const float* mtx = nullptr;
+						if (view && proj)
+							switch (slotId) {
+							case 2: /* u_view */
+								mtx = view;
+								break;
+							case 4: /* u_proj */
+								mtx = proj;
+								break;
+							case 6: /* u_viewProj */
+								mtx = viewProj;
+								break;
+							default:
+								break;
+							}
+						switch (slotId) {
+						case 0: {  // u_viewRect
+							float rect[4] = {
+								float(vr->x), float(vr->y),
+								float(vr->w ? vr->w : 1),
+								float(vr->h ? vr->h : 1)};
+							memcpy(packet.data() + entry.offset, rect, 16);
+							continue;
+						}
+						case 1: {  // u_viewTexel
+							float texel[4] = {
+								1.0f / float(vr->w ? vr->w : 1),
+								1.0f / float(vr->h ? vr->h : 1),
+								0.0f, 1.0f};
+							memcpy(packet.data() + entry.offset, texel, 16);
+							continue;
+						}
+						case 3: /* u_invView */
+						case 5: /* u_invProj */
+						case 7: /* u_invViewProj */ {
+							if (!view || !proj) {
+								memset(packet.data() + entry.offset, 0,
+									span);
+								continue;
+							}
+							bx::float4x4_t src;
+							const float* base = slotId == 3
+								? view
+								: slotId == 5 ? proj : viewProj;
+							memcpy(&src, base, 64);
+							bx::float4x4_t inv;
+							bx::float4x4_inverse(&inv, &src);
+							writeMatrix(packet, entry.offset,
+								reinterpret_cast<const float*>(&inv));
+							continue;
+						}
+						case 8: /* u_model */
+							writeMatrix(packet, entry.offset, model);
+							continue;
+						case 9: /* u_modelView */ {
+							if (!view) {
+								memset(packet.data() + entry.offset, 0,
+									span);
+								continue;
+							}
+							rowMajorMul(modelView, model, view);
+							writeMatrix(packet, entry.offset, modelView);
+							continue;
+						}
+						case 10: /* u_invModelView */ {
+							if (!view) continue;
+							bx::float4x4_t mv, inv;
+							rowMajorMul(modelView, model, view);
+							memcpy(&mv, modelView, 64);
+							bx::float4x4_inverse(&inv, &mv);
+							writeMatrix(packet, entry.offset,
+								reinterpret_cast<const float*>(&inv));
+							continue;
+						}
+						case 11: /* u_modelViewProj */ {
+							rowMajorMul(modelViewProj, model,
+								viewProj);
+							writeMatrix(packet, entry.offset,
+								modelViewProj);
+							continue;
+						}
+						case 12: {  // u_alphaRef4
+							float a[4] = {alphaRefFloat(item.state),
+								0.0f, 0.0f, 0.0f};
+							memcpy(packet.data() + entry.offset, a, 16);
+							continue;
+						}
+						}
+						(void)mtx;
+						continue;
+					}
+					// A user uniform: copy the shadow by name.
+					for (auto& [_, urec] : _uniforms) {
+						if (urec.name != entry.name) continue;
+						const uint32_t srcSize =
+							uint32_t(urec.shadow.size());
+						uint32_t toCopy = min(srcSize, span);
+						if (entry.type == renderUniformType::Mat3) {
+							// Gold's 9-float rows pad into the block's
+							// vec4 rows ([row, 0] each — the transpose
+							// duality the GL path shows).
+							const auto* src =
+								(const float*)urec.shadow.data();
+							for (uint16_t item2 = 0; item2 < entry.num;
+								 ++item2) {
+								for (uint8_t row = 0; row < 3; ++row) {
+									float rowVec[4] = {0, 0, 0, 0};
+									const uint32_t base =
+										item2 * 9 + row * 3;
+									if (base + 3 <= srcSize / 4)
+										memcpy(rowVec,
+											src + base, 12);
+									memcpy(
+										packet.data() + entry.offset
+											+ (item2 * 3 + row) * 16,
+										rowVec, 16);
+								}
+							}
+							break;
+						}
+						memcpy(packet.data() + entry.offset,
+							urec.shadow.data(), toCopy);
+						break;
+					}
+				}
+
+				if (rec.fragment)
+					SDL_PushGPUFragmentUniformData(cmd, 0, packet.data(),
+						uint32_t(packet.size()));
+				else
+					SDL_PushGPUVertexUniformData(cmd, 0, packet.data(),
+						uint32_t(packet.size()));
+			}
+
+			static const float* identity4() {
+				static const float identity[16] = {
+					1, 0, 0, 0,
+					0, 1, 0, 0,
+					0, 0, 1, 0,
+					0, 0, 0, 1,
+				};
+				return identity;
+			}
+
+			// ---- pipelines ----------------------------------------------------
+			// The gold draw-state bits become SDL's pipeline. The cache
+			// keys on (program, state, stencils, target formats, layout).
+			SDL_GPUGraphicsPipeline* getPipeline(programRecord& prog,
+				drawItem& item, SDL_GPUTextureFormat colorFormat,
+				SDL_GPUTextureFormat depthFormat) {
+				uint64_t layoutHash = 0;
+				if (!item.vBinds.empty()) {
+					auto it = _buffers.find(item.vBinds[0].second);
+					if (it != _buffers.end()) {
+						const auto& lay = it->second.layout;
+						for (auto& a : lay.attribs)
+							layoutHash = layoutHash * 31 + a.id * 7
+								+ hash<uint32_t>()(a.offset) * 13
+								+ hash<uint32_t>()(uint32_t(a.format))
+								* 17;
+						layoutHash =
+							layoutHash * 31 + lay.stride;
+					}
+				}
+				pipelineKey key {item.program, item.state, item.stencilF,
+					item.stencilB, colorFormat, depthFormat};
+				key.state ^= layoutHash;  // fold the layout in
+				auto it = _pipelines.find(key);
+				if (it != _pipelines.end()) return it->second;
+
+				const auto state = item.state;
+				SDL_GPUGraphicsPipelineCreateInfo ci {};
+				auto vsStage = _stages.find(prog.vs);
+				auto fsStage = _stages.find(prog.fs);
+				if (vsStage != _stages.end())
+					ci.vertex_shader = vsStage->second.shader;
+				if (fsStage != _stages.end())
+					ci.fragment_shader = fsStage->second.shader;
+
+				// Vertex input: the buffer's layout descriptors mapped
+				// through the VS's io locations.
+				if (!item.vBinds.empty()) {
+					auto vIt = _buffers.find(item.vBinds[0].second);
+					if (vIt != _buffers.end()) {
+						const auto& lay = vIt->second.layout;
+						const auto& ioLocs = vsStage != _stages.end()
+							? vsStage->second.ioLocations
+							: map<string, uint32_t>();
+						SDL_GPUVertexBufferDescription desc[1];
+						SDL_GPUVertexAttribute attrs[18];
+						uint32_t attrCount = 0;
+						for (auto& a : lay.attribs) {
+							const auto loc = ioLocs.find(
+								attribNameFor(a.id));
+							if (loc == ioLocs.end()) continue;
+							attrs[attrCount].location =
+								uint32_t(loc->second);
+							attrs[attrCount].buffer_slot = 0;
+							attrs[attrCount].format = a.format;
+							attrs[attrCount].offset = a.offset;
+							++attrCount;
+						}
+						desc[0].slot = 0;
+						desc[0].pitch = max<uint32_t>(1, lay.stride);
+						desc[0].input_rate =
+							SDL_GPU_VERTEXINPUTRATE_VERTEX;
+						desc[0].instance_step_rate = 0;
+						ci.vertex_input_state.num_vertex_buffers = 1;
+						ci.vertex_input_state.vertex_buffer_descriptions
+							= desc;
+						ci.vertex_input_state.num_vertex_attributes =
+							attrCount;
+						ci.vertex_input_state.vertex_attributes = attrs;
+					}
+				}
+
+				// Primitive type.
+				const auto prim = (state >> PrimitiveShift) & 0x7;
+				switch (prim) {
+				case uint64_t(PrimitiveTriStrip):
+					ci.primitive_type =
+						SDL_GPU_PRIMITIVETYPE_TRIANGLESTRIP;
+					break;
+				case uint64_t(PrimitiveLines):
+					ci.primitive_type = SDL_GPU_PRIMITIVETYPE_LINELIST;
+					break;
+				case uint64_t(PrimitiveLineStrip):
+					ci.primitive_type =
+						SDL_GPU_PRIMITIVETYPE_LINESTRIP;
+					break;
+				case uint64_t(PrimitivePoints):
+					ci.primitive_type = SDL_GPU_PRIMITIVETYPE_POINTLIST;
+					break;
+				default:
+					ci.primitive_type =
+						SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+					break;
+				}
+
+				// Rasterizer: bgfx's front face convention (CW default),
+				// the cull on the gold field.
+				auto& raster = ci.rasterizer_state;
+				raster.fill_mode = SDL_GPU_FILLMODE_FILL;
+				raster.front_face = SDL_GPU_FRONTFACE_CLOCKWISE;
+				const auto cull = (state >> CullShift) & 0x3;
+				raster.cull_mode = cull == uint64_t(CullCW)
+					? SDL_GPU_CULLMODE_FRONT
+					: cull == uint64_t(CullCCW)
+						? SDL_GPU_CULLMODE_BACK
+						: SDL_GPU_CULLMODE_NONE;
+				raster.enable_depth_clip = true;
+
+				// Depth.
+				auto& ds = ci.depth_stencil_state;
+				const auto compare = (state >> DepthCompareShift) & 0x7;
+				ds.compare_op = sdlCompareOp(compare);
+				ds.enable_depth_test = compare != uint64_t(DepthAlways)
+					&& depthFormat
+						!= SDL_GPU_TEXTUREFORMAT_INVALID;
+				ds.enable_depth_write = (state & WriteZ) != 0
+					&& depthFormat != SDL_GPU_TEXTUREFORMAT_INVALID;
+
+				// Stencil (rarely used; the parser's zeros mean "off").
+				ds.front_stencil_state = stencilStateFromGold(
+					item.stencilF);
+				ds.back_stencil_state = stencilStateFromGold(
+					item.stencilB);
+				// The parser's zero stencil = test-always + keep ops (off).
+				ds.enable_stencil_test = item.stencilF != 0
+					|| item.stencilB != 0;
+
+				// Color target + blend.
+				auto& target = ci.target_info;
+				static SDL_GPUColorTargetDescription targets[1];
+				targets[0].format = colorFormat;
+				auto& blend = targets[0].blend_state;
+				const auto mask = uint32_t(
+					((state & WriteR) ? 1u : 0u)
+					| ((state & WriteG) ? 2u : 0u)
+					| ((state & WriteB) ? 4u : 0u)
+					| ((state & WriteA) ? 8u : 0u));
+				blend.color_write_mask = mask;
+				blend.enable_color_write_mask = true;
+				if (state & BlendEnabled) {
+					blend.enable_blend = true;
+					blend.src_color_blendfactor = sdlBlendFactor(
+						(state >> BlendRGBSrcShift) & 0xF);
+					blend.dst_color_blendfactor = sdlBlendFactor(
+						(state >> BlendRGBDstShift) & 0xF);
+					blend.src_alpha_blendfactor = sdlBlendFactor(
+						(state >> BlendASrcShift) & 0xF);
+					blend.dst_alpha_blendfactor = sdlBlendFactor(
+						(state >> BlendADstShift) & 0xF);
+					const auto op = (state >> BlendEquationShift) & 0x7;
+					blend.color_blend_op = sdlBlendOp(op);
+					blend.alpha_blend_op = sdlBlendOp(op);
+				}
+				target.num_color_targets = 1;
+				target.color_target_descriptions = targets;
+				target.depth_stencil_format = depthFormat;
+				target.has_depth_stencil_target = depthFormat
+					!= SDL_GPU_TEXTUREFORMAT_INVALID;
+
+				ci.multisample_state.sample_count =
+					SDL_GPU_SAMPLECOUNT_1;
+
+				SDL_GPUGraphicsPipeline* pipeline =
+					SDL_CreateGPUGraphicsPipeline(_device, &ci);
+				if (!pipeline) {
+					fprintf(stderr, "[sdlgpu] pipeline: %s\n",
+						SDL_GetError());
+					return nullptr;
+				}
+				_pipelines[key] = pipeline;
+				return pipeline;
+			}
+
+			// gold id -> SDL tables.
+			static SDL_GPUCompareOp sdlCompareOp(uint64_t gold) {
+				switch (gold & 0x7) {
+				case uint64_t(DepthAlways):
+					return SDL_GPU_COMPAREOP_ALWAYS;
+				case uint64_t(DepthLess):
+					return SDL_GPU_COMPAREOP_LESS;
+				case uint64_t(DepthLEqual):
+					return SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
+				case uint64_t(DepthEqual):
+					return SDL_GPU_COMPAREOP_EQUAL;
+				case uint64_t(DepthGEqual):
+					return SDL_GPU_COMPAREOP_GREATER_OR_EQUAL;
+				case uint64_t(DepthGreater):
+					return SDL_GPU_COMPAREOP_GREATER;
+				case uint64_t(DepthNotEqual):
+					return SDL_GPU_COMPAREOP_NOT_EQUAL;
+				default:
+					return SDL_GPU_COMPAREOP_NEVER;
+				}
+			}
+			static SDL_GPUStencilOpState stencilStateFromGold(
+				uint32_t gold) {
+				SDL_GPUStencilOpState st {};
+				st.compare_op = sdlCompareOp((gold >> 0) & 0x7);
+				st.fail_op = sdlStencilOp((gold >> 3) & 0x7);
+				st.depth_fail_op = sdlStencilOp((gold >> 6) & 0x7);
+				st.pass_op = sdlStencilOp((gold >> 9) & 0x7);
+				return st;
+			}
+			static SDL_GPUStencilOp sdlStencilOp(uint32_t gold) {
+				switch (gold & 0x7) {
+				case uint32_t(OpKeep): return SDL_GPU_STENCILOP_KEEP;
+				case uint32_t(OpZero): return SDL_GPU_STENCILOP_ZERO;
+				case uint32_t(OpReplace):
+					return SDL_GPU_STENCILOP_REPLACE;
+				case uint32_t(OpIncr):
+					return SDL_GPU_STENCILOP_INCREMENT_AND_WRAP;
+				case uint32_t(OpIncrSat):
+					return SDL_GPU_STENCILOP_INCREMENT_AND_CLAMP;
+				case uint32_t(OpDecr):
+					return SDL_GPU_STENCILOP_DECREMENT_AND_WRAP;
+				case uint32_t(OpDecrSat):
+					return SDL_GPU_STENCILOP_DECREMENT_AND_CLAMP;
+				default: return SDL_GPU_STENCILOP_INVERT;
+				}
+			}
+			static SDL_GPUBlendFactor sdlBlendFactor(uint64_t gold) {
+				switch (gold & 0xF) {
+				case uint64_t(FactorOne):
+					return SDL_GPU_BLENDFACTOR_ONE;
+				case uint64_t(FactorSrcColor):
+					return SDL_GPU_BLENDFACTOR_SRC_COLOR;
+				case uint64_t(FactorInvSrcColor):
+					return SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_COLOR;
+				case uint64_t(FactorSrcAlpha):
+					return SDL_GPU_BLENDFACTOR_SRC_ALPHA;
+				case uint64_t(FactorInvSrcAlpha):
+					return SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+				case uint64_t(FactorDstAlpha):
+					return SDL_GPU_BLENDFACTOR_DST_ALPHA;
+				case uint64_t(FactorInvDstAlpha):
+					return SDL_GPU_BLENDFACTOR_ONE_MINUS_DST_ALPHA;
+				case uint64_t(FactorDstColor):
+					return SDL_GPU_BLENDFACTOR_DST_COLOR;
+				case uint64_t(FactorInvDstColor):
+					return SDL_GPU_BLENDFACTOR_ONE_MINUS_DST_COLOR;
+				case uint64_t(FactorSrcAlphaSat):
+					return SDL_GPU_BLENDFACTOR_SRC_ALPHA_SATURATE;
+				case uint64_t(FactorBlendFactor):
+					return SDL_GPU_BLENDFACTOR_CONSTANT_COLOR;
+				case uint64_t(FactorInvBlendFactor):
+					return SDL_GPU_BLENDFACTOR_ONE_MINUS_CONSTANT_COLOR;
+				default:
+					return SDL_GPU_BLENDFACTOR_ZERO;
+				}
+			}
+			static SDL_GPUBlendOp sdlBlendOp(uint64_t gold) {
+				switch (gold & 0x7) {
+				case uint64_t(BlendSub):
+					return SDL_GPU_BLENDOP_SUBTRACT;
+				case uint64_t(BlendRevSub):
+					return SDL_GPU_BLENDOP_REVERSE_SUBTRACT;
+				case uint64_t(BlendMin):
+					return SDL_GPU_BLENDOP_MIN;
+				case uint64_t(BlendMax):
+					return SDL_GPU_BLENDOP_MAX;
+				default:
+					return SDL_GPU_BLENDOP_ADD;
+				}
+			}
+
+			static const char* attribNameFor(uint8_t id) {
+				switch (id) {
+				case 0: return "a_position";
+				case 1: return "a_normal";
+				case 2: return "a_tangent";
+				case 3: return "a_bitangent";
+				case 4: return "a_color0";
+				case 5: return "a_color1";
+				case 6: return "a_color2";
+				case 7: return "a_color3";
+				case 8: return "a_indices";
+				case 9: return "a_weight";
+				case 10: return "a_texcoord0";
+				case 11: return "a_texcoord1";
+				case 12: return "a_texcoord2";
+				case 13: return "a_texcoord3";
+				case 14: return "a_texcoord4";
+				case 15: return "a_texcoord5";
+				case 16: return "a_texcoord6";
+				case 17: return "a_texcoord7";
+				default: return "";
+				}
+			}
+
+			// The texture's sampler: the gold sampler flag word -> SDL.
+			SDL_GPUSampler* samplerFor(textureRecord& rec) {
+				if (rec.sampler) return rec.sampler;
+				SDL_GPUSamplerCreateInfo si {};
+				auto gold = rec.samplerFlags;
+				auto wrap = [&](uint32_t mode) {
+					if (mode & 1)
+						return SDL_GPU_SAMPLERADDRESSMODE_MIRRORED_REPEAT;
+					if (mode & 2)
+						return SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+					if (mode & 4)
+						return SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+					return SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
+				};
+				si.address_mode_u = wrap(gold & 0x7);
+				si.address_mode_v = wrap((gold >> 3) & 0x7);
+				si.address_mode_w = wrap((gold >> 6) & 0x7);
+				si.min_filter = (gold & MinPoint)
+					? SDL_GPU_FILTER_NEAREST : SDL_GPU_FILTER_LINEAR;
+				si.mag_filter = (gold & MagPoint)
+					? SDL_GPU_FILTER_NEAREST : SDL_GPU_FILTER_LINEAR;
+				si.mipmap_mode = (gold & MipPoint)
+					? SDL_GPU_SAMPLERMIPMAPMODE_NEAREST
+					: SDL_GPU_SAMPLERMIPMAPMODE_LINEAR;
+				si.enable_anisotropy =
+					(gold & (MinAnisotropic | MagAnisotropic)) != 0;
+				si.max_anisotropy = 16.0f;
+				if (gold & CompareEnabled) {
+					si.enable_compare = true;
+					si.compare_op = sdlCompareOp(
+						(gold >> CompareModeShift) & 0x7);
+				}
+				rec.sampler = SDL_CreateGPUSampler(_device, &si);
+				return rec.sampler;
+			}
+
+			static bool sdlFormatIsDepth(SDL_GPUTextureFormat format) {
+				switch (format) {
+				case SDL_GPU_TEXTUREFORMAT_D16_UNORM:
+				case SDL_GPU_TEXTUREFORMAT_D24_UNORM:
+				case SDL_GPU_TEXTUREFORMAT_D32_FLOAT:
+				case SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT:
+				case SDL_GPU_TEXTUREFORMAT_D32_FLOAT_S8_UINT:
+					return true;
+				default:
+					return false;
+				}
+			}
+
+			// createTextureLike's RT-capable variant.
+			renderHandle createTextureWithUsage(SDL_GPUTextureType type,
+				uint32_t w, uint32_t h, uint32_t d,
+				texFormat f, SDL_GPUTextureUsageFlags usage) {
+				(void)d;
+				const bool depth =
+					SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET & usage;
+				auto format = depth
+					? SDL_GPU_TEXTUREFORMAT_D32_FLOAT : toSDLFormat(f,
+						false);
+				SDL_GPUTextureCreateInfo ci {};
+				ci.type = type;
+				ci.format = format;
+				ci.width = w;
+				ci.height = h;
+				ci.layer_count_or_depth = 1;
+				ci.num_levels = 1;
+				ci.usage = usage;
+				SDL_GPUTexture* tex = SDL_CreateGPUTexture(_device, &ci);
+				if (!tex) return renderHandle{};
+				const uint16_t idx = _nextTexture++;
+				textureRecord rec;
+				rec.texture = tex;
+				rec.format = format;
+				rec.type = type;
+				rec.width = w;
+				rec.height = h;
+				rec.depth = 1;
+				rec.numMips = 1;
+				rec.numLayers = 1;
+				_textures[idx] = rec;
+				return renderHandle{idx};
+			}
+
 		};
 
 		struct sdlRegistrar {
