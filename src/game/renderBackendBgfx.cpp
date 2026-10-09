@@ -10,9 +10,13 @@
 #include <bimg/bimg.h>
 #include <bimg/encode.h>
 
+#include <sys/wait.h>
+#include <unistd.h>
+
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -20,9 +24,12 @@
 #include <utility>
 #include <vector>
 
+#include "game/graphics.hpp"
 #include "game/renderStateBits.hpp"
 
 namespace gold {
+
+	using namespace std;
 
 	namespace {
 		// The gold flag-word translations. The parsers (graphics.cpp) build
@@ -228,6 +235,90 @@ namespace gold {
 			default:
 				return bgfx::AttribType::Count;
 			}
+		}
+
+		// Compile a .sc shader with the bgfx shaderc tool (an external
+		// program built by bgfx.cmake, or the system bgfx-shaderc). The
+		// compiled .bin is read back from stdout. GOLD_SHADER_COMPILER is
+		// the tool path; GOLD_BGFX_SHADER_INCLUDE the shader header root.
+		// Both bake into THIS plugin: no other backend shares the
+		// toolchain.
+		binary compileStageBin(
+			char type, const char* filePath, const char* defines,
+			const char* varyingPath, const char* profile,
+			const vector<string>& includeDirs) {
+			const char* typeName = type == 'v' ? "vertex"
+				: type == 'f' ? "fragment" : "compute";
+			string prof = (profile && *profile) ? string(profile)
+				: (type == 'c' ? string("430") : string("330"));
+			vector<string> args = {
+				GOLD_SHADER_COMPILER,
+				"-f", filePath,
+				"--type", typeName,
+				"--platform", "linux",
+				"--profile", prof,
+				// bgfx's own shader headers (bgfx_shader.sh and friends),
+				// then caller-supplied dirs — the generated source lives in
+				// a temp dir, so the shader library dir must come from the
+				// caller, not from the input's directory.
+				"-i", GOLD_BGFX_SHADER_INCLUDE,
+				"--stdout",
+			};
+			for (const auto& dir : includeDirs)
+				if (!dir.empty()) {
+					args.push_back("-i");
+					args.push_back(dir);
+				}
+			if (defines && *defines) {
+				args.push_back("--define");
+				args.push_back(defines);
+			}
+			if (varyingPath && *varyingPath
+				&& filesystem::exists(filesystem::path(varyingPath))) {
+				// Expand the varying's conditionals (some shaderc vintages
+				// reject directives there); the expanded file satisfies all
+				// of them and keeps vertex layouts defined-conditional.
+				const auto expanded = expandVaryingDefinition(
+					varyingPath, defines ? defines : "");
+				if (!expanded.empty()) {
+					args.push_back("--varyingdef");
+					args.push_back(expanded);
+				}
+			}
+
+			vector<char*> argv;
+			argv.reserve(args.size() + 1);
+			for (auto& a : args) argv.push_back(a.data());
+			argv.push_back(nullptr);
+
+			int fds[2];
+			if (pipe(fds) != 0) return binary();
+			pid_t pid = fork();
+			if (pid == 0) {
+				dup2(fds[1], STDOUT_FILENO);
+				close(fds[0]);
+				close(fds[1]);
+				execvp(GOLD_SHADER_COMPILER, argv.data());
+				_exit(127);
+			}
+			close(fds[1]);
+			vector<uint8_t> out;
+			char buf[65536];
+			ssize_t n;
+			while ((n = read(fds[0], buf, sizeof(buf))) > 0)
+				out.insert(out.end(), buf, buf + n);
+			close(fds[0]);
+			int status = 0;
+			waitpid(pid, &status, 0);
+			if (!WIFEXITED(status) || WEXITSTATUS(status) != 0 || out.empty()) {
+				// Surface the tool's own message so compile failures explain
+				// themselves instead of silently skipping a program.
+				cerr << "Shader compile failed (" << filePath << "):\n";
+				cerr.write(reinterpret_cast<const char*>(out.data()),
+					(std::streamsize)out.size());
+				return binary();
+			}
+			return binary(out.begin(), out.end());
 		}
 
 		class bgfxRenderBackend : public renderBackend {
@@ -496,6 +587,24 @@ namespace gold {
 			renderHandle createProgram(renderHandle vs,
 				renderHandle fs) override {
 				return toHandle(bgfx::createProgram(sh(vs), sh(fs)));
+			}
+			// Backends own their compiler: this shells the bgfx-shaderc
+			// toolchain and returns the created stage.
+			renderHandle compileStage(object request) override {
+				auto typeName = request["type"].getString();
+				char type = typeName == "vertex" ? 'v'
+					: typeName == "fragment" ? 'f' : 'c';
+				auto path = request["path"].getString();
+				auto defines = request["defines"].getString();
+				auto varying = request["varying"].getString();
+				auto includeDirs = vector<string>();
+				for (const auto& dir :
+					request.getList("includeDirs", list()))
+					includeDirs.push_back(dir.getString());
+				auto bin = compileStageBin(type, path.c_str(),
+					defines.c_str(), varying.c_str(), nullptr, includeDirs);
+				if (bin.empty()) return renderHandle{};
+				return createShader(bin.data(), uint32_t(bin.size()));
 			}
 			renderHandle createUniform(const char* name, renderUniformType t,
 				uint16_t num) override {

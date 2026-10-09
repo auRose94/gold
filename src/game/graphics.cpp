@@ -1,8 +1,6 @@
 #include "graphics.hpp"
+#include "goldjs.hpp"
 #include "renderStateBits.hpp"
-
-#include <bimg/bimg.h>
-#include <bx/os.h>
 
 #include <algorithm>
 #include <cctype>
@@ -17,8 +15,6 @@
 #include <iostream>
 #include <set>
 #include <sstream>
-#include <sys/wait.h>
-#include <unistd.h>
 
 namespace gold {
 	using namespace std;
@@ -196,87 +192,6 @@ namespace gold {
 		if (!out) return "";
 		out << expanded;
 		return tempPath;
-	}
-
-	// Compile a .sc shader with the bgfx shaderc tool (an external program
-	// built by bgfx.cmake, or the system bgfx-shaderc). The compiled .bin is
-	// read back from stdout. GOLD_SHADER_COMPILER is the tool path.
-	static binary compileShaderSource(
-		char type, const char* filePath, const char* defines,
-		const char* varyingPath, const char* profile,
-		const vector<string>& includeDirs) {
-		const char* typeName = type == 'v' ? "vertex"
-			: type == 'f' ? "fragment" : "compute";
-		string prof = (profile && *profile) ? string(profile)
-			: (type == 'c' ? string("430") : string("330"));
-		vector<string> args = {
-			GOLD_SHADER_COMPILER,
-			"-f", filePath,
-			"--type", typeName,
-			"--platform", "linux",
-			"--profile", prof,
-			// bgfx's own shader headers (bgfx_shader.sh and friends),
-			// then caller-supplied dirs — the generated source lives in
-			// a temp dir, so the shader library dir must come from the
-			// caller, not from the input's directory.
-			"-i", GOLD_BGFX_SHADER_INCLUDE,
-			"--stdout",
-		};
-		for (const auto& dir : includeDirs)
-			if (!dir.empty()) {
-				args.push_back("-i");
-				args.push_back(dir);
-			}
-		if (defines && *defines) {
-			args.push_back("--define");
-			args.push_back(defines);
-		}
-		if (varyingPath && *varyingPath
-			&& filesystem::exists(filesystem::path(varyingPath))) {
-			// Expand the varying's conditionals (some shaderc vintages
-			// reject directives there); the expanded file satisfies all
-			// of them and keeps vertex layouts defined-conditional.
-			const auto expanded = expandVaryingDefinition(
-				varyingPath, defines ? defines : "");
-			if (!expanded.empty()) {
-				args.push_back("--varyingdef");
-				args.push_back(expanded);
-			}
-		}
-
-		vector<char*> argv;
-		argv.reserve(args.size() + 1);
-		for (auto& a : args) argv.push_back(a.data());
-		argv.push_back(nullptr);
-
-		int fds[2];
-		if (pipe(fds) != 0) return binary();
-		pid_t pid = fork();
-		if (pid == 0) {
-			dup2(fds[1], STDOUT_FILENO);
-			close(fds[0]);
-			close(fds[1]);
-			execvp(GOLD_SHADER_COMPILER, argv.data());
-			_exit(127);
-		}
-		close(fds[1]);
-		vector<uint8_t> out;
-		char buf[65536];
-		ssize_t n;
-		while ((n = read(fds[0], buf, sizeof(buf))) > 0)
-			out.insert(out.end(), buf, buf + n);
-		close(fds[0]);
-		int status = 0;
-		waitpid(pid, &status, 0);
-		if (!WIFEXITED(status) || WEXITSTATUS(status) != 0 || out.empty()) {
-			// Surface the tool's own message so compile failures explain
-			// themselves instead of silently skipping a program.
-			cerr << "Shader compile failed (" << filePath << "):\n";
-			cerr.write(reinterpret_cast<const char*>(out.data()),
-				(std::streamsize)out.size());
-			return binary();
-		}
-		return binary(out.begin(), out.end());
 	}
 
 	renderBackend*& gfxBackend::render() {
@@ -710,31 +625,31 @@ namespace gold {
 				fclose(tmpf);
 				path = tempPath;
 			}
-			// The selected shader compiler supplies the backend profile.
-			// The include dirs: the original source's directory (the
-			// shader's own .sh library) and the varying's directory.
-			auto compiled = compileShaderSource(
-				type, (const char*)path.c_str(), defines.c_str(),
-				varying.c_str(), nullptr,
-				vector<string>{
-					libraryDir,
-					filesystem::path(varying).parent_path().string(),
-				});
-			fprintf(stderr, "[dbg] shader compiled bytes=%zu\n", compiled.size());
-			if (!compiled.empty()) {
-				auto strData = string_view(
-					(const char*)compiled.data(), compiled.size());
-				auto h = std::hash<string_view>();
-				setString("hash", to_string((uint64_t)h(strData)));
-				if (auto backend = gfxBackend::backend()) {
-					auto handle = backend->createShader(
-						compiled.data(), uint32_t(compiled.size()));
+			// The backend owns its compiler: it shells its toolchain and
+			// hands back a created stage (an invalid handle from a backend
+			// with no source-compile path). The include dirs: the original
+			// source's directory (the shader's own .sh library) and the
+			// varying's directory.
+			if (auto backend = gfxBackend::backend()) {
+				auto handle = backend->compileStage(jo(
+					"type", type == 'v' ? "vertex"
+						: type == 'f' ? "fragment" : "compute",
+					"path", path.string(),
+					"defines", defines,
+					"varying", varying,
+					"includeDirs",
+						ja(libraryDir,
+							filesystem::path(varying)
+								.parent_path()
+								.string())));
+				if (handle.valid()) {
 					setUInt16("idx", handle.idx);
+				} else {
+					cerr << "Failed to build: " << path << endl;
+					empty();
+					setString(
+						"error", "Failed to compile shader: " + path.string());
 				}
-			} else {
-				cerr << "Failed to build: " << path << endl;
-				empty();
-				setString("error", "Failed to compile shader: " + path.string());
 			}
 		}
 		if (getType("name") == typeString)
@@ -1033,8 +948,11 @@ namespace gold {
 			}
 
 			if (state.getVar("alphaRef").isNumber())
-				flags |= (state.getUInt32("alphaRef") &
-							 uint32_t(0xFF))
+				// The field sits past bit 32: cast the source to the
+				// state's 64-bit width FIRST or the 33-bit shift happens
+				// in 32-bit and truncates (alphaRef silently zeroed).
+				flags |= uint64_t(state.getUInt32("alphaRef") &
+						 uint32_t(0xFF))
 					<< AlphaRefShift;
 
 			auto primitiveType = state.getString("type");

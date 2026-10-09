@@ -261,6 +261,16 @@ namespace gold {
 		virtual renderHandle createShader(const void* data, uint32_t size) = 0;
 		virtual renderHandle createProgram(renderHandle vs,
 			renderHandle fs) = 0;
+		/** Compile a stage from source and create the shader. The request
+		 *  is a gold object: {"type", "vertex"|"fragment"|"compute",
+		 *  "path", "defines", "varying", "includeDirs", [...]}. Backends
+		 *  own their toolchain (the bgfx plugin shells the bgfx-shaderc
+		 *  tool; an SDL_GPU backend compiles SPIR-V); blob-only backends
+		 *  keep the default, which returns an invalid handle. */
+		virtual renderHandle compileStage(object request) {
+			(void)request;
+			return renderHandle{};
+		}
 		virtual renderHandle createUniform(const char* name,
 			renderUniformType t, uint16_t num = 1) = 0;
 		virtual void setUniform(renderHandle h, const void* value,

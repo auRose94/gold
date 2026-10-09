@@ -194,11 +194,10 @@ if(TARGET gold::ui)
 	target_link_libraries(goldGame PRIVATE gold::ui)
 endif()
 
-# The shader compiler tool path + bgfx's shader include dir, used at
-# RUNTIME to compile .sc shaders (the PBR path compiles at app start).
-target_compile_definitions(goldGame PUBLIC
-	GOLD_SHADER_COMPILER="${GOLD_SHADER_COMPILER}"
-	GOLD_BGFX_SHADER_INCLUDE="${GOLD_BGFX_SHADER_INCLUDE}")
+# No shader-tool constants bake into the facade: shader compilation is
+# a backend concern (the plugins define GOLD_SHADER_COMPILER and the
+# include dir themselves) — gfxBackend and shaderObject only ask the
+# active backend to compile stages.
 
 target_compile_features(
 	goldGame
@@ -295,4 +294,9 @@ if(bgfx_FOUND)
 			${GOLD_BX_TARGET}
 	)
 	target_compile_features(goldBgfx PRIVATE cxx_std_26)
+	# The runtime compile path (shaderObject's "src") shells the compiler
+	# tool from THIS plugin; only backends bake tool-path constants.
+	target_compile_definitions(goldBgfx PRIVATE
+		GOLD_SHADER_COMPILER="${GOLD_SHADER_COMPILER}"
+		GOLD_BGFX_SHADER_INCLUDE="${GOLD_BGFX_SHADER_INCLUDE}")
 endif()
