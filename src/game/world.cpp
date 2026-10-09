@@ -1,20 +1,18 @@
 #include <cstring>
 #include "world.hpp"
 
-#include <bgfx/bgfx.h>
-
 #include "camera.hpp"
 #include "engine.hpp"
 #include "entity.hpp"
 #include "graphics.hpp"
 #include "physicsBackend.hpp"
+#include "renderBackend.hpp"
 #include "physicsBody.hpp"
 #include "shaderWireframe.hpp"
 #include "transform.hpp"
 
 namespace gold {
 	using namespace std;
-	using namespace bgfx;
 
 	binary getWireframeShaderData(shaderType stype);
 
@@ -97,7 +95,7 @@ namespace gold {
 		setPtr("physicsBackend", backend);
 
 		// The wireframe debug program + uniform are created lazily on the
-		// first flush (bgfx must be initialized; the engine boot order
+		// first flush (graphics must be initialized; the engine boot order
 		// guarantees graphics before the world, but a bare-bootstrap world
 		// may not have run yet). The backend's drawer only batches into
 		// this sink.
@@ -171,14 +169,15 @@ namespace gold {
 		return var();
 	}
 
-	// The wireframe shader blob for the running bgfx renderer type; kept
+	// The wireframe shader blob for the active backend API; kept
 	// game-side with the embedded shader arrays until the render facade
 	// is confined behind its backend interface.
 	binary getWireframeShaderData(shaderType stype) {
-		auto renderType = getRendererType();
-		switch (renderType) {
-			case bgfx::RendererType::Direct3D11:
-			case bgfx::RendererType::Direct3D12: {
+		// The shader blob keys off the active backend's API.
+		auto backend = gfxBackend::backend();
+		switch (backend ? backend->kind() : rendererKind::Noop) {
+			case rendererKind::D3D11:
+			case rendererKind::D3D12: {
 				switch (stype) {
 					case VertexShaderType:
 						return dx11_vs_wireframe;
@@ -189,7 +188,7 @@ namespace gold {
 				}
 				break;
 			}
-			case bgfx::RendererType::Metal: {
+			case rendererKind::Metal: {
 				switch (stype) {
 					case VertexShaderType:
 						return metal_vs_wireframe;
@@ -200,7 +199,7 @@ namespace gold {
 				}
 				break;
 			}
-			case bgfx::RendererType::OpenGLES: {
+			case rendererKind::GLES: {
 				switch (stype) {
 					case VertexShaderType:
 						return essl_vs_wireframe;
@@ -211,7 +210,7 @@ namespace gold {
 				}
 				break;
 			}
-			case bgfx::RendererType::OpenGL: {
+			case rendererKind::GL: {
 				switch (stype) {
 					case VertexShaderType:
 						return glsl_vs_wireframe;
@@ -222,7 +221,7 @@ namespace gold {
 				}
 				break;
 			}
-			case bgfx::RendererType::Vulkan: {
+			case rendererKind::Vulkan: {
 				switch (stype) {
 					case VertexShaderType:
 						return spirv_vs_wireframe;
@@ -232,9 +231,6 @@ namespace gold {
 						break;
 				}
 			}
-			case bgfx::RendererType::Gnm:
-			case bgfx::RendererType::Nvn:
-			case bgfx::RendererType::Noop:
 			default:
 				break;
 		}

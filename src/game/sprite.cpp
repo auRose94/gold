@@ -1,7 +1,6 @@
 #include <cstring>
 #include "sprite.hpp"
 
-#include <bgfx/bgfx.h>
 #include <bx/math.h>
 #include <bx/timer.h>
 
@@ -9,12 +8,12 @@
 
 #include "entity.hpp"
 #include "graphics.hpp"
+#include "renderBackend.hpp"
 #include "shaderSprite.hpp"
 #include "transform.hpp"
 
 namespace gold {
 	using namespace std;
-	using namespace bgfx;
 
 
 
@@ -246,10 +245,11 @@ namespace gold {
 	}
 
 	binary getSpriteShaderData(shaderType stype) {
-		auto renderType = getRendererType();
-		switch (renderType) {
-			case bgfx::RendererType::Direct3D11:
-			case bgfx::RendererType::Direct3D12: {
+		// The shader blob keys off the active backend's API.
+		auto backend = gfxBackend::backend();
+		switch (backend ? backend->kind() : rendererKind::Noop) {
+			case rendererKind::D3D11:
+			case rendererKind::D3D12: {
 				switch (stype) {
 					case VertexShaderType:
 						return dx11_vs_sprite;
@@ -260,7 +260,7 @@ namespace gold {
 				}
 				break;
 			}
-			case bgfx::RendererType::Metal: {
+			case rendererKind::Metal: {
 				switch (stype) {
 					case VertexShaderType:
 						return metal_vs_sprite;
@@ -271,7 +271,7 @@ namespace gold {
 				}
 				break;
 			}
-			case bgfx::RendererType::OpenGLES: {
+			case rendererKind::GLES: {
 				switch (stype) {
 					case VertexShaderType:
 						return essl_vs_sprite;
@@ -282,7 +282,7 @@ namespace gold {
 				}
 				break;
 			}
-			case bgfx::RendererType::OpenGL: {
+			case rendererKind::GL: {
 				switch (stype) {
 					case VertexShaderType:
 						return glsl_vs_sprite;
@@ -293,7 +293,7 @@ namespace gold {
 				}
 				break;
 			}
-			case bgfx::RendererType::Vulkan: {
+			case rendererKind::Vulkan: {
 				switch (stype) {
 					case VertexShaderType:
 						return spirv_vs_sprite;
@@ -303,9 +303,6 @@ namespace gold {
 						break;
 				}
 			}
-			case bgfx::RendererType::Gnm:
-			case bgfx::RendererType::Nvn:
-			case bgfx::RendererType::Noop:
 			default:
 				break;
 		}

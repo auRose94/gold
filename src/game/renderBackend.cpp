@@ -14,6 +14,7 @@
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <utility>
 
 #include "plugin.hpp"
 
@@ -25,8 +26,59 @@ namespace gold {
 		bgfx::TextureFormat::Enum toBGFX(texFormat f) {
 			return (bgfx::TextureFormat::Enum)uint8_t(f);
 		}
+		// The uniform and vertex-attribute type maps are explicit: gold's
+		// value layouts are its own, so a backend cannot drift by casting.
+		bgfx::UniformType::Enum toBGFXUniform(renderUniformType t) {
+			switch (t) {
+			case renderUniformType::Sampler:
+				return bgfx::UniformType::Sampler;
+			case renderUniformType::Vec4:
+				return bgfx::UniformType::Vec4;
+			case renderUniformType::Mat3:
+				return bgfx::UniformType::Mat3;
+			case renderUniformType::Mat4:
+				return bgfx::UniformType::Mat4;
+			default:
+				return bgfx::UniformType::Count;
+			}
+		}
 		renderUniformType fromBGFXUniform(bgfx::UniformType::Enum t) {
-			return (renderUniformType)uint8_t(t);
+			switch (t) {
+			case bgfx::UniformType::Sampler:
+				return renderUniformType::Sampler;
+			case bgfx::UniformType::Vec4:
+				return renderUniformType::Vec4;
+			case bgfx::UniformType::Mat3:
+				return renderUniformType::Mat3;
+			case bgfx::UniformType::Mat4:
+				return renderUniformType::Mat4;
+			default:
+				return renderUniformType::Count;
+			}
+		}
+		bgfx::AttribType::Enum toBGFXAttribType(vertexAttribType t) {
+			switch (t) {
+			case vertexAttribType::Int8:
+				return bgfx::AttribType::Int8;
+			case vertexAttribType::Uint8:
+				return bgfx::AttribType::Uint8;
+			case vertexAttribType::Uint10:
+				return bgfx::AttribType::Uint10;
+			case vertexAttribType::Int16:
+				return bgfx::AttribType::Int16;
+			case vertexAttribType::Uint16:
+				return bgfx::AttribType::Uint16;
+			case vertexAttribType::Half:
+				return bgfx::AttribType::Half;
+			case vertexAttribType::Float:
+				return bgfx::AttribType::Float;
+			case vertexAttribType::Int32:
+				return bgfx::AttribType::Int32;
+			case vertexAttribType::Uint32:
+				return bgfx::AttribType::Uint32;
+			default:
+				return bgfx::AttribType::Count;
+			}
 		}
 
 		class bgfxRenderBackend : public renderBackend {
@@ -101,6 +153,25 @@ namespace gold {
 
 			renderBackendType type() const override { return _type; }
 			const char* name() const override { return "bgfx"; }
+			rendererKind kind() const override {
+				// Recorded at initialize; before it runs, the noop kind.
+				switch ((bgfx::RendererType::Enum)_rendererType) {
+				case bgfx::RendererType::Direct3D11:
+					return rendererKind::D3D11;
+				case bgfx::RendererType::Direct3D12:
+					return rendererKind::D3D12;
+				case bgfx::RendererType::Metal:
+					return rendererKind::Metal;
+				case bgfx::RendererType::OpenGLES:
+					return rendererKind::GLES;
+				case bgfx::RendererType::OpenGL:
+					return rendererKind::GL;
+				case bgfx::RendererType::Vulkan:
+					return rendererKind::Vulkan;
+				default:
+					return rendererKind::Noop;
+				}
+			}
 
 			// The application callback: traces to the console, and screen
 			// shots become PNG files via the bundled image codecs (bgfx's
@@ -237,8 +308,8 @@ namespace gold {
 			}
 			renderHandle createUniform(const char* name, renderUniformType t,
 				uint16_t num) override {
-				return toHandle(bgfx::createUniform(
-					name, bgfx::UniformType::Enum(uint8_t(t)), num));
+				return toHandle(
+					bgfx::createUniform(name, toBGFXUniform(t), num));
 			}
 			void setUniform(renderHandle h, const void* value,
 				uint16_t num) override {
@@ -276,6 +347,23 @@ namespace gold {
 				const void* data, uint32_t size_) override {
 				return toHandle(bgfx::createTextureCube(size, hasMips,
 					numLayers, toBGFX(f), flags, mem(data, size_)));
+			}
+			renderHandle createTexture3D(uint16_t w, uint16_t h, uint16_t d,
+				bool hasMips, texFormat f, uint64_t flags, const void* data,
+				uint32_t size) override {
+				// Volume textures; the whole volume ships with the data.
+				return toHandle(bgfx::createTexture3D(
+					w, h, d, hasMips, toBGFX(f), flags, mem(data, size)));
+			}
+			void updateTexture2D(renderHandle h, uint8_t mip,
+				const void* data, uint32_t size) override {
+				bgfx::updateTexture2D(
+					tex(h), 0, mip, 0, 0, 0, 0, bgfx::makeRef(data, size));
+			}
+			void updateTexture3D(renderHandle h, uint8_t mip,
+				const void* data, uint32_t size) override {
+				bgfx::updateTexture3D(
+					tex(h), 0, mip, 0, 0, 0, 0, 0, bgfx::makeRef(data, size));
 			}
 			void updateTexture(renderHandle h, uint8_t side, uint8_t mip,
 				const void* data, uint32_t size) override {
@@ -380,6 +468,16 @@ namespace gold {
 				bgfx::destroy(uh);
 			}
 
+			void destroyUniform(renderHandle h) override {
+				bgfx::destroy(uni(h));
+			}
+			void setObjectName(renderHandle h, const char* name) override {
+				bgfx::setName(tex(h), name, int32_t(strlen(name)));
+			}
+			bool homogeneousDepth() const override {
+				return bgfx::getCaps()->homogeneousDepth;
+			}
+
 			renderHandle createFrameBuffer(const void* handles,
 				uint8_t num) override {
 				return toHandle(bgfx::createFrameBuffer(
@@ -390,6 +488,86 @@ namespace gold {
 				return toHandle(bgfx::createFrameBuffer(
 					w, h, toBGFX(f), flags));
 			}
+			renderHandle createFrameBuffer(object config) override {
+				return createFrameBufferFromDescriptor(config);
+			}
+			renderHandle createFrameBufferFromDescriptor(object config) {
+				// The descriptor shapes are the frameBuffer facade's config
+				// ones: {"attachments", [{texture, access, layer, mip,
+				// resolve}]}, {"textures", [gpuTexture data]}, {"ratio", n,
+				// "format", f}, {"nwh", ptr + width/height ("size") +
+				// {"color", "depth"}}, and the plain {"width"/"height"
+				// ("size"), "format"} — each with an optional
+				// {"destroyTextures", bool}.
+				const bool destroyTexs = config.getBool("destroyTextures");
+				if (config.getType("attachments") == typeList) {
+					std::vector<bgfx::Attachment> attachments;
+					auto entries = config.getList("attachments");
+					for (auto& entry : entries) {
+						auto attachment = entry.getObject();
+						auto texItem = attachment.getObject("texture");
+						auto texHandle = bgfx::TextureHandle{
+							texItem.getUInt16(
+								"idx", uint16_t(bgfx::kInvalidHandle))};
+						bgfx::Attachment att;
+						att.init(texHandle,
+							bgfx::Access::Enum(attachment.getUInt8(
+								"access", uint8_t(bgfx::Access::Write))),
+							attachment.getUInt16("layer", 0),
+							attachment.getUInt16("mip", 0),
+							attachment.getUInt8("resolve", 1));
+						attachments.push_back(att);
+					}
+					return toHandle(bgfx::createFrameBuffer(
+						uint8_t(attachments.size()), attachments.data(),
+						destroyTexs));
+				}
+				if (config.getType("textures") == typeList) {
+					std::vector<bgfx::TextureHandle> texs;
+					auto entries = config.getList("textures");
+					for (auto& entry : entries)
+						texs.push_back(bgfx::TextureHandle{
+							entry.getObject().getUInt16("idx")});
+					return toHandle(bgfx::createFrameBuffer(
+						uint8_t(texs.size()), texs.data(), destroyTexs));
+				}
+				auto ratioVar = config.getVar("ratio");
+				if (ratioVar.isNumber())
+					return toHandle(bgfx::createFrameBuffer(
+						bgfx::BackbufferRatio::Enum(ratioVar.getUInt8()),
+						bgfx::TextureFormat::Enum(config.getUInt16(
+							"format", uint16_t(bgfx::TextureFormat::Count))),
+						destroyTexs));
+				auto* nwh = (void*)config.getPtr("nwh");
+				if (nwh) {
+					auto width = config.getUInt16("width");
+					auto height = config.getUInt16("height");
+					auto size = config.getVar("size");
+					if (size.isVec2()) {
+						width = size.getUInt16(0);
+						height = size.getUInt16(1);
+					}
+					return toHandle(bgfx::createFrameBuffer(nwh, width,
+						height,
+						bgfx::TextureFormat::Enum(config.getUInt16(
+							"color", uint16_t(bgfx::TextureFormat::Count))),
+						bgfx::TextureFormat::Enum(config.getUInt16(
+							"depth", uint16_t(bgfx::TextureFormat::Count)))));
+				}
+				auto width = config.getUInt16("width");
+				auto height = config.getUInt16("height");
+				auto size = config.getVar("size");
+				if (size.isVec2()) {
+					width = size.getUInt16(0);
+					height = size.getUInt16(1);
+				}
+				if (width == 0 || height == 0) return renderHandle{};
+				return toHandle(bgfx::createFrameBuffer(width, height,
+					bgfx::TextureFormat::Enum(config.getUInt16(
+						"format", uint16_t(bgfx::TextureFormat::Count))),
+					destroyTexs));
+			}
+
 			renderHandle createOcclusionQuery() override {
 				return toHandle(bgfx::createOcclusionQuery());
 			}

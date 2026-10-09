@@ -1,5 +1,7 @@
 #include "meshRenderer.hpp"
 
+#include "renderBackend.hpp"
+
 #include <bgfx/bgfx.h>
 #include <bx/math.h>
 #include <bx/timer.h>
@@ -270,7 +272,8 @@ namespace gold {
 			auto width = size.getFloat(0);
 			auto height = size.getFloat(1);
 			auto ratio = height != 0.0f ? width / height : 1.0f;
-			auto homo = bgfx::getCaps()->homogeneousDepth;
+			auto backend = gfxBackend::backend();
+			const bool homo = backend ? backend->homogeneousDepth() : true;
 			auto projM = projection(
 				cam.getFloat("fov"), ratio, cam.getFloat("near"),
 				cam.getFloat("far"), homo);

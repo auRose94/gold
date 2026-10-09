@@ -124,13 +124,25 @@ namespace gold {
 	/** Texture sampling access flags (image load/store). */
 	enum class texAccess : uint8_t { Read = 0, Write = 1, ReadWrite = 2 };
 
-	/** Uniform data type. */
+	/** Uniform data type. gold's own ordering; every backend maps it. */
 	enum class renderUniformType : uint8_t {
-		Int1 = 0,
+		Sampler = 0,
 		Vec4,
 		Mat3,
 		Mat4,
 		Count,
+	};
+
+	/** Which graphics API a backend drives. gold-native (the shader-blob
+	 * selection keys off this); backends report their underlying API. */
+	enum class rendererKind : uint8_t {
+		Noop = 0,
+		D3D11,
+		D3D12,
+		Metal,
+		GLES,
+		GL,
+		Vulkan,
 	};
 
 	/** Vertex attribute semantic. */
@@ -156,15 +168,17 @@ namespace gold {
 		Count,
 	};
 
-	/** Vertex attribute storage type. */
+	/** Vertex attribute storage type. gold's own ordering; each backend
+	 *  maps it (this list mirrors the layout the bgfx backend expects,
+	 *  without normalized variants — normalization is a descriptor flag). */
 	enum class vertexAttribType : uint8_t {
-		Uint8 = 0,
+		Int8 = 0,
+		Uint8,
 		Uint10,
 		Int16,
-		Float,
+		Uint16,
 		Half,
-		Uint8Norm,
-		Int16Norm,
+		Float,
 		Int32,
 		Uint32,
 		Count,
@@ -205,6 +219,10 @@ namespace gold {
 		/** Backend family. */
 		virtual renderBackendType type() const = 0;
 		virtual const char* name() const = 0;
+		/** The graphics API the backend drives (GL/GLES/Vulkan/D3D/Metal/
+		 *  Noop). Shader-blob selection and renderer-behavior switches key
+		 *  off this instead of bgfx's enum. */
+		virtual rendererKind kind() const { return rendererKind::Noop; }
 
 		/** Initialize the renderer against a native window (may be null for
 		 * headless/offscreen). Returns false on failure. */
@@ -316,6 +334,47 @@ namespace gold {
 			uint16_t w, uint16_t h, uint16_t d) = 0;
 		virtual void setImage(uint8_t stage, renderHandle tex, uint8_t mip,
 			texAccess access, texFormat f) = 0;
+
+		// ---- extensions the render facades need ---------------------------
+		/** 3D texture; whole-volume data like createTexture2D's. */
+		virtual renderHandle createTexture3D(uint16_t w, uint16_t h, uint16_t d,
+			bool hasMips, texFormat f, uint64_t flags, const void* data,
+			uint32_t size) {
+			(void)w; (void)h; (void)d; (void)hasMips; (void)f; (void)flags;
+			(void)data; (void)size;
+			return renderHandle{};
+		}
+		/** Whole-mip updates for the 2D/3D kinds (cube updates ride
+		 *  updateTexture with the face index). */
+		virtual void updateTexture2D(renderHandle h, uint8_t mip,
+			const void* data, uint32_t size) {
+			(void)h; (void)mip; (void)data; (void)size;
+		}
+		virtual void updateTexture3D(renderHandle h, uint8_t mip,
+			const void* data, uint32_t size) {
+			(void)h; (void)mip; (void)data; (void)size;
+		}
+		/** Free a uniform created with createUniform. */
+		virtual void destroyUniform(renderHandle h) { (void)h; }
+		/** Debug-name an object (texture, program, buffer, framebuffer). */
+		virtual void setObjectName(renderHandle h, const char* name) {
+			(void)h; (void)name;
+		}
+		/** Depth range: true = [-1..1] (w-divided/direct3d), false =
+		 *  [0..1] (GL). Projections need it. */
+		virtual bool homogeneousDepth() const { return true; }
+
+		/** A framebuffer built from a gold descriptor object, one of:
+		 *  {"textures", [gpuTexture-data]} (attachment list with
+		 *  "access"/"mip"/"resolve" entries), {"handles", [renderHandle
+		 *  numbers]}, {"ratio", n, "format", f}, or
+		 *  {"width", w, "height", h, "format", f} with optional
+		 *  {"color", f, "depth", f} pairs — the same shapes the
+		 *  frameBuffer facade stores in its config. */
+		virtual renderHandle createFrameBuffer(object config) {
+			(void)config;
+			return renderHandle{};
+		}
 	};
 
 	/** Create a render backend by family. Built-in backends are registered

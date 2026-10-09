@@ -1,7 +1,9 @@
 #include "camera.hpp"
 
-#include <bgfx/bgfx.h>
 #include <bx/math.h>
+
+#include "graphics.hpp"
+#include "renderBackend.hpp"
 
 #include "transform.hpp"
 
@@ -97,10 +99,14 @@ namespace gold {
 		auto width = size.getFloat(0);
 		auto height = size.getFloat(1);
 		auto ratio = height != 0.0f ? width / height : 1.0f;
-		auto homo = bgfx::getCaps()->homogeneousDepth;
+		// Depth range comes from the active backend (GL vs D3D conventions).
+		auto backend = gfxBackend::backend();
+		const bool homo =
+			backend ? backend->homogeneousDepth() : true;
 		auto proj = projection(fov, ratio, near, far, homo);
-		bgfx::setViewTransform(
-			viewId, view.getPtr(), proj.getPtr());
+		if (backend)
+			backend->viewTransform(
+				(uint8_t)viewId, view.getPtr(), proj.getPtr());
 		return var();
 	}
 
@@ -117,8 +123,11 @@ namespace gold {
 		auto rgba = getUInt32("rgba");
 		auto stencil = getUInt8("stencil");
 		auto depth = getFloat("depth");
-		bgfx::setViewClear(viewId, flags, rgba, depth, stencil);
-		bgfx::setViewRect(viewId, x, y, width, height);
+		if (auto back = gfxBackend::backend()) {
+			back->viewClear(
+				(uint8_t)viewId, flags, rgba, depth, stencil);
+			back->viewRect((uint8_t)viewId, x, y, width, height);
+		}
 		setViewTransform({viewId});
 		return var();
 	}
