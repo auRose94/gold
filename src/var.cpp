@@ -1058,26 +1058,16 @@ namespace gold {
 						});
 				case typeMat4x4Float:
 					if (b.isVec3()) {
-						auto x = mat4x4f({
-							getFloat(0),
-							getFloat(1),
-							getFloat(2),
-							getFloat(3),
-							getFloat(4),
-							getFloat(5),
-							getFloat(6),
-							getFloat(7),
-							getFloat(8),
-							getFloat(9),
-							getFloat(10),
-							getFloat(11),
-							getFloat(15),
-						});
-						bx::mtxTranslate(
-							(float*)x.getPtr(),
-							b.getFloat(0),
-							b.getFloat(1),
-							b.getFloat(2));
+						// Compose with a translation: keep the matrix,
+						// add to its last row (mtxTranslate alone would
+						// discard rotation/scale).
+						auto x = mat4x4f({});
+						float* dst = (float*)x.getPtr();
+						for (int i = 0; i < 16; ++i)
+							dst[i] = getFloat(i);
+						dst[12] += b.getFloat(0);
+						dst[13] += b.getFloat(1);
+						dst[14] += b.getFloat(2);
 						return x;
 					}
 					return var(
@@ -1102,26 +1092,13 @@ namespace gold {
 						});
 				case typeMat4x4Double:
 					if (b.isVec3()) {
-						auto x = mat4x4f({
-							getFloat(0),
-							getFloat(1),
-							getFloat(2),
-							getFloat(3),
-							getFloat(4),
-							getFloat(5),
-							getFloat(6),
-							getFloat(7),
-							getFloat(8),
-							getFloat(9),
-							getFloat(10),
-							getFloat(11),
-							getFloat(15),
-						});
-						bx::mtxTranslate(
-							(float*)x.getPtr(),
-							b.getFloat(0),
-							b.getFloat(1),
-							b.getFloat(2));
+						auto x = mat4x4d({});
+						double* dst = (double*)x.getPtr();
+						for (int i = 0; i < 16; ++i)
+							dst[i] = getDouble(i);
+						dst[12] += b.getDouble(0);
+						dst[13] += b.getDouble(1);
+						dst[14] += b.getDouble(2);
 						return x;
 					}
 					return var(
@@ -1699,19 +1676,18 @@ case typeMat3x3Double:
 				       res[3], res[4], res[5],
 				       res[6], res[7], res[8]});
 		}
-				case typeMat4x4Float:
+					case typeMat4x4Float:
 					if (b.isVec3()) {
-						auto x = mat4x4f(
-							{getFloat(0), getFloat(1), getFloat(2),
-							 getFloat(3), getFloat(4), getFloat(5),
-							 getFloat(5), getFloat(6), getFloat(7),
-							 getFloat(8), getFloat(9), getFloat(10),
-							 getFloat(11), getFloat(15)});
+						// Compose: this · scale(sx,sy,sz) — post-multiply
+						// by the diagonal, preserving rotation/translation
+						// (the old path replaced the whole matrix with a
+						// bare scale, silently dropping the transform).
+						auto x = mat4x4f({});
+						float sm[16];
 						bx::mtxScale(
-							(float*)x.getPtr(),
-							b.getFloat(0),
-							b.getFloat(1),
-							b.getFloat(2));
+							sm, b.getFloat(0), b.getFloat(1), b.getFloat(2));
+						bx::mtxMul(
+							(float*)x.getPtr(), (float*)getPtr(), sm);
 						return x;
 					} else if (b.isVec4()) {
 						auto x = vec4f(0, 0, 0, 0);
@@ -1729,32 +1705,33 @@ case typeMat3x3Double:
 							(float*)b.getPtr());
 						return x;
 					} else if (b.isQuat()) {
-						auto x = mat4x4f(
-							{getFloat(0), getFloat(1), getFloat(2),
-							 getFloat(3), getFloat(4), getFloat(5),
-							 getFloat(5), getFloat(6), getFloat(7),
-							 getFloat(8), getFloat(9), getFloat(10),
-							 getFloat(11), getFloat(15)});
-bx::mtxFromQuaternion(
-						(float*)x.getPtr(),
-						bx::Quaternion(
-							{b.getFloat(0), b.getFloat(1), b.getFloat(2),
-							 b.getFloat(3)}));
+						// Compose: this · R(q) — post-multiply by the
+						// rotation (same replace-the-matrix trap as the
+						// scale path above).
+						float rm[16];
+						bx::mtxFromQuaternion(
+							rm,
+							bx::Quaternion(
+								{b.getFloat(0), b.getFloat(1), b.getFloat(2),
+								 b.getFloat(3)}));
+						auto x = mat4x4f({});
+						bx::mtxMul(
+							(float*)x.getPtr(), (float*)getPtr(), rm);
 						return x;
 					}
 					break;
-case typeMat4x4Double:
+	case typeMat4x4Double:
 		{
 			// Matrix multiplication and scaling for double matrices
 			if (b.isVec3()) {
-				// Scaling matrix (row‑major)
-				double res[16] = {1.0, 0.0, 0.0, 0.0,
-					    0.0, 1.0, 0.0, 0.0,
-					    0.0, 0.0, 1.0, 0.0,
-					    0.0, 0.0, 0.0, 1.0};
-				res[0] *= b.getDouble(0);
-				res[5] *= b.getDouble(1);
-				res[10] *= b.getDouble(2);
+				// Compose: this · scale — post-multiply (column scale),
+				// preserving the rest of the transform.
+				double res[16];
+				const double s[3] = {
+					b.getDouble(0), b.getDouble(1), b.getDouble(2)};
+				for (int i = 0; i < 4; ++i)
+					for (int j = 0; j < 4; ++j)
+						res[i*4 + j] = getDouble(i*4 + j) * (j < 3 ? s[j] : 1.0);
 				return var(typeMat4x4Double, {res[0], res[1], res[2], res[3],
 				       res[4], res[5], res[6], res[7],
 				       res[8], res[9], res[10], res[11],
@@ -1788,7 +1765,8 @@ case typeMat4x4Double:
 				       res[12], res[13], res[14], res[15]});
 			}
 			else if (b.isQuat()) {
-				// Quaternion to rotation matrix
+				// Compose: this · R(q) — quaternion to rotation, then
+				// post-multiply (the old path returned R alone).
 				const double x = b.getDouble(0), y = b.getDouble(1), z = b.getDouble(2), w = b.getDouble(3);
 				double xx = x * x, yy = y * y, zz = z * z;
 				double xy = x * y, xz = x * z, yz = y * z;
@@ -1799,10 +1777,19 @@ case typeMat4x4Double:
 				   2.0*(xz - wy),      2.0*(yz + wx),      1.0 - 2.0*(xx + yy), 0.0,
 				   0.0,                0.0,                0.0,                1.0
 				};
-				return var(typeMat4x4Double, {m[0], m[1], m[2], m[3],
-				       m[4], m[5], m[6], m[7],
-				       m[8], m[9], m[10], m[11],
-				       m[12], m[13], m[14], m[15]});
+				double res[16];
+				for (int i = 0; i < 4; ++i) {
+					for (int j = 0; j < 4; ++j) {
+						double sum = 0;
+						for (int k = 0; k < 4; ++k)
+							sum += getDouble(i*4 + k) * m[k*4 + j];
+						res[i*4 + j] = sum;
+					}
+				}
+				return var(typeMat4x4Double, {res[0], res[1], res[2], res[3],
+				       res[4], res[5], res[6], res[7],
+				       res[8], res[9], res[10], res[11],
+				       res[12], res[13], res[14], res[15]});
 		}
 		break;
 	}

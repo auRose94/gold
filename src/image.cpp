@@ -105,10 +105,14 @@ namespace gold {
 				// STBI TEST
 				int sw, sh, sc;
 				stbi__result_info info;
-				auto parsed = stbi__info_main(&ctx, &sw, &sh, &sc);
-				if (parsed) {
-					auto stbParsed =
-						stbi__load_main(&ctx, &sw, &sh, &sc, sc, &info, 8);
+					auto parsed = stbi__info_main(&ctx, &sw, &sh, &sc);
+					if (parsed) {
+						// stb only rewinds the context on FAILED probes —
+						// after a successful info the stream sits past the
+						// header, so rewind before the load.
+						stbi__rewind(&ctx);
+						auto stbParsed =
+							stbi__load_main(&ctx, &sw, &sh, &sc, sc, &info, 8);
 					if (stbParsed != nullptr) {
 						auto pBin =
 							string_view((char*)stbParsed, sw * sh * sc);
@@ -122,6 +126,10 @@ namespace gold {
 							if (info.bits_per_channel == 8)
 								format = bimg::TextureFormat::RGB8;
 						} else if (nC == 4 || nC == 0) {
+							// nC==0: stb can't read the channel count
+							// from some PNG headers here; stbi__load_main
+							// still produced `sc` channels — keep them.
+							if (nC == 0) nC = sc;
 							if (info.bits_per_channel == 8)
 								format = bimg::TextureFormat::RGBA8;
 							else if (info.bits_per_channel == 16)

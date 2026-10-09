@@ -63,6 +63,9 @@ namespace gold {
 
 		// Reconstruct a list of uniform numbers into a gold vec/mat type,
 		// mirroring the typed-array behavior of the old json2List path.
+		// Note: read through li[i] (varRef -> converting var getters), not
+		// li.getInt32(i)/getUInt32(i) — those are strict-typed and silently
+		// give 0 for a JSON `1` (parsed as unsigned64).
 		static var reconstructList(list li) {
 			auto s = li.size();
 			if (s == 2 || s == 3 || s == 4 || s == 9 || s == 16) {
@@ -81,23 +84,23 @@ namespace gold {
 				}
 				if (hasF) {
 					switch (s) {
-						case 2: return var(vec2f(li.getFloat(0), li.getFloat(1)));
-						case 3: return var(vec3f(li.getFloat(0), li.getFloat(1), li.getFloat(2)));
-						case 4: return var(vec4f(li.getFloat(0), li.getFloat(1), li.getFloat(2), li.getFloat(3)));
-						case 9: return var(mat3x3f({li.getFloat(0), li.getFloat(1), li.getFloat(2), li.getFloat(3), li.getFloat(4), li.getFloat(5), li.getFloat(6), li.getFloat(7), li.getFloat(8)}));
-						case 16: return var(mat4x4f({li.getFloat(0), li.getFloat(1), li.getFloat(2), li.getFloat(3), li.getFloat(4), li.getFloat(5), li.getFloat(6), li.getFloat(7), li.getFloat(8), li.getFloat(9), li.getFloat(10), li.getFloat(11), li.getFloat(12), li.getFloat(13), li.getFloat(14), li.getFloat(15)}));
+						case 2: return var(vec2f(li[0].getFloat(), li[1].getFloat()));
+						case 3: return var(vec3f(li[0].getFloat(), li[1].getFloat(), li[2].getFloat()));
+						case 4: return var(vec4f(li[0].getFloat(), li[1].getFloat(), li[2].getFloat(), li[3].getFloat()));
+						case 9: return var(mat3x3f({li[0].getFloat(), li[1].getFloat(), li[2].getFloat(), li[3].getFloat(), li[4].getFloat(), li[5].getFloat(), li[6].getFloat(), li[7].getFloat(), li[8].getFloat()}));
+						case 16: return var(mat4x4f({li[0].getFloat(), li[1].getFloat(), li[2].getFloat(), li[3].getFloat(), li[4].getFloat(), li[5].getFloat(), li[6].getFloat(), li[7].getFloat(), li[8].getFloat(), li[9].getFloat(), li[10].getFloat(), li[11].getFloat(), li[12].getFloat(), li[13].getFloat(), li[14].getFloat(), li[15].getFloat()}));
 					}
 				} else if (allU) {
 					switch (s) {
-						case 2: return var(vec2u32(li.getUInt32(0), li.getUInt32(1)));
-						case 3: return var(vec3u32(li.getUInt32(0), li.getUInt32(1), li.getUInt32(2)));
-						case 4: return var(vec4u32(li.getUInt32(0), li.getUInt32(1), li.getUInt32(2), li.getUInt32(3)));
+						case 2: return var(vec2u32(li[0].getUInt32(), li[1].getUInt32()));
+						case 3: return var(vec3u32(li[0].getUInt32(), li[1].getUInt32(), li[2].getUInt32()));
+						case 4: return var(vec4u32(li[0].getUInt32(), li[1].getUInt32(), li[2].getUInt32(), li[3].getUInt32()));
 					}
 				} else if (allI) {
 					switch (s) {
-						case 2: return var(vec2i32(li.getInt32(0), li.getInt32(1)));
-						case 3: return var(vec3i32(li.getInt32(0), li.getInt32(1), li.getInt32(2)));
-						case 4: return var(vec4i32(li.getInt32(0), li.getInt32(1), li.getInt32(2), li.getInt32(3)));
+						case 2: return var(vec2i32(li[0].getInt32(), li[1].getInt32()));
+						case 3: return var(vec3i32(li[0].getInt32(), li[1].getInt32(), li[2].getInt32()));
+						case 4: return var(vec4i32(li[0].getInt32(), li[1].getInt32(), li[2].getInt32(), li[3].getInt32()));
 					}
 				}
 			}

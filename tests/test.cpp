@@ -534,6 +534,26 @@ TEST(var_string_view_cast_is_explicit) {
 	EXPECT_EQ(var(int64_t(42)).getString(), "42");
 }
 
+TEST(object_proto_chain_lookup) {
+	// The shaderObject's PBR config rides a "proto" key; the io lists
+	// must resolve through that chain (the source-generation branch
+	// keys off exactly these).
+	auto payload = jo(
+		"defines", "HAS_NORMALS=1;",
+		"inputs", ja("a_position", "a_normal"),
+		"outputs", ja("v_position"));
+	auto so = object(jo("src", "x.sc", "proto", payload));
+	EXPECT_EQ(so.getList("inputs").size(), (uint64_t)2);
+	EXPECT_EQ(so.getList("outputs").size(), (uint64_t)1);
+	EXPECT_EQ(so.getString("defines"), "HAS_NORMALS=1;");
+
+	// The init-list ctor promotes the "proto" item into data->parent
+	// (findParent, the key erased); the lookup must still resolve.
+	auto so2 = object({{"src", string("x.sc")}, {"proto", payload}});
+	EXPECT_EQ(so2.getList("inputs").size(), (uint64_t)2);
+	EXPECT_EQ(so2.getString("defines"), "HAS_NORMALS=1;");
+}
+
 TEST(module_loader) {
 	// module::load is lazy and safe: a missing module just returns false.
 	EXPECT_FALSE(module::isLoaded("does_not_exist"));
@@ -587,6 +607,23 @@ TEST(list_get_vec2f_short_input) {
 TEST(file_missing_write_time_is_error) {
 	file missing(path("/tmp/gold-file-that-does-not-exist"));
 	EXPECT_TRUE(missing.getWriteTime().isError());
+}
+
+TEST(json_numeric_array_reconstructs_to_vec) {
+	// glTF stores factors like "baseColorFactor":[1,1,1,1] as JSON ints;
+	// reconstructList must read them through the converting var accessors
+	// (the strict list::getUInt32 returns the default for uint64 elements,
+	// which silently zeroed every integer factor).
+	auto parsed = file::parseJSON("{\"f\":[1,1,1,1],\"half\":[0.5,0.25]}");
+	auto obj = parsed.getObject();
+	auto f = obj.getVar("f");
+	EXPECT_TRUE(f.isVec4());
+	EXPECT_EQ(f.getFloat(0), 1.0f);
+	EXPECT_EQ(f.getFloat(3), 1.0f);
+	auto half = obj.getVar("half");
+	EXPECT_TRUE(half.isVec2());
+	EXPECT_NEAR(half.getFloat(0), 0.5f, 1e-6f);
+	EXPECT_NEAR(half.getFloat(1), 0.25f, 1e-6f);
 }
 
 TEST(list_functions) {
