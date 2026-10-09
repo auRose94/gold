@@ -330,7 +330,7 @@ TEST(gpu_texture_cleanup_is_idempotent) {
 	gpuTexture texture;
 	texture.destroy();
 	texture.destroy();
-	EXPECT_EQ(texture.getUInt16("idx"), bgfx::kInvalidHandle);
+	EXPECT_EQ(texture.getUInt16("idx"), uint16_t(0xFFFF));
 }
 
 TEST(headless_graphics_lifecycle) {

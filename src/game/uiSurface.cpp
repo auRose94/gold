@@ -6,6 +6,7 @@
 #include "entity.hpp"
 #include "goldjs.hpp"
 #include "ui/software_renderer.hpp"
+#include "renderStateBits.hpp"
 #include "shaderSprite.hpp"
 #include "sprite.hpp"
 #include "transform.hpp"
@@ -175,8 +176,8 @@ namespace gold {
 		const binary pixels = ui_->target().unpremultiply();
 		texture_ = backend->createTexture2D((uint16_t)width, (uint16_t)height,
 			false, 1, texFormat::RGBA8,
-			BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP |
-				BGFX_SAMPLER_MIN_POINT | BGFX_SAMPLER_MAG_POINT,
+			ClampU | ClampV |
+				MinPoint | MagPoint,
 			pixels.data(), (uint32_t)pixels.size());
 		textureWidth_ = width;
 		textureHeight_ = height;

@@ -2,7 +2,6 @@
 
 #include "renderBackend.hpp"
 
-#include <bgfx/bgfx.h>
 #include <bx/math.h>
 #include <bx/timer.h>
 
@@ -20,7 +19,6 @@
 
 namespace gold {
 	using namespace std;
-	using namespace bgfx;
 
 	struct pbrUniformSet {
 		float u_MipCount;
@@ -209,7 +207,7 @@ namespace gold {
 		if (occTex) uploadScalar(occTex, "strength", set.u_OcclusionStrength);
 		if (program) {
 			// The PBR uniform bank: 20 vec4 slots uploaded one by one —
-			// on this bgfx fork, per-draw array uniforms (u_UniformSet[20])
+			// (the uniform-bank comment: per-draw array uniforms
 			// arrive as zeros while individually-named vec4s land fine.
 			static const char* bankNames[5] = {
 				"u_PBRBank0", "u_PBRBank1", "u_PBRBank2", "u_PBRBank3",

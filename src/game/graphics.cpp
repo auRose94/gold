@@ -1,11 +1,7 @@
 #include "graphics.hpp"
+#include "renderStateBits.hpp"
 
-#include <bgfx/bgfx.h>
-#if __has_include(<bgfx/platform.h>)
-#include <bgfx/platform.h>
-#endif
 #include <bimg/bimg.h>
-#include <bx/math.h>
 #include <bx/os.h>
 
 #include <algorithm>
@@ -205,7 +201,7 @@ namespace gold {
 	// Compile a .sc shader with the bgfx shaderc tool (an external program
 	// built by bgfx.cmake, or the system bgfx-shaderc). The compiled .bin is
 	// read back from stdout. GOLD_SHADER_COMPILER is the tool path.
-	static const bgfx::Memory* compileShaderSource(
+	static binary compileShaderSource(
 		char type, const char* filePath, const char* defines,
 		const char* varyingPath, const char* profile,
 		const vector<string>& includeDirs) {
@@ -254,7 +250,7 @@ namespace gold {
 		argv.push_back(nullptr);
 
 		int fds[2];
-		if (pipe(fds) != 0) return nullptr;
+		if (pipe(fds) != 0) return binary();
 		pid_t pid = fork();
 		if (pid == 0) {
 			dup2(fds[1], STDOUT_FILENO);
@@ -278,12 +274,10 @@ namespace gold {
 			cerr << "Shader compile failed (" << filePath << "):\n";
 			cerr.write(reinterpret_cast<const char*>(out.data()),
 				(std::streamsize)out.size());
-			return nullptr;
+			return binary();
 		}
-		return bgfx::copy(out.data(), uint32_t(out.size()));
+		return binary(out.begin(), out.end());
 	}
-
-	bgfx::PlatformData pd = bgfx::PlatformData();
 
 	renderBackend*& gfxBackend::render() {
 		static renderBackend* backend = nullptr;
@@ -336,36 +330,6 @@ namespace gold {
 		{"debug", false},
 	});
 
-	bgfx::RendererType::Enum varToRenderType(var arg) {
-		if (arg.isNumber()) {
-			return (bgfx::RendererType::Enum)arg.getUInt8();
-		} else if (arg.isString()) {
-			auto str = string(arg.getString());
-			std::transform(
-				str.begin(), str.end(), str.begin(),
-				[](unsigned char c) { return std::tolower(c); });
-			if (str == "noop")
-				return bgfx::RendererType::Noop;
-			else if (str == "direct3d11")
-				return bgfx::RendererType::Direct3D11;
-			else if (str == "direct3d12")
-				return bgfx::RendererType::Direct3D12;
-			else if (str == "gnm")
-				return bgfx::RendererType::Gnm;
-			else if (str == "metal")
-				return bgfx::RendererType::Metal;
-			else if (str == "nvn")
-				return bgfx::RendererType::Nvn;
-			else if (str == "opengles")
-				return bgfx::RendererType::OpenGLES;
-			else if (str == "opengl")
-				return bgfx::RendererType::OpenGL;
-			else if (str == "vulkan")
-				return bgfx::RendererType::Vulkan;
-		}
-		return bgfx::RendererType::Noop;
-	}
-
 	var gfxBackend::screenshot(list args) {
 		auto backend = gfxBackend::render();
 		if (!backend || !backend->isValid())
@@ -404,7 +368,9 @@ namespace gold {
 		render() = backend;
 
 		auto cfg = obj({
-			{"rendererType", (uint16_t)varToRenderType(getVar("backend"))},
+			// The selection string gold-side; backends parse their own
+			// rendering-API names from it (and accept the numeric form).
+			{"rendererType", getVar("backend")},
 			{"vSync", getBool("vSync")},
 			{"maxAnisotropy", getBool("maxAnisotropy")},
 			{"stats", getBool("stats")},
@@ -481,13 +447,14 @@ namespace gold {
 			it->second.destroy();
 		vertexLayout::cache.clear();
 
-		for (auto it = shaderProgram::uniforms.begin();
-				 it != shaderProgram::uniforms.end();
-				 ++it) {
-			auto o = it->second;
-			auto uniform = bgfx::UniformHandle{
-				o.getUInt16("idx", bgfx::kInvalidHandle)};
-			bgfx::destroy(uniform);
+		if (auto backend = render()) {
+			for (auto it = shaderProgram::uniforms.begin();
+				 it != shaderProgram::uniforms.end(); ++it) {
+				auto o = it->second;
+				auto uniform = renderHandle{
+					o.getUInt16("idx", uint16_t(0xFFFF))};
+				backend->destroyUniform(uniform);
+			}
 		}
 
 		if (auto backend = render()) {
@@ -512,7 +479,7 @@ namespace gold {
 
 	object& frameBuffer::getPrototype() {
 		static auto proto = obj{
-			{"idx", bgfx::kInvalidHandle},
+			{"idx", uint16_t(0xFFFF)},
 		};
 		return proto;
 	}
@@ -520,134 +487,57 @@ namespace gold {
 	frameBuffer::frameBuffer() : obj() {}
 	frameBuffer::frameBuffer(object config) : obj(config) {
 		setParent(getPrototype());
-		bgfx::FrameBufferHandle handle = {bgfx::kInvalidHandle};
-		if (config.getType("attachments") == typeList) {
-			auto attachments = vector<bgfx::Attachment>();
-			auto attachentObjs = config.getList("attachments");
-			auto destroyTexs = config.getBool("destroyTextures");
-			for (auto it = attachentObjs.begin();
-					 it != attachentObjs.end();
-					 ++it) {
-				auto attachment = it->getObject();
-				auto tex = attachment.getObject<gpuTexture>("texture");
-				auto texHandle = bgfx::TextureHandle{
-					tex.getUInt16("idx", bgfx::kInvalidHandle)};
-				auto access = (bgfx::Access::Enum)attachment.getUInt8(
-					"access", bgfx::Access::Write);
-				auto layer = attachment.getUInt16("layer", 0);
-				auto mip = attachment.getUInt16("mip", 0);
-				auto resolve = attachment.getUInt8(
-					"resolve", BGFX_RESOLVE_AUTO_GEN_MIPS);
-				bgfx::Attachment bgfxAttachment;
-				bgfxAttachment.init(texHandle, access, layer, mip, resolve);
-				attachments.push_back(bgfxAttachment);
-			}
-
-			handle = bgfx::createFrameBuffer(
-				uint8_t(attachments.size()), attachments.data(),
-				destroyTexs);
-		} else if (config.getType("textures") == typeList) {
-			auto handles = vector<bgfx::TextureHandle>();
-			auto textureObjs = config.getList("textures");
-			auto destroyTexs = config.getBool("destroyTextures");
-			for (auto it = textureObjs.begin();
-					 it != textureObjs.end();
-					 ++it) {
-				auto tex = it->getObject<gpuTexture>();
-				handles.push_back(
-					bgfx::TextureHandle{tex.getUInt16("idx")});
-			}
-			handle = bgfx::createFrameBuffer(
-				uint8_t(handles.size()), handles.data(), destroyTexs);
-		} else if (config.getVar("ratio").isNumber()) {
-			auto ratio =
-				(bgfx::BackbufferRatio::Enum)config.getUInt8("ratio");
-			auto format = (bgfx::TextureFormat::Enum)config.getUInt16(
-				"format", bgfx::TextureFormat::Count);
-			auto destroyTexs = config.getBool("destroyTextures");
-			handle =
-				bgfx::createFrameBuffer(ratio, format, destroyTexs);
-		} else if (config.getType("nwh") == typePtr) {
-			auto nwh = config.getPtr("nwh");
-			auto colFormat =
-				(bgfx::TextureFormat::Enum)config.getUInt16(
-					"color", bgfx::TextureFormat::Count);
-			auto depFormat =
-				(bgfx::TextureFormat::Enum)config.getUInt16(
-					"depth", bgfx::TextureFormat::Count);
-			uint16_t width = 0;
-			uint16_t height = 0;
-			if (config.getVar("size").isVec2()) {
-				auto size = config.getVar("size");
-				width = size.getUInt16(0);
-				height = size.getUInt16(1);
-			} else {
-				width = config.getUInt16("width");
-				height = config.getUInt16("height");
-			}
-			handle = bgfx::createFrameBuffer(
-				nwh, width, height, colFormat, depFormat);
-		} else if (
-			config.getVar("size").isVec2() ||
-			(config.getVar("width").isNumber() &&
-			 config.getVar("height").isNumber())) {
-			auto destroyTexs = config.getBool("destroyTextures");
-			auto format = (bgfx::TextureFormat::Enum)config.getUInt16(
-				"format", bgfx::TextureFormat::Count);
-			uint16_t width = 0;
-			uint16_t height = 0;
-			if (config.getVar("size").isVec2()) {
-				auto size = config.getVar("size");
-				width = size.getUInt16(0);
-				height = size.getUInt16(1);
-			} else {
-				width = config.getUInt16("width");
-				height = config.getUInt16("height");
-			}
-			handle = bgfx::createFrameBuffer(
-				width, height, format, destroyTexs);
-		}
-		if (handle.idx != bgfx::kInvalidHandle)
-			setUInt16("idx", handle.idx);
+		// The config object IS the descriptor; the backend interprets the
+		// same shapes it always did.
+		auto backend = gfxBackend::backend();
+		auto handle = backend && backend->isValid()
+						  ? backend->createFrameBuffer(config)
+						  : renderHandle{};
+		if (handle.valid()) setUInt16("idx", handle.idx);
 	}
 
+	// (The backend's descriptor create reads the config object directly.)
+
 	void frameBuffer::setName(string name) {
-		auto handle = bgfx::FrameBufferHandle{
-			getUInt16("idx", bgfx::kInvalidHandle)};
-		bgfx::setName(handle, name.c_str(), int32_t(name.size()));
+		if (auto backend = gfxBackend::backend())
+			backend->setObjectName(
+				renderHandle{getUInt16("idx", uint16_t(0xFFFF))},
+				name.c_str());
 	}
 
 	var frameBuffer::getTexture(uint8_t attachment) {
-		auto handle = bgfx::FrameBufferHandle{
-			getUInt16("idx", bgfx::kInvalidHandle)};
-		if (!bgfx::isValid(handle)) return var();
-		auto texHandle = bgfx::getTexture(handle, attachment);
-		if (!bgfx::isValid(texHandle)) return var();
+		auto handle = renderHandle{
+			getUInt16("idx", uint16_t(0xFFFF))};
+		auto backend = gfxBackend::backend();
+		if (!backend || !handle.valid()) return var();
+		auto texHandle = backend->getTexture(handle, attachment);
+		if (!texHandle.valid()) return var();
 		return gpuTexture(obj{{"idx", texHandle.idx}});
 	}
 
 	void frameBuffer::setViewFrameBuffer(uint16_t viewId) {
-		auto handle = bgfx::FrameBufferHandle{
-			getUInt16("idx", bgfx::kInvalidHandle)};
-		bgfx::setViewFrameBuffer(viewId, handle);
+		if (auto backend = gfxBackend::backend())
+			backend->setViewFrameBuffer(
+				(uint8_t)viewId,
+				renderHandle{getUInt16("idx", uint16_t(0xFFFF))});
 	}
 
 	void frameBuffer::requestScreenShot(string path) {
-		auto handle = bgfx::FrameBufferHandle{
-			getUInt16("idx", bgfx::kInvalidHandle)};
-		bgfx::requestScreenShot(handle, path.c_str());
+		if (auto backend = gfxBackend::backend())
+			backend->requestScreenShot(
+				renderHandle{getUInt16("idx", uint16_t(0xFFFF))},
+				path.c_str());
 	}
 
 	void frameBuffer::destroy() {
-		auto handle = bgfx::FrameBufferHandle{
-			getUInt16("idx", bgfx::kInvalidHandle)};
-		if (bgfx::isValid(handle)) bgfx::destroy(handle);
+		// The facade's destroy owns nothing itself: the descriptor's
+		// destroyTextures flag told the backend how to treat attachments.
 		empty();
 	}
 
 	object& occlusionQuery::getPrototype() {
 		static auto proto = obj{
-			{"idx", bgfx::kInvalidHandle},
+			{"idx", uint16_t(0xFFFF)},
 		};
 		return proto;
 	}
@@ -655,36 +545,40 @@ namespace gold {
 	occlusionQuery::occlusionQuery() : obj() {}
 	occlusionQuery::occlusionQuery(object config) : obj(config) {
 		setParent(getPrototype());
-		auto ocq = bgfx::createOcclusionQuery();
-		setUInt16("idx", ocq.idx);
+		if (auto backend = gfxBackend::backend()) {
+			auto handle = backend->createOcclusionQuery();
+			setUInt16("idx", handle.idx);
+		}
 	}
 
 	occlusionQuery::queryResult occlusionQuery::getResult(
 		int32_t* result) {
-		auto handle = bgfx::OcclusionQueryHandle{
-			getUInt16("idx", bgfx::kInvalidHandle)};
-		if (bgfx::isValid(handle))
-			return (queryResult)bgfx::getResult(handle, result);
+		auto handle = renderHandle{
+			getUInt16("idx", uint16_t(0xFFFF))};
+		auto backend = gfxBackend::backend();
+		if (backend && handle.valid())
+			return backend->getQueryResult(handle, result);
 		return occlusionQuery::queryResult::NoResult;
 	}
 
 	void occlusionQuery::setCondition(bool visible) {
-		auto handle = bgfx::OcclusionQueryHandle{
-			getUInt16("idx", bgfx::kInvalidHandle)};
-		if (bgfx::isValid(handle))
-			return bgfx::setCondition(handle, visible);
+		auto handle = renderHandle{
+			getUInt16("idx", uint16_t(0xFFFF))};
+		if (auto backend = gfxBackend::backend())
+			if (handle.valid()) backend->setCondition(handle, visible);
 	}
 
 	void occlusionQuery::destroy() {
-		auto handle = bgfx::OcclusionQueryHandle{
-			getUInt16("idx", bgfx::kInvalidHandle)};
-		if (bgfx::isValid(handle)) bgfx::destroy(handle);
+		auto handle = renderHandle{
+			getUInt16("idx", uint16_t(0xFFFF))};
+		if (auto backend = gfxBackend::backend())
+			backend->destroyQuery(handle);
 		empty();
 	}
 
 	object& indirectBuffer::getPrototype() {
 		static auto proto = obj{
-			{"idx", bgfx::kInvalidHandle},
+			{"idx", uint16_t(0xFFFF)},
 		};
 		return proto;
 	}
@@ -696,15 +590,16 @@ namespace gold {
 	}
 
 	void indirectBuffer::destroy() {
-		auto handle = bgfx::IndirectBufferHandle{
-			getUInt16("idx", bgfx::kInvalidHandle)};
-		if (bgfx::isValid(handle)) bgfx::destroy(handle);
+		auto handle = renderHandle{
+			getUInt16("idx", uint16_t(0xFFFF))};
+		if (auto backend = gfxBackend::backend())
+			backend->destroyIndirect(handle);
 		empty();
 	}
 
 	object& shaderObject::getPrototype() {
 		static auto proto = obj{
-			{"idx", bgfx::kInvalidHandle},
+			{"idx", uint16_t(0xFFFF)},
 		};
 		return proto;
 	}
@@ -717,14 +612,17 @@ namespace gold {
 		auto s = getVar("src");
 		if (v.isView()) {
 			// Load compiled binary
+			auto view = gfxBackend::backend();
 			auto bin = v.getStringView();
-			auto mem =
-				bgfx::makeRef(bin.data(), uint32_t(bin.size()));
-			auto strData = string_view((char*)mem->data, mem->size);
+			auto strData =
+				string_view(bin.data(), bin.size());
 			auto h = std::hash<string_view>();
 			setString("hash", to_string((uint64_t)h(strData)));
-			auto handle = bgfx::createShader(mem);
-			setUInt16("idx", handle.idx);
+			if (view) {
+				auto handle = view->createShader(
+					bin.data(), uint32_t(bin.size()));
+				setUInt16("idx", handle.idx);
+			}
 		} else if (s.isString()) {
 			// Compile from source
 			auto type = char(getUInt8("type", uint8_t('c')));
@@ -815,19 +713,24 @@ namespace gold {
 			// The selected shader compiler supplies the backend profile.
 			// The include dirs: the original source's directory (the
 			// shader's own .sh library) and the varying's directory.
-			auto mem = compileShaderSource(
+			auto compiled = compileShaderSource(
 				type, (const char*)path.c_str(), defines.c_str(),
 				varying.c_str(), nullptr,
 				vector<string>{
 					libraryDir,
 					filesystem::path(varying).parent_path().string(),
 				});
-			if (mem) {
-				auto strData = string_view((char*)mem->data, mem->size);
+			fprintf(stderr, "[dbg] shader compiled bytes=%zu\n", compiled.size());
+			if (!compiled.empty()) {
+				auto strData = string_view(
+					(const char*)compiled.data(), compiled.size());
 				auto h = std::hash<string_view>();
 				setString("hash", to_string((uint64_t)h(strData)));
-				auto handle = bgfx::createShader(mem);
-				setUInt16("idx", handle.idx);
+				if (auto backend = gfxBackend::backend()) {
+					auto handle = backend->createShader(
+						compiled.data(), uint32_t(compiled.size()));
+					setUInt16("idx", handle.idx);
+				}
 			} else {
 				cerr << "Failed to build: " << path << endl;
 				empty();
@@ -841,43 +744,31 @@ namespace gold {
 	}
 
 	var shaderObject::getAllUniforms(list) {
-		auto handle = bgfx::ShaderHandle{
-			getUInt16("idx", bgfx::kInvalidHandle)};
-		if (bgfx::isValid(handle)) {
-			auto count = bgfx::getShaderUniforms(handle);
-			auto uniforms = vector<bgfx::UniformHandle>();
-			uniforms.resize(
-				count, bgfx::UniformHandle{bgfx::kInvalidHandle});
-			bgfx::getShaderUniforms(handle, uniforms.data(), count);
+		if (auto backend = gfxBackend::backend()) {
+			auto handle = renderHandle{
+				getUInt16("idx", uint16_t(0xFFFF))};
+			auto uniformNames = vector<string>();
+			backend->setShaderUniforms(handle, uniformNames);
+			// No callers today; the shape carries the uniform names, one
+			// empty entry each.
 			auto uniformData = obj{};
-			for (auto it = uniforms.begin(); it != uniforms.end();
-					 ++it) {
-				auto uniform = *it;
-				auto info = bgfx::UniformInfo();
-				bgfx::getUniformInfo(uniform, info);
-				uniformData.setObject(
-					info.name,
-					obj{
-						{"handle", uniform.idx},
-						{"type", info.type},
-						{"num", info.num},
-					});
-			}
+			for (const auto& name : uniformNames)
+				uniformData.setString(name, "");
 			return uniformData;
 		}
 		return var();
 	}
 
 	void shaderObject::destroy() {
-		auto handle = bgfx::ShaderHandle{
-			getUInt16("idx", bgfx::kInvalidHandle)};
-		if (bgfx::isValid(handle)) bgfx::destroy(handle);
+		if (auto backend = gfxBackend::backend())
+			backend->destroyShader(
+				renderHandle{getUInt16("idx", uint16_t(0xFFFF))});
 		empty();
 	}
 
 	object& shaderProgram::getPrototype() {
 		static auto proto = obj{
-			{"idx", bgfx::kInvalidHandle},
+			{"idx", uint16_t(0xFFFF)},
 		};
 		return proto;
 	}
@@ -896,20 +787,25 @@ namespace gold {
 			auto frag = getObject<shaderObject>("frag");
 			auto vert = getObject<shaderObject>("vert");
 			if (frag && vert) {
-			auto fHandle = bgfx::ShaderHandle{
-				frag.getUInt16("idx", bgfx::kInvalidHandle)};
-			auto vHandle = bgfx::ShaderHandle{
-				vert.getUInt16("idx", bgfx::kInvalidHandle)};
-			auto handle = bgfx::createProgram(vHandle, fHandle);
-			setUInt16("idx", handle.idx);
+				if (auto backend = gfxBackend::backend())
+					setUInt16("idx",
+						backend->createProgram(
+							renderHandle{vert.getUInt16("idx",
+								uint16_t(0xFFFF))},
+							renderHandle{frag.getUInt16("idx",
+								uint16_t(0xFFFF))})
+							.idx);
 			}
 		} else if (getType("comp") == typeObject) {
 			auto comp = getObject<shaderObject>("comp");
 			if (comp) {
-				auto cHandle = bgfx::ShaderHandle{
-					comp.getUInt16("idx", bgfx::kInvalidHandle)};
-				auto handle = bgfx::createProgram(cHandle);
-				setUInt16("idx", handle.idx);
+				if (auto backend = gfxBackend::backend())
+					setUInt16("idx",
+						backend->createProgram(
+							renderHandle{
+								comp.getUInt16("idx", uint16_t(0xFFFF))},
+							renderHandle{})
+							.idx);
 			}
 		}
 		auto name = getString("name");
@@ -925,14 +821,20 @@ namespace gold {
 				return true;
 			}
 		}
-		auto handle = bgfx::createUniform(
-			name.c_str(), (bgfx::UniformType::Enum)t, num);
-		if (bgfx::isValid(handle))
-			uniforms[name] = obj{
-				{"idx", handle.idx},
-				{"type", t},
-				{"num", num},
-			};
+		auto backend = gfxBackend::backend();
+		if (backend) {
+			auto handle = backend->createUniform(
+				name.c_str(), t, num);
+			fprintf(stderr, "[dbg] uniform %s t=%u num=%u -> idx=%u\n",
+				name.c_str(), (unsigned)t, (unsigned)num,
+				(unsigned)handle.idx);
+			if (handle.valid())
+				uniforms[name] = obj{
+					{"idx", handle.idx},
+					{"type", (uint8_t)t},
+					{"num", num},
+				};
+		}
 
 		return true;
 	}
@@ -944,9 +846,11 @@ namespace gold {
 			auto uniName = it->first;
 			auto uniform = it->second;
 			if (name.compare(uniName) == 0) {
-				auto handle = bgfx::UniformHandle{
-					uniform.getUInt16("idx", bgfx::kInvalidHandle)};
-				bgfx::setUniform(handle, value, num);
+				if (auto backend = gfxBackend::backend())
+					backend->setUniform(
+						renderHandle{uniform.getUInt16(
+							"idx", uint16_t(0xFFFF))},
+						value, num);
 				return true;
 			}
 		}
@@ -955,17 +859,27 @@ namespace gold {
 
 	void shaderProgram::bindTexture(
 		string sampler, uint8_t stage, gpuTexture tex) {
-		if (!tex) return;
-		auto texHandle = bgfx::TextureHandle{
-			tex.getUInt16("idx", bgfx::kInvalidHandle)};
+		fprintf(stderr, "[dbg] facadeBind %s tex=%u stage=%u\n",
+			sampler.c_str(), (unsigned)tex.getUInt16("idx", 0xffff),
+			(unsigned)stage);
+		if (!tex || !gfxBackend::backend()) return;
 		auto uniform = uniforms[sampler];
-		if (!uniform) return;
-		auto uniformHandle = bgfx::UniformHandle{
-			uniform.getUInt16("idx", bgfx::kInvalidHandle)};
-		if (!bgfx::isValid(uniformHandle)) return;
-		if (!bgfx::isValid(texHandle)) return;
-		uint32_t flags = UINT32_MAX;
-		bgfx::setTexture(stage, uniformHandle, texHandle, flags);
+		auto backend = gfxBackend::backend();
+		if (!backend || !uniform)
+			fprintf(stderr, "[dbg] bind MISS %s\n", sampler.c_str());
+		if (!backend || !uniform) return;
+		auto uniformHandle = renderHandle{
+			uniform.getUInt16("idx", uint16_t(0xFFFF))};
+		auto texHandle = renderHandle{
+			tex.getUInt16("idx", uint16_t(0xFFFF))};
+		if (!uniformHandle.valid() || !texHandle.valid()) {
+			fprintf(stderr,
+				"[dbg] bind bail uni=%u tex=%u\n", uniformHandle.idx,
+				texHandle.idx);
+			return;
+		}
+		// 0 leaves the sampler flags as they were set at creation.
+		backend->setTextureUniform(stage, uniformHandle, texHandle, 0);
 	}
 
 	inline void toLower(string& str) {
@@ -978,35 +892,36 @@ namespace gold {
 		return str.find(needle) != string::npos;
 	}
 
+	/** One blend factor's gold field value from the vocabulary; 0 =
+	 *  zero for anything unparseable. */
 	inline uint64_t strToBlend(string value) {
-		uint64_t a = 0;
-		if (exists(value, "zero"))
-			a |= BGFX_STATE_BLEND_ZERO;
-		else if (exists(value, "one"))
-			a |= BGFX_STATE_BLEND_ONE;
+		if (exists(value, "inv_src_color"))
+			return uint64_t(stateBlendFactor::FactorInvSrcColor);
 		else if (exists(value, "src_color"))
-			a |= BGFX_STATE_BLEND_SRC_COLOR;
-		else if (exists(value, "inv_src_color"))
-			a |= BGFX_STATE_BLEND_INV_SRC_COLOR;
-		else if (exists(value, "src_alpha"))
-			a |= BGFX_STATE_BLEND_SRC_ALPHA;
+			return uint64_t(stateBlendFactor::FactorSrcColor);
 		else if (exists(value, "inv_src_alpha"))
-			a |= BGFX_STATE_BLEND_INV_SRC_ALPHA;
+			return uint64_t(stateBlendFactor::FactorInvSrcAlpha);
 		else if (exists(value, "dst_alpha"))
-			a |= BGFX_STATE_BLEND_DST_ALPHA;
+			return uint64_t(stateBlendFactor::FactorDstAlpha);
 		else if (exists(value, "inv_dst_alpha"))
-			a |= BGFX_STATE_BLEND_INV_DST_ALPHA;
-		else if (exists(value, "dst_color"))
-			a |= BGFX_STATE_BLEND_DST_COLOR;
-		else if (exists(value, "inv_dst_color"))
-			a |= BGFX_STATE_BLEND_INV_DST_COLOR;
+			return uint64_t(stateBlendFactor::FactorInvDstAlpha);
 		else if (exists(value, "src_alpha_sat"))
-			a |= BGFX_STATE_BLEND_SRC_ALPHA_SAT;
-		else if (exists(value, "factor"))
-			a |= BGFX_STATE_BLEND_FACTOR;
+			return uint64_t(stateBlendFactor::FactorSrcAlphaSat);
+		else if (exists(value, "inv_dst_color"))
+			return uint64_t(stateBlendFactor::FactorInvDstColor);
+		else if (exists(value, "dst_color"))
+			return uint64_t(stateBlendFactor::FactorDstColor);
 		else if (exists(value, "inv_factor"))
-			a |= BGFX_STATE_BLEND_INV_FACTOR;
-		return a;
+			return uint64_t(stateBlendFactor::FactorInvBlendFactor);
+		else if (exists(value, "factor"))
+			return uint64_t(stateBlendFactor::FactorBlendFactor);
+		else if (exists(value, "src_alpha"))
+			return uint64_t(stateBlendFactor::FactorSrcAlpha);
+		else if (exists(value, "one"))
+			return uint64_t(stateBlendFactor::FactorOne);
+		else if (exists(value, "zero"))
+			return uint64_t(stateBlendFactor::FactorZero);
+		return uint64_t(stateBlendFactor::FactorZero);
 	}
 
 	void shaderProgram::setState(object state) {
@@ -1015,36 +930,35 @@ namespace gold {
 			auto write = state.getString("write");
 			if (write != "") {
 				toLower(write);
-				if (exists(write, "r")) flags |= BGFX_STATE_WRITE_R;
-				if (exists(write, "g")) flags |= BGFX_STATE_WRITE_G;
-				if (exists(write, "b")) flags |= BGFX_STATE_WRITE_B;
-				if (exists(write, "a")) flags |= BGFX_STATE_WRITE_A;
-				if (exists(write, "z")) flags |= BGFX_STATE_WRITE_Z;
+				if (exists(write, "r")) flags |= WriteR;
+				if (exists(write, "g")) flags |= WriteG;
+				if (exists(write, "b")) flags |= WriteB;
+				if (exists(write, "a")) flags |= WriteA;
+				if (exists(write, "z")) flags |= WriteZ;
 			} else
-				flags |= BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A |
-								 BGFX_STATE_WRITE_Z;
+				flags |= WriteR | WriteG | WriteB | WriteA | WriteZ;
 
 			auto depth = state.getString("depth");
 			if (depth != "") {
 				toLower(depth);
 				if (exists(depth, "less"))
-					flags |= BGFX_STATE_DEPTH_TEST_LESS;
+					flags |= DepthLess << DepthCompareShift;
 				else if (exists(depth, "lequal"))
-					flags |= BGFX_STATE_DEPTH_TEST_LEQUAL;
+					flags |= DepthLEqual << DepthCompareShift;
 				else if (exists(depth, "equal"))
-					flags |= BGFX_STATE_DEPTH_TEST_EQUAL;
+					flags |= DepthEqual << DepthCompareShift;
 				else if (exists(depth, "gequal"))
-					flags |= BGFX_STATE_DEPTH_TEST_GEQUAL;
+					flags |= DepthGEqual << DepthCompareShift;
 				else if (exists(depth, "greater"))
-					flags |= BGFX_STATE_DEPTH_TEST_GREATER;
+					flags |= DepthGreater << DepthCompareShift;
 				else if (exists(depth, "notequal"))
-					flags |= BGFX_STATE_DEPTH_TEST_NOTEQUAL;
+					flags |= DepthNotEqual << DepthCompareShift;
 				else if (exists(depth, "never"))
-					flags |= BGFX_STATE_DEPTH_TEST_NEVER;
+					flags |= DepthNever << DepthCompareShift;
 				else if (exists(depth, "always"))
-					flags |= BGFX_STATE_DEPTH_TEST_ALWAYS;
+					flags |= DepthAlways << DepthCompareShift;
 			} else {
-				flags |= BGFX_STATE_DEPTH_TEST_LESS;
+				flags |= DepthLess << DepthCompareShift;
 			}
 
 			auto blend = state.getString("blend");
@@ -1054,20 +968,27 @@ namespace gold {
 			auto blendRGBDst = state.getString("blendRGBDst");
 			if (blend != "") {
 				toLower(blend);
+				// Equation keywords arm the blend and set the equation;
+				// "independent"/"alpha_to_coverage" set their own bits.
 				if (exists(blend, "independent"))
-					flags |= BGFX_STATE_BLEND_INDEPENDENT;
+					flags |= BlendIndependent;
 				else if (exists(blend, "alpha_to_coverage"))
-					flags |= BGFX_STATE_BLEND_ALPHA_TO_COVERAGE;
+					flags |= BlendAlphaToCoverage;
 				else if (exists(blend, "add"))
-					flags |= BGFX_STATE_BLEND_EQUATION_ADD;
+					flags |= BlendEnabled |
+							 (BlendAdd << BlendEquationShift);
 				else if (exists(blend, "sub"))
-					flags |= BGFX_STATE_BLEND_EQUATION_SUB;
+					flags |= BlendEnabled |
+							 (BlendSub << BlendEquationShift);
 				else if (exists(blend, "revsub"))
-					flags |= BGFX_STATE_BLEND_EQUATION_REVSUB;
+					flags |= BlendEnabled |
+							 (BlendRevSub << BlendEquationShift);
 				else if (exists(blend, "min"))
-					flags |= BGFX_STATE_BLEND_EQUATION_MIN;
+					flags |= BlendEnabled |
+							 (BlendMin << BlendEquationShift);
 				else if (exists(blend, "max"))
-					flags |= BGFX_STATE_BLEND_EQUATION_MAX;
+					flags |= BlendEnabled |
+							 (BlendMax << BlendEquationShift);
 			} else if (
 				blendRGBSrc != "" && blendRGBDst != "" &&
 				blendA != "" && blendB != "") {
@@ -1075,13 +996,27 @@ namespace gold {
 				uint64_t b = strToBlend(blendRGBDst);
 				uint64_t x = strToBlend(blendA);
 				uint64_t y = strToBlend(blendB);
-				flags |= BGFX_STATE_BLEND_FUNC_SEPARATE(a, b, x, y);
+				flags |= BlendEnabled |
+						 ((a << BlendRGBSrcShift) | (b << BlendRGBDstShift) |
+						  (x << BlendASrcShift) | (y << BlendADstShift));
 			} else if (blendA != "" && blendB != "") {
 				uint64_t a = strToBlend(blendA);
 				uint64_t b = strToBlend(blendB);
-				flags |= BGFX_STATE_BLEND_FUNC(a, b);
+				flags |= BlendEnabled |
+						 ((a << BlendRGBSrcShift) | (b << BlendRGBDstShift) |
+						  (a << BlendASrcShift) | (b << BlendADstShift));
 			} else {
-				flags |= BGFX_STATE_BLEND_NORMAL;
+				// The old "normal" blend: src-alpha/inv-src-alpha, add.
+				flags |= BlendEnabled |
+						 (BlendAdd << BlendEquationShift) |
+						 (uint64_t(stateBlendFactor::FactorSrcAlpha)
+							 << BlendRGBSrcShift) |
+						 (uint64_t(stateBlendFactor::FactorInvSrcAlpha)
+							 << BlendRGBDstShift) |
+						 (uint64_t(stateBlendFactor::FactorSrcAlpha)
+							 << BlendASrcShift) |
+						 (uint64_t(stateBlendFactor::FactorInvSrcAlpha)
+							 << BlendADstShift);
 			}
 
 			auto cull = state.getString("cull");
@@ -1090,77 +1025,62 @@ namespace gold {
 				// "ccw" contains "cw" as a substring — check the longer
 				// token first, or "ccw" never reaches its own branch.
 				if (exists(cull, "ccw"))
-					flags |= BGFX_STATE_CULL_CCW;
+					flags |= CullCCW << CullShift;
 				else if (exists(cull, "cw"))
-					flags |= BGFX_STATE_CULL_CW;
+					flags |= CullCW << CullShift;
 			} else {
-				flags |= BGFX_STATE_CULL_CW;
+				flags |= CullCW << CullShift;
 			}
 
-			if (state.getVar("alphaRef").isNumber()) {
-				auto alphaValue = state.getUInt64("alphaRef");
-				flags |= BGFX_STATE_ALPHA_REF(alphaValue);
-			}
+			if (state.getVar("alphaRef").isNumber())
+				flags |= (state.getUInt32("alphaRef") &
+							 uint32_t(0xFF))
+					<< AlphaRefShift;
 
 			auto primitiveType = state.getString("type");
 			if (primitiveType != "") {
 				toLower(primitiveType);
 				if (exists(primitiveType, "tristrip"))
-					flags |= BGFX_STATE_PT_TRISTRIP;
+					flags |= PrimitiveTriStrip << PrimitiveShift;
 				else if (exists(primitiveType, "linestrip"))
-					flags |= BGFX_STATE_PT_LINESTRIP;
+					flags |= PrimitiveLineStrip << PrimitiveShift;
 				else if (exists(primitiveType, "lines"))
-					flags |= BGFX_STATE_PT_LINES;
+					flags |= PrimitiveLines << PrimitiveShift;
 				else if (exists(primitiveType, "points"))
-					flags |= BGFX_STATE_PT_POINTS;
-				// "triangles"/anything else: no PT flag = triangle
-				// list. (The default used to be TRISTRIP, which read
-				// ordinary glTF index buffers as strips and drew
-				// garbage.)
+					flags |= PrimitivePoints << PrimitiveShift;
+				// "triangles"/anything else: no field = triangle list.
+				// (The default used to be TRISTRIP, which read ordinary
+				// glTF index buffers as strips and drew garbage.)
 			}
 
-			if (state.getVar("pointSize").isNumber()) {
-				auto pointSize = state.getUInt64("pointSize");
-				flags |= BGFX_STATE_POINT_SIZE(pointSize);
-			}
+			if (state.getType("MSAA") == typeBool && state.getBool("MSAA"))
+				flags |= StateMSAA;
 
-			if (
-				state.getType("MSAA") == typeBool &&
-				state.getBool("MSAA")) {
-				flags |= BGFX_STATE_MSAA;
-			}
+			if (state.getType("lineAA") == typeBool && state.getBool("lineAA"))
+				flags |= StateLineAA;
 
-			if (
-				state.getType("lineAA") == typeBool &&
-				state.getBool("lineAA")) {
-				flags |= BGFX_STATE_LINEAA;
-			}
-
-			if (
-				state.getType("conservative") == typeBool &&
-				state.getBool("conservative")) {
-				flags |= BGFX_STATE_CONSERVATIVE_RASTER;
-			}
-
+			if (state.getType("conservative") == typeBool &&
+				state.getBool("conservative"))
+				flags |= StateConservativeRaster;
 		} else {
 			flags = state.getUInt64("flags");
 		}
 		auto color = state.getUInt32("blendColor");
 		setUInt64("state", flags);
 		setUInt32("blendColor", color);
-		bgfx::setState(flags, color);
+		if (auto backend = gfxBackend::backend())
+			backend->setState(flags, color);
 	}
 
 	void shaderProgram::defaultState() {
-		bgfx::setState(
-			0 | BGFX_STATE_BLEND_NORMAL | BGFX_STATE_WRITE_RGB |
-			BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z |
-			BGFX_STATE_DEPTH_TEST_LESS | BGFX_STATE_MSAA |
-			BGFX_STATE_CULL_CW);
+		// The parser's defaults (RGBA+Z writes, less, the normal blend,
+		// cull cw) plus the old default's MSAA.
+		setState(obj({{"write", ""}, {"MSAA", true}}));
 	}
 
 	void shaderProgram::setTransform(var& mtx) {
-		bgfx::setTransform(mtx.getPtr(), 1U);
+		if (auto backend = gfxBackend::backend())
+			backend->setTransform(mtx.getPtr());
 	}
 
 	uint32_t parseStencil(
@@ -1170,77 +1090,32 @@ namespace gold {
 		toLower(fS);
 		toLower(fZ);
 		toLower(pZ);
-
-		if (exists(test, "less"))
-			flags |= BGFX_STENCIL_TEST_LESS;
-		else if (exists(test, "lequal"))
-			flags |= BGFX_STENCIL_TEST_LEQUAL;
-		else if (exists(test, "equal"))
-			flags |= BGFX_STENCIL_TEST_EQUAL;
-		else if (exists(test, "gequal"))
-			flags |= BGFX_STENCIL_TEST_GEQUAL;
-		else if (exists(test, "greater"))
-			flags |= BGFX_STENCIL_TEST_GREATER;
-		else if (exists(test, "notequal"))
-			flags |= BGFX_STENCIL_TEST_NOTEQUAL;
-		else if (exists(test, "never"))
-			flags |= BGFX_STENCIL_TEST_NEVER;
-		else if (exists(test, "never"))
-			flags |= BGFX_STENCIL_TEST_NEVER;
-		else if (exists(test, "always"))
-			flags |= BGFX_STENCIL_TEST_ALWAYS;
-
-		if (exists(fS, "zero"))
-			flags |= BGFX_STENCIL_OP_FAIL_S_ZERO;
-		else if (exists(fS, "keep"))
-			flags |= BGFX_STENCIL_OP_FAIL_S_KEEP;
-		else if (exists(fS, "replace"))
-			flags |= BGFX_STENCIL_OP_FAIL_S_REPLACE;
-		else if (exists(fS, "incr"))
-			flags |= BGFX_STENCIL_OP_FAIL_S_INCR;
-		else if (exists(fS, "incrsat"))
-			flags |= BGFX_STENCIL_OP_FAIL_S_INCRSAT;
-		else if (exists(fS, "decr"))
-			flags |= BGFX_STENCIL_OP_FAIL_S_DECR;
-		else if (exists(fS, "decrsat"))
-			flags |= BGFX_STENCIL_OP_FAIL_S_DECRSAT;
-		else if (exists(fS, "invert"))
-			flags |= BGFX_STENCIL_OP_FAIL_S_INVERT;
-
-		if (exists(fZ, "zero"))
-			flags |= BGFX_STENCIL_OP_FAIL_Z_ZERO;
-		else if (exists(fZ, "keep"))
-			flags |= BGFX_STENCIL_OP_FAIL_Z_KEEP;
-		else if (exists(fZ, "replace"))
-			flags |= BGFX_STENCIL_OP_FAIL_Z_REPLACE;
-		else if (exists(fZ, "incr"))
-			flags |= BGFX_STENCIL_OP_FAIL_Z_INCR;
-		else if (exists(fZ, "incrsat"))
-			flags |= BGFX_STENCIL_OP_FAIL_Z_INCRSAT;
-		else if (exists(fZ, "decr"))
-			flags |= BGFX_STENCIL_OP_FAIL_Z_DECR;
-		else if (exists(fZ, "decrsat"))
-			flags |= BGFX_STENCIL_OP_FAIL_Z_DECRSAT;
-		else if (exists(fZ, "invert"))
-			flags |= BGFX_STENCIL_OP_FAIL_Z_INVERT;
-
-		if (exists(pZ, "zero"))
-			flags |= BGFX_STENCIL_OP_PASS_Z_ZERO;
-		else if (exists(pZ, "keep"))
-			flags |= BGFX_STENCIL_OP_PASS_Z_KEEP;
-		else if (exists(pZ, "replace"))
-			flags |= BGFX_STENCIL_OP_PASS_Z_REPLACE;
-		else if (exists(pZ, "incr"))
-			flags |= BGFX_STENCIL_OP_PASS_Z_INCR;
-		else if (exists(pZ, "incrsat"))
-			flags |= BGFX_STENCIL_OP_PASS_Z_INCRSAT;
-		else if (exists(pZ, "decr"))
-			flags |= BGFX_STENCIL_OP_PASS_Z_DECR;
-		else if (exists(pZ, "decrsat"))
-			flags |= BGFX_STENCIL_OP_PASS_Z_DECRSAT;
-		else if (exists(pZ, "invert"))
-			flags |= BGFX_STENCIL_OP_PASS_Z_INVERT;
-
+		auto compare = [](string t) -> uint32_t {
+			if (exists(t, "less")) return uint32_t(DepthLess);
+			if (exists(t, "lequal")) return uint32_t(DepthLEqual);
+			if (exists(t, "equal")) return uint32_t(DepthEqual);
+			if (exists(t, "gequal")) return uint32_t(DepthGEqual);
+			if (exists(t, "greater")) return uint32_t(DepthGreater);
+			if (exists(t, "notequal")) return uint32_t(DepthNotEqual);
+			if (exists(t, "never")) return uint32_t(DepthNever);
+			if (exists(t, "always")) return uint32_t(DepthAlways);
+			return uint32_t(DepthAlways);
+		};
+		auto op = [](string t) -> uint32_t {
+			if (exists(t, "zero")) return uint32_t(OpZero);
+			if (exists(t, "replace")) return uint32_t(OpReplace);
+			if (exists(t, "incrsat")) return uint32_t(OpIncrSat);
+			if (exists(t, "incr")) return uint32_t(OpIncr);
+			if (exists(t, "decrsat")) return uint32_t(OpDecrSat);
+			if (exists(t, "decr")) return uint32_t(OpDecr);
+			if (exists(t, "invert")) return uint32_t(OpInvert);
+			if (exists(t, "keep")) return uint32_t(OpKeep);
+			return uint32_t(OpKeep);
+		};
+		flags |= compare(test) << StencilTestShift;
+		flags |= op(fS) << StencilFailShift;
+		flags |= op(fZ) << StencilZFailShift;
+		flags |= op(pZ) << StencilZPassShift;
 		return flags;
 	}
 
@@ -1259,193 +1134,207 @@ namespace gold {
 		uint32_t bstencil =
 			parseStencil(backStencilOp, backFS, backFZ, backPZ);
 
-		bgfx::setStencil(fstencil, bstencil);
+		if (auto backend = gfxBackend::backend())
+			backend->setStencil(fstencil, bstencil);
 	}
 
 	void shaderProgram::defaultStencil() {
-		bgfx::setStencil(BGFX_STENCIL_NONE);
+		// No stencil: test always, every op keep — the gold layout's zero
+		// state happens to mean exactly that.
+		if (auto backend = gfxBackend::backend())
+			backend->setStencil(0, 0);
 	}
 
 	void shaderProgram::setDiscard(string state) {
 		toLower(state);
-		uint8_t flag = 0;
+		uint16_t flag = 0;
 		if (exists(state, "all"))
-			flag |= BGFX_DISCARD_ALL;
-		else if (exists(state, "bindings"))
-			flag |= BGFX_DISCARD_BINDINGS;
-		else if (exists(state, "index_buffer"))
-			flag |= BGFX_DISCARD_INDEX_BUFFER;
-		else if (exists(state, "instance_data"))
-			flag |= BGFX_DISCARD_INSTANCE_DATA;
-		else if (exists(state, "state"))
-			flag |= BGFX_DISCARD_STATE;
-		else if (exists(state, "transform"))
-			flag |= BGFX_DISCARD_TRANSFORM;
-		else if (exists(state, "vertex_streams"))
-			flag |= BGFX_DISCARD_VERTEX_STREAMS;
-		setUInt8("discard", flag);
+			flag |= DiscardAll;
+		else {
+			if (exists(state, "bindings"))
+				flag |= DiscardBindings;
+			if (exists(state, "index_buffer"))
+				flag |= DiscardIndexBuffer;
+			if (exists(state, "instance_data"))
+				flag |= DiscardInstanceData;
+			if (exists(state, "state"))
+				flag |= DiscardState;
+			if (exists(state, "transform"))
+				flag |= DiscardTransform;
+			if (exists(state, "vertex_streams"))
+				flag |= DiscardVertexStreams;
+		}
+		setUInt16("discard", flag);
 	}
 	void shaderProgram::defaultDiscard() { erase("discard"); }
 
 	void shaderProgram::submit(uint8_t viewId, uint32_t depth) {
-		auto handle = bgfx::ProgramHandle{
-			getUInt16("idx", bgfx::kInvalidHandle)};
-		uint8_t flags = getUInt8("discard", BGFX_DISCARD_ALL);
-		bgfx::submit(viewId, handle, depth, flags);
+		auto handle = renderHandle{getUInt16("idx", uint16_t(0xFFFF))};
+		uint16_t flags = getUInt16("discard", uint16_t(DiscardAll));
+		if (auto backend = gfxBackend::backend())
+			backend->submit(viewId, handle, depth, flags);
 	}
 
 	void shaderProgram::submit(
 		uint8_t viewId, occlusionQuery query, uint32_t depth) {
-		auto handle = bgfx::ProgramHandle{
-			getUInt16("idx", bgfx::kInvalidHandle)};
-		auto qHandle = bgfx::OcclusionQueryHandle{
-			query.getUInt16("idx", bgfx::kInvalidHandle)};
-		uint8_t flags = getUInt8("discard", BGFX_DISCARD_ALL);
-		bgfx::submit(viewId, handle, qHandle, depth, flags);
+		auto handle = renderHandle{getUInt16("idx", uint16_t(0xFFFF))};
+		auto qHandle = renderHandle{
+			query.getUInt16("idx", uint16_t(0xFFFF))};
+		uint16_t flags = getUInt16("discard", uint16_t(DiscardAll));
+		if (auto backend = gfxBackend::backend())
+			backend->submitQuery(viewId, handle, qHandle, depth, flags);
 	}
 	void shaderProgram::submit(
 		uint8_t viewId, indirectBuffer buffer, uint16_t start,
 		uint16_t num, uint32_t depth) {
-		auto handle = bgfx::ProgramHandle{
-			getUInt16("idx", bgfx::kInvalidHandle)};
-		auto iHandle = bgfx::IndirectBufferHandle{
-			buffer.getUInt16("idx", bgfx::kInvalidHandle)};
-		uint8_t flags = getUInt8("discard", BGFX_DISCARD_ALL);
-		bgfx::submit(
-			viewId, handle, iHandle, start, num, depth, flags);
+		auto handle = renderHandle{getUInt16("idx", uint16_t(0xFFFF))};
+		auto iHandle = renderHandle{
+			buffer.getUInt16("idx", uint16_t(0xFFFF))};
+		uint16_t flags = getUInt16("discard", uint16_t(DiscardAll));
+		if (auto backend = gfxBackend::backend())
+			backend->submitIndirect(viewId, handle, iHandle, start, num,
+				depth, flags);
 	}
 
 	void shaderProgram::dispatch(
 		uint8_t viewId, uint32_t numX, uint32_t numY,
 		uint32_t numZ) {
-		auto handle = bgfx::ProgramHandle{
-			getUInt16("idx", bgfx::kInvalidHandle)};
-		uint8_t flags = getUInt8("discard", BGFX_DISCARD_ALL);
-		bgfx::dispatch(viewId, handle, numX, numY, numZ, flags);
+		auto handle = renderHandle{getUInt16("idx", uint16_t(0xFFFF))};
+		uint16_t flags = getUInt16("discard", uint16_t(DiscardAll));
+		if (auto backend = gfxBackend::backend())
+			backend->dispatch(viewId, handle, numX, numY, numZ, flags);
 	}
 
 	void shaderProgram::dispatch(
 		uint8_t viewId, indirectBuffer buffer, uint16_t start,
 		uint16_t num) {
-		auto handle = bgfx::ProgramHandle{
-			getUInt16("idx", bgfx::kInvalidHandle)};
-		auto iHandle = bgfx::IndirectBufferHandle{
-			buffer.getUInt16("idx", bgfx::kInvalidHandle)};
-		uint8_t flags = getUInt8("discard", BGFX_DISCARD_ALL);
-		bgfx::dispatch(viewId, handle, iHandle, start, num, flags);
+		auto handle = renderHandle{getUInt16("idx", uint16_t(0xFFFF))};
+		auto iHandle = renderHandle{
+			buffer.getUInt16("idx", uint16_t(0xFFFF))};
+		uint16_t flags = getUInt16("discard", uint16_t(DiscardAll));
+		if (auto backend = gfxBackend::backend())
+			backend->dispatchIndirect(viewId, handle, iHandle, start, num,
+				flags);
 	}
 
 	void shaderProgram::destroy() {
-		auto handle = bgfx::ProgramHandle{
-			getUInt16("idx", bgfx::kInvalidHandle)};
-		if (bgfx::isValid(handle)) bgfx::destroy(handle);
+		if (auto backend = gfxBackend::backend())
+			backend->destroyProgram(
+				renderHandle{getUInt16("idx", uint16_t(0xFFFF))});
 		empty();
 	}
 
 	object& gpuTexture::getPrototype() {
 		static auto proto = obj{
-			{"idx", bgfx::kInvalidHandle},
+			{"idx", uint16_t(0xFFFF)},
 		};
 		return proto;
 	}
 
 	uint64_t sampleStringToFlags(string value) {
-		uint64_t flags = 0;
+		uint32_t flags = 0;
 
 		if (exists(value, "u_mirror"))
-			flags |= BGFX_SAMPLER_U_MIRROR;
+			flags |= MirrorU;
 		else if (exists(value, "u_clamp"))
-			flags |= BGFX_SAMPLER_U_CLAMP;
+			flags |= ClampU;
 		else if (exists(value, "u_border"))
-			flags |= BGFX_SAMPLER_U_BORDER;
+			flags |= BorderU;
 
 		if (exists(value, "v_mirror"))
-			flags |= BGFX_SAMPLER_V_MIRROR;
+			flags |= MirrorV;
 		else if (exists(value, "v_clamp"))
-			flags |= BGFX_SAMPLER_V_CLAMP;
+			flags |= ClampV;
 		else if (exists(value, "v_border"))
-			flags |= BGFX_SAMPLER_V_BORDER;
+			flags |= BorderV;
 
 		if (exists(value, "w_mirror"))
-			flags |= BGFX_SAMPLER_W_MIRROR;
+			flags |= MirrorW;
 		else if (exists(value, "w_clamp"))
-			flags |= BGFX_SAMPLER_W_CLAMP;
+			flags |= ClampW;
 		else if (exists(value, "w_border"))
-			flags |= BGFX_SAMPLER_W_BORDER;
+			flags |= BorderW;
 
 		if (exists(value, "min_point"))
-			flags |= BGFX_SAMPLER_MIN_POINT;
+			flags |= MinPoint;
 		else if (exists(value, "min_anis"))
-			flags |= BGFX_SAMPLER_MIN_ANISOTROPIC;
+			flags |= MinAnisotropic;
 
 		if (exists(value, "mag_point"))
-			flags |= BGFX_SAMPLER_MAG_POINT;
+			flags |= MagPoint;
 		else if (exists(value, "mag_anis"))
-			flags |= BGFX_SAMPLER_MAG_ANISOTROPIC;
+			flags |= MagAnisotropic;
 
 		if (exists(value, "mip_point"))
-			flags |= BGFX_SAMPLER_MIP_POINT;
+			flags |= MipPoint;
 
 		if (exists(value, "less"))
-			flags |= BGFX_SAMPLER_COMPARE_LESS;
+			flags |= CompareEnabled |
+					 (uint32_t(DepthLess) << CompareModeShift);
 		else if (exists(value, "lequal"))
-			flags |= BGFX_SAMPLER_COMPARE_LEQUAL;
+			flags |= CompareEnabled |
+					 (uint32_t(DepthLEqual) << CompareModeShift);
 		else if (exists(value, "gequal"))
-			flags |= BGFX_SAMPLER_COMPARE_GEQUAL;
+			flags |= CompareEnabled |
+					 (uint32_t(DepthGEqual) << CompareModeShift);
 		else if (exists(value, "equal"))
-			flags |= BGFX_SAMPLER_COMPARE_EQUAL;
+			flags |= CompareEnabled |
+					 (uint32_t(DepthEqual) << CompareModeShift);
 		else if (exists(value, "greater"))
-			flags |= BGFX_SAMPLER_COMPARE_GREATER;
+			flags |= CompareEnabled |
+					 (uint32_t(DepthGreater) << CompareModeShift);
 		else if (exists(value, "notequal"))
-			flags |= BGFX_SAMPLER_COMPARE_NOTEQUAL;
+			flags |= CompareEnabled |
+					 (uint32_t(DepthNotEqual) << CompareModeShift);
 		else if (exists(value, "never"))
-			flags |= BGFX_SAMPLER_COMPARE_NEVER;
+			flags |= CompareEnabled |
+					 (uint32_t(DepthNever) << CompareModeShift);
 		else if (exists(value, "always"))
-			flags |= BGFX_SAMPLER_COMPARE_ALWAYS;
+			flags |= CompareEnabled |
+					 (uint32_t(DepthAlways) << CompareModeShift);
 
 		return flags;
 	}
 
-	bgfx::TextureHandle gpuTexture::parseData(binary& bin) {
+	/** The image-container path: an image facade decodes the binary
+	 *  (PNG/DDS/KTX2 via the system bimg-backed codecs) and its parsed
+	 *  fields replace mine; the texture then creates from them. */
+	renderHandle gpuTexture::parseData(binary& bin) {
 		auto flagsStr = getString("flags");
 		toLower(flagsStr);
 		uint64_t flags = sampleStringToFlags(flagsStr);
-		auto handle = bgfx::TextureHandle{bgfx::kInvalidHandle};
-		auto img = image({
-			{"data", bin},
-		});
+		auto handle = renderHandle{uint16_t(0xFFFF)};
+		auto img = image({{"data", bin}});
 		copy(img);
 		auto pData = getStringView("data");
-		auto mem =
-			bgfx::makeRef(pData.data(), uint32_t(pData.size()));
 
-		auto format =
-			(bgfx::TextureFormat::Enum)getUInt32("format");
+		auto backend = gfxBackend::backend();
+		if (!backend) return handle;
+		const auto format = (texFormat)getUInt32("format");
 		if (getUInt32("depth") > 0) {
-			// 3D
 			auto width = getUInt16("width");
 			auto height = getUInt16("height");
 			auto depth = getUInt16("depth");
 			auto hasMips = getUInt8("numMips") > 0;
-			handle = bgfx::createTexture3D(
-				width, height, depth, hasMips, format, flags, mem);
+			handle = backend->createTexture3D(
+				width, height, depth, hasMips, format, flags, pData.data(),
+				uint32_t(pData.size()));
 		} else if (getBool("cubeMap")) {
 			auto size = getUInt16("width");
 			auto numLayers = getUInt16("numLayers");
-			// CubeMap
 			auto hasMips = getUInt8("numMips") > 0;
-			handle = bgfx::createTextureCube(
-				size, hasMips, numLayers, format, flags, mem);
+			handle = backend->createTextureCube(
+				size, hasMips, numLayers, format, flags, pData.data(),
+				uint32_t(pData.size()));
 		} else {
-			// 2D
 			auto width = getUInt16("width");
 			auto height = getUInt16("height");
 			auto numLayers = getUInt16("numLayers");
 			auto hasMips = getUInt8("numMips") > 0;
 			if (width != 0 && height != 0)
-				handle = bgfx::createTexture2D(
+				handle = backend->createTexture2D(
 					width, height, hasMips, numLayers, format, flags,
-					mem);
+					pData.data(), uint32_t(pData.size()));
 		}
 		return handle;
 	}
@@ -1456,227 +1345,168 @@ namespace gold {
 		auto flagsStr = getString("flags");
 		toLower(flagsStr);
 		uint64_t flags = sampleStringToFlags(flagsStr);
-		auto border = config.getVar("border");
 		auto name = getString("name");
 		if (name == "") name = getString("path");
 		if (name == "") name = to_string((uint64_t)this);
-		if (border && border.isNumber()) {
-			auto color = border.getUInt32();
-			flags |= BGFX_SAMPLER_BORDER_COLOR(color);
-		}
 
-		auto handle = bgfx::TextureHandle{bgfx::kInvalidHandle};
+		auto backend = gfxBackend::backend();
+		renderHandle handle;
 		auto sizeVar = config.getVar("size");
 		auto depthVar = config.getVar("depth");
 		auto widthVar = config.getVar("width");
 		auto heightVar = config.getVar("height");
-		var binData = getVar("data");
-		string_view bin;
-		if (sizeVar && sizeVar.getUInt16() != 0) {
-			bin = binData.getStringView();
-			auto mem =
-				bgfx::makeRef(bin.data(), uint32_t(bin.size()));
-			auto size = sizeVar.getUInt16();
-			auto layers = getUInt16("layers");
-			auto mips = getBool("hasMips");
-			auto format = (bgfx::TextureFormat::Enum)getUInt32(
-				"format", bgfx::TextureFormat::Count);
-			handle = bgfx::createTextureCube(
-				size, mips, layers, format, flags, mem);
-		} else if (
-			depthVar && depthVar.getUInt16() != 0 && widthVar &&
-			widthVar.getUInt16() != 0 && heightVar &&
-			heightVar.getUInt16() != 0) {
-			bin = binData.getStringView();
-			auto mem =
-				bgfx::makeRef(bin.data(), uint32_t(bin.size()));
-			auto width = widthVar.getUInt16();
-			auto height = heightVar.getUInt16();
-			auto depth = depthVar.getUInt16();
-			auto mips = getBool("hasMips");
-			auto format = (bgfx::TextureFormat::Enum)getUInt32(
-				"format", bgfx::TextureFormat::Count);
-			handle = bgfx::createTexture3D(
-				width, height, depth, mips, format, flags, mem);
-		} else if (
-			widthVar && widthVar.getUInt16() != 0 && heightVar &&
-			heightVar.getUInt16() != 0) {
-			bin = binData.getStringView();
-			auto mem =
-				bgfx::makeRef(bin.data(), uint32_t(bin.size()));
-			auto width = widthVar.getUInt16();
-			auto height = heightVar.getUInt16();
-			auto mips = getBool("hasMips");
-			auto layers = getUInt16("layers", 0);
-			auto format = (bgfx::TextureFormat::Enum)getUInt32(
-				"format", bgfx::TextureFormat::Count);
-			handle = bgfx::createTexture2D(
-				width, height, mips, layers, format, flags, mem);
-		} else if (binData.isView()) {
-			auto b = binData.getBinary();
-			handle = parseData(b);
-		} else if (config.getType("path") == typeString) {
-			auto path = getString("path");
-			if (path.size() > 0) {
-				// Load from file, set to object
-				auto textRet = file::readFile(path).getObject<file>();
-				auto fileData = textRet.getBinary("data");
-				handle = parseData(fileData);
+		auto binData = getVar("data");
+		std::string_view bytes;
+		if (backend) {
+			const auto format = (texFormat)getUInt32(
+				"format", uint32_t(texFormat::Count));
+			if (sizeVar && sizeVar.getUInt16() != 0) {
+				bytes = binData.getStringView();
+				auto layers = getUInt16("layers");
+				handle = backend->createTextureCube(sizeVar.getUInt16(),
+					getBool("hasMips"), layers, format, flags, bytes.data(),
+					uint32_t(bytes.size()));
+			} else if (
+				depthVar && depthVar.getUInt16() != 0 && widthVar &&
+				widthVar.getUInt16() != 0 && heightVar &&
+				heightVar.getUInt16() != 0) {
+				bytes = binData.getStringView();
+				handle = backend->createTexture3D(
+					widthVar.getUInt16(), heightVar.getUInt16(),
+					depthVar.getUInt16(), getBool("hasMips"), format, flags,
+					bytes.data(), uint32_t(bytes.size()));
+			} else if (
+				widthVar && widthVar.getUInt16() != 0 && heightVar &&
+				heightVar.getUInt16() != 0) {
+				bytes = binData.getStringView();
+				handle = backend->createTexture2D(
+					widthVar.getUInt16(), heightVar.getUInt16(),
+					getBool("hasMips"), getUInt16("layers", uint16_t(0)),
+					format, flags, bytes.data(),
+					uint32_t(bytes.size()));
+			} else if (binData.isView()) {
+				auto b = binData.getBinary();
+				handle = parseData(b);
+			} else if (config.getType("path") == typeString) {
+				auto path = getString("path");
+				if (path.size() > 0) {
+					// Load from file, set to object
+					auto textRet =
+						file::readFile(path).getObject<file>();
+					auto fileData = textRet.getBinary("data");
+					handle = parseData(fileData);
+				}
 			}
 		}
-		if (bgfx::isValid(handle)) {
-			bgfx::setName(handle, name.c_str(), int32_t(name.size()));
+		if (handle.valid()) {
+			backend->setObjectName(handle, name.c_str());
 			setUInt16("idx", handle.idx);
 			cache[name] = *this;
 		}
 	}
 
 	void gpuTexture::update(object info) {
-		auto handle = bgfx::TextureHandle{
-			getUInt16("idx", bgfx::kInvalidHandle)};
-		if (!bgfx::isValid(handle)) return;
-		auto x = getUInt16("x");
-		auto y = getUInt16("y");
-		auto w = getUInt16("width");
-		auto h = getUInt16("height");
+		auto handle = renderHandle{
+			getUInt16("idx", uint16_t(0xFFFF))};
+		auto backend = gfxBackend::backend();
+		if (!backend || !handle.valid()) return;
 		auto mip = getUInt8("mip");
 		auto sideVar = info.getVar("side");
 		auto depthVar = info.getVar("depth");
 		if (sideVar && sideVar.getUInt8() < 6) {
 			auto bin = getStringView("data");
-			auto mem =
-				bgfx::makeRef(bin.data(), uint32_t(bin.size()));
-			auto layer = getUInt16("layer");
-			auto side = sideVar.getUInt8();
-			auto pitch = getUInt16("pitch", UINT16_MAX);
-			bgfx::updateTextureCube(
-				handle, layer, side, mip, x, y, w, h, mem, pitch);
-		} else if (
-			depthVar && depthVar.getUInt16() != 0 && w != 0 &&
-			h != 0) {
+			backend->updateTexture(
+				handle, (uint8_t)sideVar.getUInt8(), mip, bin.data(),
+				uint32_t(bin.size()));
+		} else if (depthVar && depthVar.getUInt16() != 0) {
 			auto bin = getStringView("data");
-			auto mem =
-				bgfx::makeRef(bin.data(), uint32_t(bin.size()));
-			auto z = getUInt16("z");
-			auto depth = depthVar.getUInt16();
-			bgfx::updateTexture3D(
-				handle, mip, x, y, z, w, h, depth, mem);
-		} else if (w != 0 && h != 0) {
+			backend->updateTexture3D(handle, mip, bin.data(),
+				uint32_t(bin.size()));
+		} else {
 			auto bin = getStringView("data");
-			auto mem =
-				bgfx::makeRef(bin.data(), uint32_t(bin.size()));
-			auto layer = getUInt16("layer");
-			auto pitch = getUInt16("pitch", UINT16_MAX);
-			bgfx::updateTexture2D(
-				handle, layer, mip, x, y, w, h, mem, pitch);
+			backend->updateTexture2D(handle, mip, bin.data(),
+				uint32_t(bin.size()));
 		}
 	}
 
 	void gpuTexture::setImage(
 		uint8_t stage, uint8_t mip, accessType t, textureFormat f) {
-		auto handle = bgfx::TextureHandle{
-			getUInt16("idx", bgfx::kInvalidHandle)};
-		if (!bgfx::isValid(handle)) return;
-		bgfx::setImage(
-			stage, handle, mip, (bgfx::Access::Enum)t,
-			(bgfx::TextureFormat::Enum)f);
+		auto handle = renderHandle{
+			getUInt16("idx", uint16_t(0xFFFF))};
+		if (auto backend = gfxBackend::backend())
+			backend->setImage(stage, handle, mip, t, f);
 	}
 
 	void gpuTexture::blit(
 		uint8_t viewId, var dstP, gpuTexture src, var srcP,
 		var size) {
-		auto dstHandle = bgfx::TextureHandle{
-			getUInt16("idx", bgfx::kInvalidHandle)};
-		auto srcHandle = bgfx::TextureHandle{
-			src.getUInt16("idx", bgfx::kInvalidHandle)};
-		if (!bgfx::isValid(dstHandle)) return;
-		if (!bgfx::isValid(srcHandle)) return;
-		uint16_t s[2] = {UINT16_MAX, UINT16_MAX};
+		auto dstHandle = renderHandle{
+			getUInt16("idx", uint16_t(0xFFFF))};
+		auto srcHandle = renderHandle{
+			src.getUInt16("idx", uint16_t(0xFFFF))};
+		auto backend = gfxBackend::backend();
+		if (!backend || !dstHandle.valid() || !srcHandle.valid()) return;
+		uint16_t w = UINT16_MAX, h = UINT16_MAX;
 		if (size.isVec2()) {
-			s[0] = size.getUInt16(0);
-			s[1] = size.getUInt16(1);
+			w = size.getUInt16(0);
+			h = size.getUInt16(1);
 		}
-		bgfx::TextureRegion dst;
-		dst.handle = dstHandle;
-		dst.x = dstP.getUInt16(0);
-		dst.y = dstP.getUInt16(1);
-		dst.width = s[0];
-		dst.height = s[1];
-		bgfx::TextureRegion srcRegion;
-		srcRegion.handle = srcHandle;
-		srcRegion.x = srcP.getUInt16(0);
-		srcRegion.y = srcP.getUInt16(1);
-		srcRegion.width = s[0];
-		srcRegion.height = s[1];
-		bgfx::blit(viewId, dst, srcRegion);
+		backend->blit(viewId, dstHandle, 0, dstP.getUInt16(0),
+			dstP.getUInt16(1), 0, srcHandle, 0, srcP.getUInt16(0),
+			srcP.getUInt16(1), 0, w, h, 1);
 	}
 	void gpuTexture::blit(
 		uint8_t viewId, uint8_t dstMip, var dstP, gpuTexture src,
 		uint8_t srcMip, var srcP, var size) {
-		auto dstHandle = bgfx::TextureHandle{
-			getUInt16("idx", bgfx::kInvalidHandle)};
-		auto srcHandle = bgfx::TextureHandle{
-			src.getUInt16("idx", bgfx::kInvalidHandle)};
-		if (!bgfx::isValid(dstHandle)) return;
-		if (!bgfx::isValid(srcHandle)) return;
-		uint16_t s[3] = {UINT16_MAX, UINT16_MAX, UINT16_MAX};
+		auto dstHandle = renderHandle{
+			getUInt16("idx", uint16_t(0xFFFF))};
+		auto srcHandle = renderHandle{
+			src.getUInt16("idx", uint16_t(0xFFFF))};
+		auto backend = gfxBackend::backend();
+		if (!backend || !dstHandle.valid() || !srcHandle.valid()) return;
+		uint16_t w = UINT16_MAX, h = UINT16_MAX, d = UINT16_MAX;
 		if (size.isVec3()) {
-			s[0] = size.getUInt16(0);
-			s[1] = size.getUInt16(1);
-			s[2] = size.getUInt16(2);
+			w = size.getUInt16(0);
+			h = size.getUInt16(1);
+			d = size.getUInt16(2);
 		}
-		bgfx::TextureRegion dst;
-		dst.handle = dstHandle;
-		dst.mip = dstMip;
-		dst.x = dstP.getUInt16(0);
-		dst.y = dstP.getUInt16(1);
-		dst.z = dstP.getUInt16(2);
-		dst.width = s[0];
-		dst.height = s[1];
-		dst.depth = s[2];
-		bgfx::TextureRegion srcRegion;
-		srcRegion.handle = srcHandle;
-		srcRegion.mip = srcMip;
-		srcRegion.x = srcP.getUInt16(0);
-		srcRegion.y = srcP.getUInt16(1);
-		srcRegion.z = srcP.getUInt16(2);
-		srcRegion.width = s[0];
-		srcRegion.height = s[1];
-		srcRegion.depth = s[2];
-		bgfx::blit(viewId, dst, srcRegion);
+		backend->blit(viewId, dstHandle, dstMip, dstP.getUInt16(0),
+			dstP.getUInt16(1), dstP.getUInt16(2), srcHandle, srcMip,
+			srcP.getUInt16(0), srcP.getUInt16(1), srcP.getUInt16(2), w, h,
+			d);
 	}
 
 	uint32_t gpuTexture::readTexture(void* bin, uint8_t mip) {
-		auto handle = bgfx::TextureHandle{
-			getUInt16("idx", bgfx::kInvalidHandle)};
-		bgfx::TextureRegion region;
-		region.handle = handle;
-		region.mip = mip;
-		return bgfx::read(region, bin);
+		auto handle = renderHandle{
+			getUInt16("idx", uint16_t(0xFFFF))};
+		auto backend = gfxBackend::backend();
+		if (backend && backend->readTexture(handle, bin, mip)) return 0;
+		return UINT32_MAX;  // the caller treats non-zero as failed
 	}
 	void* gpuTexture::getDirectAccessPtr() {
-		auto handle = bgfx::TextureHandle{
-			getUInt16("idx", bgfx::kInvalidHandle)};
-		if (!bgfx::isValid(handle)) return nullptr;
-		return bgfx::getDirectAccessPtr(handle);
+		auto handle = renderHandle{
+			getUInt16("idx", uint16_t(0xFFFF))};
+		auto backend = gfxBackend::backend();
+		if (!backend || !handle.valid()) return nullptr;
+		return backend->directAccessPtr(handle);
 	}
 	void gpuTexture::setName(string name) {
-		auto handle = bgfx::TextureHandle{
-			getUInt16("idx", bgfx::kInvalidHandle)};
-		if (!bgfx::isValid(handle)) return;
-		bgfx::setName(handle, name.c_str(), int32_t(name.size()));
+		auto handle = renderHandle{
+			getUInt16("idx", uint16_t(0xFFFF))};
+		if (auto backend = gfxBackend::backend())
+			backend->setObjectName(handle, name.c_str());
 	}
 	void gpuTexture::destroy() {
-		auto handle = bgfx::TextureHandle{
-			getUInt16("idx", bgfx::kInvalidHandle)};
-		if (bgfx::isValid(handle)) bgfx::destroy(handle);
-		setUInt16("idx", bgfx::kInvalidHandle);
+		auto handle = renderHandle{
+			getUInt16("idx", uint16_t(0xFFFF))};
+		if (auto backend = gfxBackend::backend())
+			backend->destroyTexture(handle);
+		setUInt16("idx", uint16_t(0xFFFF));
 	}
 
 	object& vertexLayout::getPrototype() {
 		static auto proto = obj{
-			{"layout", var()},
-			{"idx", bgfx::kInvalidHandle},
+			{"descriptor", list()},
 		};
 		return proto;
 	}
@@ -1693,45 +1523,36 @@ namespace gold {
 		if (name != "") cache[name] = *this;
 	}
 
+	// The layout is pure gold descriptor data now: begin() opens the
+	// "descriptor" list, add() appends {attrib, count, type, normalized,
+	// asInt} entries, and the backend materializes it at buffer time.
 	vertexLayout& vertexLayout::begin() {
-		auto layout = new bgfx::VertexLayout();
-		layout->begin();
-		setPtr("layout", layout);
+		setList("descriptor", list({}));
 		return *this;
 	}
 
 	vertexLayout& vertexLayout::add(
 		attrib att, attribType t, uint8_t count, bool norm,
 		bool isInt) {
-		auto layout = (bgfx::VertexLayout*)getPtr("layout");
-		if (layout) {
-			layout->add(
-				(bgfx::Attrib::Enum)att, count,
-				(bgfx::AttribType::Enum)t, norm, isInt);
-		}
+		auto descriptor = getList("descriptor");
+		descriptor.pushObject(obj{
+			{"attrib", (uint8_t)att},
+			{"type", (uint8_t)t},
+			{"count", count},
+			{"normalized", norm},
+			{"asInt", isInt},
+		});
+		setList("descriptor", descriptor);
 		return *this;
 	}
 
-	vertexLayout& vertexLayout::end() {
-		auto layout = (bgfx::VertexLayout*)getPtr("layout");
-		if (layout) {
-			layout->end();
-		}
-		return *this;
-	}
+	vertexLayout& vertexLayout::end() { return *this; }
 
-	void vertexLayout::destroy() {
-		auto handle = bgfx::VertexLayoutHandle{
-			getUInt16("idx", bgfx::kInvalidHandle)};
-		if (bgfx::isValid(handle)) bgfx::destroy(handle);
-		auto layout = (bgfx::VertexLayout*)getPtr("layout");
-		if (layout) delete layout;
-		empty();
-	}
+	void vertexLayout::destroy() { empty(); }
 
 	object& vertexBuffer::getPrototype() {
 		static auto proto = obj{
-			{"idx", bgfx::kInvalidHandle},
+			{"idx", uint16_t(0xFFFF)},
 		};
 		return proto;
 	}
@@ -1739,32 +1560,30 @@ namespace gold {
 	vertexBuffer::vertexBuffer() : obj() {}
 	vertexBuffer::vertexBuffer(object config) : obj(config) {
 		setParent(getPrototype());
-		uint16_t flags = 0;
 		auto type = getUInt8("type", nullBufferType);
-		auto layoutObj = getObject<vertexLayout>("layout");
-		auto layout =
-			*(bgfx::VertexLayout*)layoutObj.getPtr("layout");
+		// The layout may be a bare (prototype-less) gold object: use the
+		// untyped var access so descriptor data is all we need.
+		auto layoutVar = getVar("layout");
+		auto layoutObj =
+			layoutVar.isObject() ? layoutVar.getObject() : object();
+		auto backend = gfxBackend::backend();
+		if (!backend) return;
 		if (type == standardBufferType) {
-			auto bin = getStringView("data");
-			auto mem =
-				bgfx::makeRef(bin.data(), uint32_t(bin.size()));
-			auto handle =
-				bgfx::createVertexBuffer(mem, layout, flags);
+			auto bytes = getStringView("data");
+			auto handle = backend->createVertexBuffer(
+				bytes.data(), uint32_t(bytes.size()), layoutObj, 0);
 			setUInt16("idx", handle.idx);
 		} else if (type == dynamicBufferType) {
-			auto bin = getStringView("data");
-			auto mem =
-				bgfx::makeRef(bin.data(), uint32_t(bin.size()));
-			auto handle =
-				bgfx::createDynamicVertexBuffer(mem, layout, flags);
+			auto bytes = getStringView("data");
+			auto handle = backend->createDynamicVertexBuffer(
+				bytes.data(), uint32_t(bytes.size()), layoutObj, 0);
 			setUInt16("idx", handle.idx);
 		} else if (type == transientBufferType) {
-			auto transBuffer = new bgfx::TransientVertexBuffer();
 			auto count = getUInt16("count");
 			if (count >= 1) {
-				bgfx::allocTransientVertexBuffer(
-					transBuffer, count, layout);
-				setPtr("trans", transBuffer);
+				auto handle =
+					backend->createTransientVertexBuffer(layoutObj, count);
+				setUInt16("idx", handle.idx);
 			} else
 				empty();
 		}
@@ -1784,76 +1603,39 @@ namespace gold {
 			for (; dstIt != endIt; ++dstIt, ++it)
 				*((char*)&(*dstIt)) = *it;
 		} else if (type == transientBufferType) {
-			auto transBuffer =
-				(bgfx::TransientVertexBuffer*)getPtr("trans");
-			auto dstPtr = (uint8_t*)transBuffer->data + start;
-			auto endPtr = (uint8_t*)transBuffer->data + end;
-			for (; dstPtr != endPtr; ++dstPtr, ++it) {
-				*dstPtr = *it;
+			// The backend keeps the transient's backing data.
+			if (auto backend = gfxBackend::backend()) {
+				auto handle = renderHandle{
+					getUInt16("idx", uint16_t(0xFFFF))};
+				backend->updateVertexBuffer(handle, bin.data(),
+					uint32_t(end - start), uint32_t(start), 0);
 			}
 		}
 	}
 
 	void vertexBuffer::set(uint8_t stream) {
-		auto type = getUInt8("type");
-		if (type == standardBufferType) {
-			auto handle = bgfx::VertexBufferHandle{
-				getUInt16("idx", bgfx::kInvalidHandle)};
-			bgfx::setVertexBuffer(stream, handle);
-		} else if (type == dynamicBufferType) {
-			auto handle = bgfx::DynamicVertexBufferHandle{
-				getUInt16("idx", bgfx::kInvalidHandle)};
-			bgfx::setVertexBuffer(stream, handle);
-		} else if (type == transientBufferType) {
-			auto transBuffer =
-				(bgfx::TransientVertexBuffer*)getPtr("trans");
-			bgfx::setVertexBuffer(stream, transBuffer);
-		}
+		auto handle = renderHandle{getUInt16("idx", uint16_t(0xFFFF))};
+		if (auto backend = gfxBackend::backend())
+			backend->setVertexBuffer(stream, handle, 0, 0);
 	}
 	void vertexBuffer::set(
-		uint8_t stream, uint32_t start, uint32_t num,
-		vertexLayout layoutObj) {
-		auto type = getUInt8("type");
-		layoutObj =
-			layoutObj ? layoutObj : getObject<vertexLayout>("layout");
-		auto layout =
-			bgfx::VertexLayoutHandle{layoutObj.getUInt16("idx")};
-		if (type == standardBufferType) {
-			auto handle = bgfx::VertexBufferHandle{
-				getUInt16("idx", bgfx::kInvalidHandle)};
-			bgfx::setVertexBuffer(stream, handle, start, num, layout);
-		} else if (type == dynamicBufferType) {
-			auto handle = bgfx::DynamicVertexBufferHandle{
-				getUInt16("idx", bgfx::kInvalidHandle)};
-			bgfx::setVertexBuffer(stream, handle, start, num, layout);
-		} else if (type == transientBufferType) {
-			auto transBuffer =
-				(bgfx::TransientVertexBuffer*)getPtr("trans");
-			bgfx::setVertexBuffer(
-				stream, transBuffer, start, num, layout);
-		}
+		uint8_t stream, uint32_t start, uint32_t num, vertexLayout) {
+		auto handle = renderHandle{getUInt16("idx", uint16_t(0xFFFF))};
+		if (auto backend = gfxBackend::backend())
+			// The transient's layout lives in the backend's allocation;
+			// static/dynamic buffers carry theirs from creation.
+			backend->setVertexBuffer(stream, handle, start, num);
 	}
 
 	void vertexBuffer::destroy() {
-		auto type = getUInt8("type");
-		if (type == standardBufferType) {
-			auto handle = bgfx::VertexBufferHandle{
-				getUInt16("idx", bgfx::kInvalidHandle)};
-			if (bgfx::isValid(handle)) bgfx::destroy(handle);
-		} else if (type == dynamicBufferType) {
-			auto handle = bgfx::DynamicVertexBufferHandle{
-				getUInt16("idx", bgfx::kInvalidHandle)};
-			if (bgfx::isValid(handle)) bgfx::destroy(handle);
-		} else if (type == transientBufferType) {
-			auto transBuffer =
-				(bgfx::TransientVertexBuffer*)getPtr("trans");
-			if (transBuffer) delete transBuffer;
-		}
+		auto handle = renderHandle{getUInt16("idx", uint16_t(0xFFFF))};
+		if (auto backend = gfxBackend::backend())
+			backend->destroyBuffer(handle);
 	}
 
 	object& indexBuffer::getPrototype() {
 		static auto proto = obj{
-			{"idx", bgfx::kInvalidHandle},
+			{"idx", uint16_t(0xFFFF)},
 		};
 		return proto;
 	}
@@ -1862,77 +1644,41 @@ namespace gold {
 
 	indexBuffer::indexBuffer(object config) : obj(config) {
 		setParent(getPrototype());
-		uint16_t flags = 0;
+		auto backend = gfxBackend::backend();
 		auto type = getUInt8("type");
+		if (!backend) return;
+		auto bytes = getStringView("data");
 		if (type == standardBufferType) {
-			auto bin = getStringView("data");
-			auto mem =
-				bgfx::makeRef(bin.data(), uint32_t(bin.size()));
-			auto handle = bgfx::createIndexBuffer(mem, flags);
+			auto handle = backend->createIndexBuffer(
+				bytes.data(), uint32_t(bytes.size()), 0);
 			setUInt16("idx", handle.idx);
 		} else if (type == dynamicBufferType) {
-			auto bin = getStringView("data");
-			auto mem =
-				bgfx::makeRef(bin.data(), uint32_t(bin.size()));
-			auto handle = bgfx::createDynamicIndexBuffer(mem, flags);
+			auto handle = backend->createDynamicIndexBuffer(
+				bytes.data(), uint32_t(bytes.size()), 0);
 			setUInt16("idx", handle.idx);
 		} else if (type == transientBufferType) {
-			auto transBuffer = new bgfx::TransientIndexBuffer();
-			auto count = getUInt16("count");
-			bgfx::allocTransientIndexBuffer(transBuffer, count);
-			setPtr("trans", transBuffer);
+			auto handle = backend->createTransientIndexBuffer(
+				getUInt16("count"));
+			setUInt16("idx", handle.idx);
 		}
 	}
 
 	void indexBuffer::set() {
-		auto type = getUInt8("type");
-		if (type == standardBufferType) {
-			auto handle = bgfx::IndexBufferHandle{
-				getUInt16("idx", bgfx::kInvalidHandle)};
-			bgfx::setIndexBuffer(handle);
-		} else if (type == dynamicBufferType) {
-			auto handle = bgfx::DynamicIndexBufferHandle{
-				getUInt16("idx", bgfx::kInvalidHandle)};
-			bgfx::setIndexBuffer(handle);
-		} else if (type == transientBufferType) {
-			auto transBuffer =
-				(bgfx::TransientIndexBuffer*)getPtr("trans");
-			bgfx::setIndexBuffer(transBuffer);
-		}
+		auto handle = renderHandle{getUInt16("idx", uint16_t(0xFFFF))};
+		if (auto backend = gfxBackend::backend())
+			backend->setIndexBuffer(handle, 0, 0);
 	}
 
 	void indexBuffer::set(uint32_t start, uint32_t num) {
-		auto type = getUInt8("type");
-		if (type == standardBufferType) {
-			auto handle = bgfx::IndexBufferHandle{
-				getUInt16("idx", bgfx::kInvalidHandle)};
-			bgfx::setIndexBuffer(handle, start, num);
-		} else if (type == dynamicBufferType) {
-			auto handle = bgfx::DynamicIndexBufferHandle{
-				getUInt16("idx", bgfx::kInvalidHandle)};
-			bgfx::setIndexBuffer(handle, start, num);
-		} else if (type == transientBufferType) {
-			auto transBuffer =
-				(bgfx::TransientIndexBuffer*)getPtr("trans");
-			bgfx::setIndexBuffer(transBuffer, start, num);
-		}
+		auto handle = renderHandle{getUInt16("idx", uint16_t(0xFFFF))};
+		if (auto backend = gfxBackend::backend())
+			backend->setIndexBuffer(handle, start, num);
 	}
 
 	void indexBuffer::destroy() {
-		auto type = getUInt8("type");
-		if (type == standardBufferType) {
-			auto handle = bgfx::IndexBufferHandle{
-				getUInt16("idx", bgfx::kInvalidHandle)};
-			if (bgfx::isValid(handle)) bgfx::destroy(handle);
-		} else if (type == dynamicBufferType) {
-			auto handle = bgfx::DynamicIndexBufferHandle{
-				getUInt16("idx", bgfx::kInvalidHandle)};
-			if (bgfx::isValid(handle)) bgfx::destroy(handle);
-		} else if (type == transientBufferType) {
-			auto transBuffer =
-				(bgfx::TransientIndexBuffer*)getPtr("trans");
-			if (transBuffer) delete transBuffer;
-		}
+		auto handle = renderHandle{getUInt16("idx", uint16_t(0xFFFF))};
+		if (auto backend = gfxBackend::backend())
+			backend->destroyBuffer(handle);
 	}
 
 }  // namespace gold

@@ -177,26 +177,28 @@ namespace gold {
 			}
 			void* directAccessPtr(renderHandle) override { return nullptr; }
 
-			renderHandle createVertexBuffer(const void*, uint32_t,
-				const void*) override {
+			renderHandle createVertexBuffer(const void*, uint32_t, object,
+				uint64_t) override {
 				return renderHandle{};
 			}
-			renderHandle createDynamicVertexBuffer(uint32_t,
-				const void*) override {
+			renderHandle createDynamicVertexBuffer(const void*, uint32_t,
+				object, uint64_t) override {
 				return renderHandle{};
 			}
-			renderHandle createIndexBuffer(const void*, uint32_t) override {
+			renderHandle createIndexBuffer(const void*, uint32_t,
+				uint64_t) override {
 				return renderHandle{};
 			}
-			renderHandle createDynamicIndexBuffer(uint32_t) override {
+			renderHandle createDynamicIndexBuffer(const void*, uint32_t,
+				uint64_t) override {
 				return renderHandle{};
 			}
 			void updateVertexBuffer(renderHandle, const void*, uint32_t,
 				uint32_t, uint32_t) override {}
 			void updateIndexBuffer(renderHandle, const void*, uint32_t,
 				uint32_t, uint32_t) override {}
-			void setVertexBuffer(uint8_t, renderHandle, uint32_t, uint32_t,
-				const void*) override {}
+			void setVertexBuffer(uint8_t, renderHandle, uint32_t,
+				uint32_t) override {}
 			void setIndexBuffer(renderHandle, uint32_t, uint32_t) override {}
 			void destroyBuffer(renderHandle) override {}
 

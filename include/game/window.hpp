@@ -5,7 +5,7 @@
 #include "types.hpp"
 
 namespace gold {
-	struct windowSystem;
+	class windowSystem;
 
 	/** Window position constant: center on the current display. */
 	constexpr int32_t WindowCentered = 0x2FFF;

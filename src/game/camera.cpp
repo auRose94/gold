@@ -17,7 +17,7 @@ namespace gold {
 			{"depth", 1.0f},
 			{"near", 0.1f},
 			{"far", 100.0f},
-			{"flags", uint16_t(BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH)},
+			{"flags", uint16_t(clearFlags::ClearColor | clearFlags::ClearDepth)},
 			{"rgba", uint32_t(0x6ab0deff)},
 			{"stencil", uint8_t(0)},
 			{"proto", entity::getPrototype()},

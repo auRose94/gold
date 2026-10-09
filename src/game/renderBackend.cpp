@@ -10,6 +10,8 @@
 #include <bimg/bimg.h>
 #include <bimg/encode.h>
 
+#include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <fstream>
 #include <map>
@@ -17,10 +19,157 @@
 #include <utility>
 
 #include "plugin.hpp"
+#include "game/renderStateBits.hpp"
 
 namespace gold {
 
 	namespace {
+
+		// The gold flag-word translations. The parsers (graphics.cpp) build
+		// the gold-native bits of renderStateBits.hpp; these functions turn
+		// them into bgfx's define values. Written explicitly so any layout
+		// drift is a visible bug here.
+
+		// --- draw state --------------------------------------------------
+		uint64_t goldFactorToBGFX(uint64_t v) {
+			// gold's factor ids sit at 0 (zero); bgfx's factor field uses
+			// 1 (zero) with 0 meaning "leave as-is" — hence +1.
+			return (v & 0xF) + 1;
+		}
+		uint64_t goldCompareToBGFX(uint64_t v) {
+			// gold: 0=always, 1=less, ..., 7=never. bgfx's depth-test field
+			// uses 0 = no test and has no always: always maps to no test,
+			// others are 1..7 as written.
+			switch (v & 0x7) {
+			case uint64_t(DepthAlways): return 0;  // test-off passes always
+			default: return (v & 0x7);  // less..never align 1..7
+			}
+		}
+		uint64_t goldBlendEquationToBGFX(uint64_t v) {
+			// add=0, sub=1, revsub=2, min=3, max=4 — the same values.
+			return v & 0x7;
+		}
+
+		uint64_t fromGoldState(uint64_t gold) {
+			uint64_t out = 0;
+			if (gold & WriteR) out |= BGFX_STATE_WRITE_R;
+			if (gold & WriteG) out |= BGFX_STATE_WRITE_G;
+			if (gold & WriteB) out |= BGFX_STATE_WRITE_B;
+			if (gold & WriteA) out |= BGFX_STATE_WRITE_A;
+			if (gold & WriteZ) out |= BGFX_STATE_WRITE_Z;
+			const auto compare = goldCompareToBGFX(
+				gold >> DepthCompareShift);
+			out |= compare << BGFX_STATE_DEPTH_TEST_SHIFT;
+			const auto cull = (gold >> CullShift) & 0x3;
+			if (cull == uint64_t(CullCW)) out |= BGFX_STATE_CULL_CW;
+			else if (cull == uint64_t(CullCCW)) out |= BGFX_STATE_CULL_CCW;
+			if (gold & BlendEnabled) {
+				// bgfx packs four 4-bit factor fields at shift 12 (rgb-src,
+				// rgb-dst, a-src, a-dst) and the equation at shift 28. gold's
+				// factor ids are 0-based; bgfx's 1-based.
+				const uint64_t rgbSrc =
+					goldFactorToBGFX(gold >> BlendRGBSrcShift);
+				const uint64_t rgbDst =
+					goldFactorToBGFX(gold >> BlendRGBDstShift);
+				const uint64_t aSrc =
+					goldFactorToBGFX(gold >> BlendASrcShift);
+				const uint64_t aDst =
+					goldFactorToBGFX(gold >> BlendADstShift);
+				out |= ((rgbSrc << 0) | (rgbDst << 4) | (aSrc << 8) |
+						(aDst << 12))
+					   << BGFX_STATE_BLEND_SHIFT;
+				out |= goldBlendEquationToBGFX(gold >> BlendEquationShift)
+					   << BGFX_STATE_BLEND_EQUATION_SHIFT;
+			}
+			if (gold & BlendIndependent) out |= BGFX_STATE_BLEND_INDEPENDENT;
+			if (gold & BlendAlphaToCoverage)
+				out |= BGFX_STATE_BLEND_ALPHA_TO_COVERAGE;
+			const auto ref = (gold >> AlphaRefShift) & 0xFF;
+			out |= BGFX_STATE_ALPHA_REF(ref);
+			const auto prim = (gold >> PrimitiveShift) & 0x7;
+			switch (prim) {
+			case uint64_t(PrimitiveTriStrip): out |= BGFX_STATE_PT_TRISTRIP; break;
+			case uint64_t(PrimitiveLines): out |= BGFX_STATE_PT_LINES; break;
+			case uint64_t(PrimitiveLineStrip): out |= BGFX_STATE_PT_LINESTRIP; break;
+			case uint64_t(PrimitivePoints): out |= BGFX_STATE_PT_POINTS; break;
+			default: break;  // triangle list = no bits
+			}
+			if (gold & StateMSAA) out |= BGFX_STATE_MSAA;
+			if (gold & StateLineAA) out |= BGFX_STATE_LINEAA;
+			if (gold & StateConservativeRaster)
+				out |= BGFX_STATE_CONSERVATIVE_RASTER;
+			return out;
+		}
+
+		// --- stencil -------------------------------------------------------
+		uint32_t goldStencilOpToBGFX(uint32_t v) {
+			// gold: 0=keep 1=zero 2=replace 3=incr 4=incr-sat 5=decr
+			// 6=decr-sat 7=invert. bgfx: 0=zero 1=keep — swap the pair,
+			// the rest match.
+			switch (v & 0x7) {
+			case uint32_t(OpKeep): return 1;
+			case uint32_t(OpZero): return 0;
+			default: return v & 0x7;
+			}
+		}
+		uint32_t goldCompareFieldToBGFXStencil(uint32_t v) {
+			// gold: 0=always..7=never -> bgfx stencil test: 1..7 + always=8.
+			switch (v & 0x7) {
+			case uint32_t(DepthAlways): return 8;
+			default: return v & 0x7;
+			}
+		}
+		uint32_t fromGoldStencil(uint32_t gold) {
+			if (gold == 0) return UINT32_C(0x0000ff00);  // BGFX_STENCIL_NONE
+			uint32_t out = BGFX_STENCIL_FUNC_RMASK(0xFF);
+			out |= goldCompareFieldToBGFXStencil(gold >> StencilTestShift)
+				   << BGFX_STENCIL_TEST_SHIFT;
+			out |= goldStencilOpToBGFX(gold >> StencilFailShift)
+				   << BGFX_STENCIL_OP_FAIL_S_SHIFT;
+			out |= goldStencilOpToBGFX(gold >> StencilZFailShift)
+				   << BGFX_STENCIL_OP_FAIL_Z_SHIFT;
+			out |= goldStencilOpToBGFX(gold >> StencilZPassShift)
+				   << BGFX_STENCIL_OP_PASS_Z_SHIFT;
+			return out;
+		}
+
+		// --- samplers ------------------------------------------------------
+		uint32_t goldWrapToBGFX(uint32_t v, int shift) {
+			// gold: bits (mirror|clamp|border of 1|2|4) per axis; bgfx:
+			// a 2-bit field at `shift` with mirror=1 clamp=2 border=3.
+			uint64_t mode = v & 0x7;
+			if (mode & 1) mode = 1;
+			else if (mode & 2) mode = 2;
+			else if (mode & 4) mode = 3;
+			else mode = 0;
+			return uint32_t(mode) << shift;
+		}
+		uint32_t fromGoldSampler(uint32_t gold) {
+			uint32_t out = 0;
+			out |= goldWrapToBGFX(gold & 0x7, BGFX_SAMPLER_U_SHIFT);
+			out |= goldWrapToBGFX((gold >> 3) & 0x7, BGFX_SAMPLER_V_SHIFT);
+			out |= goldWrapToBGFX((gold >> 6) & 0x7, BGFX_SAMPLER_W_SHIFT);
+			if (gold & MinPoint) out |= BGFX_SAMPLER_MIN_POINT;
+			if (gold & MinAnisotropic) out |= BGFX_SAMPLER_MIN_ANISOTROPIC;
+			if (gold & MagPoint) out |= BGFX_SAMPLER_MAG_POINT;
+			if (gold & MagAnisotropic) out |= BGFX_SAMPLER_MAG_ANISOTROPIC;
+			if (gold & MipPoint) out |= BGFX_SAMPLER_MIP_POINT;
+			if (gold & CompareEnabled) {
+				uint32_t mode = (gold >> CompareModeShift) & 0x7;
+				static const uint32_t compareMap[8] = {
+					0x00080000,  // always
+					0x00010000,  // less
+					0x00020000,  // lequal
+					0x00030000,  // equal
+					0x00040000,  // gequal
+					0x00050000,  // greater
+					0x00060000,  // notequal
+					0x00070000,  // never
+				};
+				out |= compareMap[mode];
+			}
+			return out;
+		}
 
 		// Map a gold-native texFormat to a bgfx TextureFormat.
 		bgfx::TextureFormat::Enum toBGFX(texFormat f) {
@@ -110,6 +259,12 @@ namespace gold {
 				return renderHandle{h.idx};
 			}
 			static renderHandle toHandle(bgfx::ShaderHandle h) {
+				return renderHandle{h.idx};
+			}
+			static renderHandle toHandle(bgfx::DynamicVertexBufferHandle h) {
+				return renderHandle{h.idx};
+			}
+			static renderHandle toHandle(bgfx::DynamicIndexBufferHandle h) {
 				return renderHandle{h.idx};
 			}
 
@@ -242,10 +397,42 @@ namespace gold {
 				bgfx::Init init = bgfx::Init();
 				init.platformData = _pd;
 				init.callback = &_callbacks;
-				init.type = bgfx::RendererType::Enum(
-					config.getUInt16(
-						"rendererType",
-						uint16_t(bgfx::RendererType::OpenGL)));
+				{
+					// "rendererType" is gold data: a numeric entry casts
+					// (a bgfx RendererType number, Noop=0 keeps the
+					// headless contract), a string parses.
+					auto requested = config.getVar("rendererType");
+					auto type = bgfx::RendererType::OpenGL;
+					if (requested.isNumber()) {
+						type = bgfx::RendererType::Enum(
+							requested.getUInt16());
+					} else if (requested.isString()) {
+						auto str = requested.getString();
+						std::transform(str.begin(), str.end(),
+							str.begin(),
+							[](unsigned char c) {
+								return (char)std::tolower(c);
+							});
+						if (str == "noop") type = bgfx::RendererType::Noop;
+						else if (str == "direct3d11")
+							type = bgfx::RendererType::Direct3D11;
+						else if (str == "direct3d12")
+							type = bgfx::RendererType::Direct3D12;
+						else if (str == "gnm")
+							type = bgfx::RendererType::Gnm;
+						else if (str == "metal")
+							type = bgfx::RendererType::Metal;
+						else if (str == "nvn")
+							type = bgfx::RendererType::Nvn;
+						else if (str == "opengles")
+							type = bgfx::RendererType::OpenGLES;
+						else if (str == "opengl")
+							type = bgfx::RendererType::OpenGL;
+						else if (str == "vulkan")
+							type = bgfx::RendererType::Vulkan;
+					}
+					init.type = type;
+				}
 				init.vendorId = BGFX_PCI_ID_NONE;
 				init.resolution.width = config.getUInt32("width", 1360);
 				init.resolution.height = config.getUInt32("height", 800);
@@ -300,7 +487,11 @@ namespace gold {
 
 			renderHandle createShader(const void* data,
 				uint32_t size) override {
-				return toHandle(bgfx::createShader(mem(data, size)));
+				// An owning copy: the caller's buffer may be a short-lived
+				// compile result, and bgfx consumes shader memory on its
+				// render thread after this call returns.
+				return toHandle(
+					bgfx::createShader(bgfx::copy(data, size)));
 			}
 			renderHandle createProgram(renderHandle vs,
 				renderHandle fs) override {
@@ -340,20 +531,23 @@ namespace gold {
 				bool hasMips, uint16_t numLayers, texFormat f, uint64_t flags,
 				const void* data, uint32_t size) override {
 				return toHandle(bgfx::createTexture2D(w, h, hasMips,
-					numLayers, toBGFX(f), flags, mem(data, size)));
+					numLayers, toBGFX(f), fromGoldSampler(uint32_t(flags)),
+					mem(data, size)));
 			}
 			renderHandle createTextureCube(uint16_t size, bool hasMips,
 				uint16_t numLayers, texFormat f, uint64_t flags,
 				const void* data, uint32_t size_) override {
 				return toHandle(bgfx::createTextureCube(size, hasMips,
-					numLayers, toBGFX(f), flags, mem(data, size_)));
+					numLayers, toBGFX(f),
+					fromGoldSampler(uint32_t(flags)), mem(data, size_)));
 			}
 			renderHandle createTexture3D(uint16_t w, uint16_t h, uint16_t d,
 				bool hasMips, texFormat f, uint64_t flags, const void* data,
 				uint32_t size) override {
 				// Volume textures; the whole volume ships with the data.
 				return toHandle(bgfx::createTexture3D(
-					w, h, d, hasMips, toBGFX(f), flags, mem(data, size)));
+					w, h, d, hasMips, toBGFX(f),
+					fromGoldSampler(uint32_t(flags)), mem(data, size)));
 			}
 			void updateTexture2D(renderHandle h, uint8_t mip,
 				const void* data, uint32_t size) override {
@@ -385,49 +579,144 @@ namespace gold {
 				return bgfx::getDirectAccessPtr(tex(h));
 			}
 
+			/** Materialize a gold layout descriptor — a vertexLayout object
+			 *  whose "descriptor" list carries {attrib, count, type,
+			 *  normalized, asInt} entries — into a bgfx layout. bgfx's add()
+			 *  takes (attrib, count, type, asInt, normalized); the flags
+			 *  land in the right slots (the previous facade code passed
+			 *  the pair swapped, which was invisible while every caller
+			 *  sent both false). */
+			static bgfx::VertexLayout materializeLayout(object layoutObj) {
+				bgfx::VertexLayout layout;
+				layout.begin();
+				if (layoutObj) {
+					auto entries = layoutObj.getList("descriptor");
+					for (auto& entry : entries) {
+						auto e = entry.getObject();
+						layout.add(
+							(bgfx::Attrib::Enum)e.getUInt8("attrib"),
+							e.getUInt8("count"),
+							toBGFXAttribType(
+								(vertexAttribType)e.getUInt8("type")),
+							e.getBool("asInt"), e.getBool("normalized"));
+					}
+				}
+				layout.end();
+				return layout;
+			}
+
+			// The transient chunks handed out under gold handles, so their
+			// update and set can reach the backing structures again.
+			std::map<renderHandle, std::unique_ptr<bgfx::TransientVertexBuffer>>
+				transientVBs;
+			std::map<renderHandle, std::unique_ptr<bgfx::TransientIndexBuffer>>
+				transientIBs;
+
 			renderHandle createVertexBuffer(const void* data, uint32_t size,
-				const void* layout) override {
+				object layoutDesc, uint64_t flags) override {
+				auto layout = materializeLayout(layoutDesc);
 				return toHandle(bgfx::createVertexBuffer(
-					mem(data, size), *(const bgfx::VertexLayout*)layout));
+					mem(data, size), layout, flags));
 			}
-			renderHandle createDynamicVertexBuffer(uint32_t size,
-				const void* layout) override {
-				return renderHandle{uint16_t(bgfx::createDynamicVertexBuffer(
-					size, *(const bgfx::VertexLayout*)layout).idx)};
+			renderHandle createDynamicVertexBuffer(const void* data,
+				uint32_t size, object layoutDesc,
+				uint64_t flags) override {
+				auto layout = materializeLayout(layoutDesc);
+				return toHandle(bgfx::createDynamicVertexBuffer(
+					mem(data, size), layout, flags));
 			}
-			renderHandle createIndexBuffer(const void* data,
-				uint32_t size) override {
+			renderHandle createIndexBuffer(const void* data, uint32_t size,
+				uint64_t flags) override {
 				return toHandle(bgfx::createIndexBuffer(
-					mem(data, size), BGFX_BUFFER_INDEX32));
+					mem(data, size), uint32_t(BGFX_BUFFER_INDEX32) | flags));
 			}
-			renderHandle createDynamicIndexBuffer(uint32_t size) override {
-				return renderHandle{uint16_t(bgfx::createDynamicIndexBuffer(
-					size, BGFX_BUFFER_INDEX32).idx)};
+			renderHandle createDynamicIndexBuffer(const void* data,
+				uint32_t size, uint64_t flags) override {
+				return toHandle(bgfx::createDynamicIndexBuffer(
+					mem(data, size),
+					uint32_t(BGFX_BUFFER_INDEX32) | flags));
+			}
+			renderHandle createTransientVertexBuffer(object layoutDesc,
+				uint16_t count) override {
+				bgfx::TransientVertexBuffer* tvb =
+					new bgfx::TransientVertexBuffer();
+				allocTransientVertexBuffer(tvb, count,
+					materializeLayout(layoutDesc));
+				renderHandle h{uint16_t(transientVBs.size() + 1)};  // 1-based id
+				transientVBs[h] = std::unique_ptr<bgfx::TransientVertexBuffer>(tvb);
+				return h;
+			}
+			renderHandle createTransientIndexBuffer(uint16_t count) override {
+				bgfx::TransientIndexBuffer* tib =
+					new bgfx::TransientIndexBuffer();
+				allocTransientIndexBuffer(tib, count,
+					uint32_t(BGFX_BUFFER_INDEX32));
+				renderHandle h{uint16_t(transientIBs.size() + 1)};
+				transientIBs[h] =
+					std::unique_ptr<bgfx::TransientIndexBuffer>(tib);
+				return h;
 			}
 			void updateVertexBuffer(renderHandle h, const void* data,
 				uint32_t size, uint32_t start, uint32_t) override {
+				auto it = transientVBs.find(h);
+				if (it != transientVBs.end()) {
+					auto* dst =
+						(uint8_t*)it->second->data + start;
+					memcpy(dst, data, size);
+					return;
+				}
 				bgfx::DynamicVertexBufferHandle dh{h.idx};
 				bgfx::update(dh, start, mem(data, size));
 			}
 			void updateIndexBuffer(renderHandle h, const void* data,
 				uint32_t size, uint32_t start, uint32_t) override {
+				auto it = transientIBs.find(h);
+				if (it != transientIBs.end()) {
+					auto* dst = (uint8_t*)it->second->data + start;
+					memcpy(dst, data, size);
+					return;
+				}
 				bgfx::DynamicIndexBufferHandle dh{h.idx};
 				bgfx::update(dh, start, mem(data, size));
 			}
+			// gold's 0 `num` (vertices or indices) = the whole buffer;
+			// bgfx's encoder default is UINT32_MAX for the same.
 			void setVertexBuffer(uint8_t stream, renderHandle h,
-				uint32_t start, uint32_t num, const void*) override {
-				bgfx::setVertexBuffer(stream, vb(h), start, num);
+				uint32_t start, uint32_t num) override {
+				const uint32_t count = num == 0 ? UINT32_MAX : num;
+				fprintf(stderr, "[dbg] setVB stream=%u h=%u start=%u num=%u\n",
+					stream, h.idx, start, count);
+				auto it = transientVBs.find(h);
+				if (it != transientVBs.end()) {
+					bgfx::setVertexBuffer(stream, it->second.get(), start,
+						count);
+					return;
+				}
+				bgfx::setVertexBuffer(stream, vb(h), start, count);
 			}
 			void setIndexBuffer(renderHandle h, uint32_t start,
 				uint32_t num) override {
-				bgfx::setIndexBuffer(ib(h), start, num);
+				const uint32_t count = num == 0 ? UINT32_MAX : num;
+				fprintf(stderr, "[dbg] setIB h=%u start=%u num=%u\n",
+					h.idx, start, count);
+				auto it = transientIBs.find(h);
+				if (it != transientIBs.end()) {
+					bgfx::setIndexBuffer(it->second.get(), start, count);
+					return;
+				}
+				bgfx::setIndexBuffer(ib(h), start, count);
 			}
 			void destroyBuffer(renderHandle h) override {
+				transientVBs.erase(h);
+				transientIBs.erase(h);
 				bgfx::destroy(vb(h));
 			}
 
 			void submit(uint8_t view, renderHandle program, uint32_t depth,
 				uint16_t flags) override {
+				fprintf(stderr,
+					"[dbg] submit view=%u prog=%u depth=%u flags=%u\n",
+					view, program.idx, depth, flags & 0xff);
 				bgfx::submit(view, prog(program), depth, flags);
 			}
 			void submitQuery(uint8_t view, renderHandle program,
@@ -452,22 +741,32 @@ namespace gold {
 			}
 
 			void setState(uint64_t state, uint32_t rgba) override {
-				bgfx::setState(state, rgba);
+				bgfx::setState(fromGoldState(state), rgba);
 			}
 			void setStencil(uint32_t fstencil, uint32_t bstencil) override {
-				bgfx::setStencil(fstencil, bstencil);
+				bgfx::setStencil(
+					fromGoldStencil(fstencil), fromGoldStencil(bstencil));
 			}
 			void setTransform(const void* mtx) override {
 				bgfx::setTransform(mtx);
 			}
+			// Binding through a sampler: 0 means "leave the sampler modes
+			// as set at creation" (bgfx's UINT32_MAX convention).
 			void setTexture(uint8_t stage, const char* sampler,
 				renderHandle tex_, uint32_t flags) override {
 				bgfx::UniformHandle uh = bgfx::createUniform(
 					sampler, bgfx::UniformType::Sampler, 1);
-				bgfx::setTexture(stage, uh, tex(tex_), flags);
+				bgfx::setTexture(stage, uh, tex(tex_),
+					flags == 0 ? UINT32_MAX : fromGoldSampler(flags));
 				bgfx::destroy(uh);
 			}
+			void setTextureUniform(uint8_t stage, renderHandle uniform,
+				renderHandle tex_, uint32_t flags) override {
+				bgfx::setTexture(stage, uni(uniform), tex(tex_),
+					flags == 0 ? UINT32_MAX : fromGoldSampler(flags));
+			}
 
+			
 			void destroyUniform(renderHandle h) override {
 				bgfx::destroy(uni(h));
 			}

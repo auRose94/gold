@@ -1,14 +1,13 @@
 #pragma once
 
-#include <bgfx/bgfx.h>
-
+#include "renderBackend.hpp"
 #include "types.hpp"
 #include "window.hpp"
 
 namespace gold {
 	using std::map;
 	using std::string;
-	struct renderBackend;
+	class renderBackend;
 
 	/**
 	 * Expand a varying definition's #if/#ifdef/#ifndef/#else/#endif
@@ -53,7 +52,7 @@ namespace gold {
 		static map<string, frameBuffer> cache;
 
 	 public:
-		using backbufferRatio = bgfx::BackbufferRatio::Enum;
+		using backbufferRatio = gold::backbufferRatio;
 
 		frameBuffer();
 		frameBuffer(object config);
@@ -75,7 +74,8 @@ namespace gold {
 		static map<string, occlusionQuery> cache;
 
 	 public:
-		using queryResult = bgfx::OcclusionQueryResult::Enum;
+		using queryResult = gold::queryResult;
+
 		occlusionQuery();
 		occlusionQuery(object config);
 
@@ -110,7 +110,7 @@ namespace gold {
 		void destroy();
 	};
 
-	using uniformType = bgfx::UniformType::Enum;
+	using uniformType = renderUniformType;
 
 	struct gpuTexture;
 	struct shaderProgram : public object {
@@ -170,11 +170,13 @@ namespace gold {
 		static object& getPrototype();
 		static map<string, gpuTexture> cache;
 
-		bgfx::TextureHandle parseData(binary& data);
+		/** The image-container decode path: parse the binary into an
+		 *  image, merge its fields, and create the GPU texture. */
+		renderHandle parseData(binary& bin);
 
 	 public:
-		using textureFormat = bgfx::TextureFormat::Enum;
-		using accessType = bgfx::Access::Enum;
+		using textureFormat = texFormat;
+		using accessType = texAccess;
 
 		gpuTexture();
 		gpuTexture(object config);
@@ -183,7 +185,7 @@ namespace gold {
 
 		void setImage(
 			uint8_t stage, uint8_t mip, accessType t,
-			textureFormat f = (textureFormat)85);
+			textureFormat f = textureFormat::RGBA8);
 
 		void blit(
 			uint8_t viewId, var dstP, gpuTexture src, var srcP,
@@ -207,8 +209,8 @@ namespace gold {
 
 	 public:
 		static vertexLayout findInCache(string name);
-		using attrib = bgfx::Attrib::Enum;
-		using attribType = bgfx::AttribType::Enum;
+		using attrib = vertexAttrib;
+		using attribType = vertexAttribType;
 
 		vertexLayout();
 		vertexLayout(object config);

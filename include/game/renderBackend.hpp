@@ -24,6 +24,8 @@ namespace gold {
 	struct renderHandle {
 		uint16_t idx = 0xFFFF;  // matches bgfx::kInvalidHandle
 		bool valid() const { return idx != 0xFFFF; }
+		/** Ordered so handles key std::map in backends. */
+		bool operator<(const renderHandle& o) const { return idx < o.idx; }
 	};
 
 	/** Texture pixel formats. A gold-native subset of what the engine uses;
@@ -184,6 +186,17 @@ namespace gold {
 		Count,
 	};
 
+	/** Render-target resolution relative to the back buffer. */
+	enum class backbufferRatio : uint8_t {
+		Equal = 0,
+		Half,
+		Quarter,
+		Eighth,
+		Sixteenth,
+		Double,
+		Count,
+	};
+
 	/** Occlusion query result states. */
 	enum class queryResult : uint8_t {
 		Invisible = 0,
@@ -271,21 +284,40 @@ namespace gold {
 		virtual void* directAccessPtr(renderHandle h) = 0;
 
 		// ---- buffers -----------------------------------------------------
+		// Layout descriptors are gold lists of
+		// {attrib, count, type, normalized, asInt} entries (the vertexLayout
+		// facade's begin/add/end builds one). Backends materialize them in
+		// their own form.
 		virtual renderHandle createVertexBuffer(const void* data,
-			uint32_t size, const void* layout) = 0;
-		virtual renderHandle createDynamicVertexBuffer(uint32_t size,
-			const void* layout) = 0;
+			uint32_t size, object layoutDesc, uint64_t flags = 0) = 0;
+		virtual renderHandle createDynamicVertexBuffer(const void* data,
+			uint32_t size, object layoutDesc, uint64_t flags = 0) = 0;
 		virtual renderHandle createIndexBuffer(const void* data,
-			uint32_t size) = 0;
-		virtual renderHandle createDynamicIndexBuffer(uint32_t size) = 0;
+			uint32_t size, uint64_t flags = 0) = 0;
+		virtual renderHandle createDynamicIndexBuffer(const void* data,
+			uint32_t size, uint64_t flags = 0) = 0;
+		/** A transient (ring) chunk that is valid until endFrame. */
+		virtual renderHandle createTransientVertexBuffer(object layoutDesc,
+			uint16_t count) {
+			(void)layoutDesc; (void)count;
+			return renderHandle{};
+		}
+		virtual renderHandle createTransientIndexBuffer(uint16_t count) {
+			(void)count;
+			return renderHandle{};
+		}
+		/** Write into any buffer kind (dynamic or transient; the backend
+		 *  remembers a transient's backing store). */
 		virtual void updateVertexBuffer(renderHandle h, const void* data,
 			uint32_t size, uint32_t start, uint32_t num) = 0;
 		virtual void updateIndexBuffer(renderHandle h, const void* data,
 			uint32_t size, uint32_t start, uint32_t num) = 0;
 		virtual void setVertexBuffer(uint8_t stream, renderHandle h,
-			uint32_t start, uint32_t num, const void* layout) = 0;
-		virtual void setIndexBuffer(renderHandle h, uint32_t start,
-			uint32_t num) = 0;
+			uint32_t start = 0, uint32_t num = 0) = 0;
+		virtual void setIndexBuffer(renderHandle h, uint32_t start = 0,
+			uint32_t num = 0) = 0;
+		/** Destroy a static or dynamic vertex/index buffer; transients
+		 *  need no destroy (they recycle with the frame). */
 		virtual void destroyBuffer(renderHandle h) = 0;
 
 		// ---- draw ---------------------------------------------------------
@@ -310,6 +342,12 @@ namespace gold {
 		virtual void setTransform(const void* mtx) = 0;
 		virtual void setTexture(uint8_t stage, const char* sampler,
 			renderHandle tex, uint32_t flags = 0) = 0;
+		/** Bind through an already-created sampler uniform (the shader
+		 *  program's own registry): no per-call uniform churn. */
+		virtual void setTextureUniform(uint8_t stage, renderHandle uniform,
+			renderHandle tex, uint32_t flags = 0) {
+			(void)stage; (void)uniform; (void)tex; (void)flags;
+		}
 
 		// ---- framebuffers / queries / misc -------------------------------
 		virtual renderHandle createFrameBuffer(const void* handles,
@@ -354,26 +392,34 @@ namespace gold {
 			const void* data, uint32_t size) {
 			(void)h; (void)mip; (void)data; (void)size;
 		}
-		/** Free a uniform created with createUniform. */
-		virtual void destroyUniform(renderHandle h) { (void)h; }
-		/** Debug-name an object (texture, program, buffer, framebuffer). */
-		virtual void setObjectName(renderHandle h, const char* name) {
-			(void)h; (void)name;
-		}
 		/** Depth range: true = [-1..1] (w-divided/direct3d), false =
 		 *  [0..1] (GL). Projections need it. */
 		virtual bool homogeneousDepth() const { return true; }
 
 		/** A framebuffer built from a gold descriptor object, one of:
-		 *  {"textures", [gpuTexture-data]} (attachment list with
-		 *  "access"/"mip"/"resolve" entries), {"handles", [renderHandle
-		 *  numbers]}, {"ratio", n, "format", f}, or
-		 *  {"width", w, "height", h, "format", f} with optional
-		 *  {"color", f, "depth", f} pairs — the same shapes the
-		 *  frameBuffer facade stores in its config. */
+		 *  {"attachments", [gpuTexture data]} (attachment list with
+		 *  "access"/"layer"/"mip"/"resolve" entries), {"handles",
+		 *  [renderHandle numbers]}, {"ratio", n, "format", f},
+		 *  {"nwh", ptr + width/height ("size"), "color", "depth"}, or
+		 *  the plain {"width"/"height" (or "size"), "format"} — each with
+		 *  an optional {"destroyTextures", bool}. */
 		virtual renderHandle createFrameBuffer(object config) {
 			(void)config;
 			return renderHandle{};
+		}
+
+		// ---- object lifetime ---------------------------------------------
+		/** Free a shader/program/uniform/occlusion-query/indirect-buffer
+		 *  object created earlier (buffers and textures have their own
+		 *  destroys). */
+		virtual void destroyShader(renderHandle h) { (void)h; }
+		virtual void destroyProgram(renderHandle h) { (void)h; }
+		virtual void destroyUniform(renderHandle h) { (void)h; }
+		virtual void destroyQuery(renderHandle h) { (void)h; }
+		virtual void destroyIndirect(renderHandle h) { (void)h; }
+		/** Debug-name an object (texture, program, buffer, framebuffer). */
+		virtual void setObjectName(renderHandle h, const char* name) {
+			(void)h; (void)name;
 		}
 	};
 
