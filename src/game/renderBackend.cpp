@@ -26,6 +26,15 @@ namespace gold {
 			static std::map<std::string, renderBackend* (*)()> f;
 			return f;
 		}
+		/** The plugin-conventional name for a typed request; empty when
+		 *  the kind has no loadable implementation. */
+		std::string backendNameFor(renderBackendType type) {
+			switch (type) {
+			case renderBackendType::BGFX: return "bgfx";
+			case renderBackendType::SDLGPU: return "sdlgpu";
+			default: return {};
+			}
+		}
 	}  // namespace
 
 	void registerRenderBackend(renderBackendType type,
@@ -35,10 +44,16 @@ namespace gold {
 	}
 
 	renderBackend* createRenderBackend(renderBackendType type) {
-		std::lock_guard<std::mutex> guard(registryMutex());
-		auto it = factories().find(type);
-		if (it != factories().end()) return it->second();
-		return nullptr;
+		{
+			std::lock_guard<std::mutex> guard(registryMutex());
+			auto it = factories().find(type);
+			if (it != factories().end()) return it->second();
+		}
+		// Miss: an implementation may live in a loadable plugin; typed
+		// requests resolve through the plugin-probed name registry.
+		auto name = backendNameFor(type);
+		if (name.empty()) return nullptr;
+		return createRenderBackend(name);
 	}
 
 	void registerRenderBackendName(const std::string& name,

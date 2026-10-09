@@ -180,7 +180,7 @@ install(
 	RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 # Optional plugins land beside the modules (loader search path).
-foreach(goldPlugin goldLws goldSDL3 goldSDL2 goldBullet goldUIUltralight)
+foreach(goldPlugin goldLws goldSDL3 goldSDL2 goldBullet goldBgfx goldUIUltralight)
 	if(TARGET ${goldPlugin})
 		install(TARGETS ${goldPlugin}
 			LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}

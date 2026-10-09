@@ -24,7 +24,6 @@ add_library(
 		src/game/physicsBackend.cpp
 		src/game/physicsBody.cpp
 		src/game/renderBackend.cpp
-		src/game/renderBackendBgfx.cpp
 		src/game/renderable.cpp
 		src/game/shape.cpp
 		src/game/sphereShape.cpp
@@ -171,8 +170,13 @@ target_link_libraries (
 	goldGame
 	PUBLIC
 		gold::shared
-		${GOLD_BGFX_TARGET}
 		${OPENGL_LIBRARIES}
+	PRIVATE
+		# The facade's bx math/timing and bimg container decode stay;
+		# the renderer itself does not: libgoldBgfx (the loadable bgfx
+		# plugin) is the only library linked to libbgfx.
+		${GOLD_BX_TARGET}
+		${GOLD_BIMG_TARGET}
 )
 if(PkgConfig_FOUND AND WAYLAND_CLIENT_FOUND)
 	target_link_libraries(goldGame PUBLIC PkgConfig::WAYLAND_CLIENT)
@@ -251,4 +255,44 @@ if(Bullet_FOUND)
 	target_compile_features(goldBullet PRIVATE cxx_std_26)
 else()
 	message(STATUS "gold: system bullet not found; physics runs the no-op \"none\" backend (install bullet-dp or a double-precision bullet build for simulation)")
+endif()
+
+# The bgfx render backend is a loadable plugin: compiled against the
+# system bgfx/bimg/bx headers and linked to their libraries PRIVATEly,
+# self-registering through static initializers. libgoldGame carries no
+# bgfx code; createRenderBackend("bgfx") finds it via the plugin loader
+# ("bgfx" -> libgoldBgfx.so, searched GOLD_PLUGIN_PATH -> exe dir ->
+# module dirs).
+if(bgfx_FOUND)
+	add_library(
+		goldBgfx
+		SHARED
+			src/game/renderBackendBgfx.cpp
+	)
+	add_library(
+		gold::bgfx ALIAS goldBgfx
+	)
+	set_target_properties(
+		goldBgfx
+		PROPERTIES
+			OUTPUT_NAME libgoldBgfx
+			PREFIX ""
+			LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+	)
+	target_compile_options(goldBgfx PRIVATE -Wall -Wextra -pedantic)
+	target_include_directories(
+		goldBgfx
+		PRIVATE
+			"include"
+			"include/game"
+	)
+	target_link_libraries(
+		goldBgfx
+		PRIVATE
+			gold::game
+			${GOLD_BGFX_TARGET}
+			${GOLD_BIMG_TARGET}
+			${GOLD_BX_TARGET}
+	)
+	target_compile_features(goldBgfx PRIVATE cxx_std_26)
 endif()
