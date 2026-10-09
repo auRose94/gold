@@ -6,7 +6,11 @@ const float INV_GAMMA = 1.0 / GAMMA;
 // see http://chilliant.blogspot.com/2012/08/srgb-approximations-for-hlsl.html
 vec3 linearTosRGB(vec3 color)
 {
-    return pow(color, vec3(INV_GAMMA));
+    // pow(x, 0.45) lowers to exp2(y*log2(x)) on Mesa and friends, and
+    // log2(0) makes the whole pixel NaN — undefined behavior that this
+    // driver resolves by NOT WRITING it (a black-lit object vanishes).
+    vec3 safe = clamp(color, vec3(1.0e-6), vec3(1.0e6));
+    return pow(safe, vec3(INV_GAMMA));
 }
 
 // sRGB to linear approximation
@@ -18,7 +22,12 @@ vec3 sRGBToLinear(vec3 srgbIn)
 
 vec4 sRGBToLinear(vec4 srgbIn)
 {
-    return vec4(sRGBToLinear(srgbIn.xyz), srgbIn.w);
+	// Written as swizzle-assign rather than vec4(vec3, f): spirv-cross
+	// mis-emits the composite construction as a phantom undeclared
+	// temp, and the driver then rejects the whole fragment shader.
+	vec4 linear = srgbIn;
+	linear.rgb = sRGBToLinear(srgbIn.rgb);
+	return linear;
 }
 
 // Uncharted 2 tone map

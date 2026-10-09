@@ -10,9 +10,9 @@ vec3 v_tbn1:TEXCOORD3 = vec3(0.0, 0.0, 0.0);
 vec3 v_tbn2:TEXCOORD4 = vec3(0.0, 0.0, 0.0);
 #endif
 
-vec4 a_position:POSITION;
+vec3 a_position:POSITION;
 #if defined(HAS_NORMALS)
-vec4 a_normal:NORMAL;
+vec3 a_normal:NORMAL;
 #endif
 #if defined(HAS_TANGENTS)
 vec4 a_tangent:TANGENT;

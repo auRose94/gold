@@ -10,8 +10,10 @@
 #include "entity.hpp"
 #include "envMap.hpp"
 #include "game/windowSystem.hpp"
+#include "goldjs.hpp"
 #include "graphics.hpp"
 #include "light.hpp"
+#include "meshRenderer.hpp"
 #include "promise.hpp"
 #include "window.hpp"
 #include "world.hpp"
@@ -202,15 +204,41 @@ namespace gold {
 	}
 
 	void engine::drawScene() {
-		// The render dispatch: every renderable draws itself with the
-		// view ids its prototype carries ("view": [0], ...). This used to
-		// collect renderables/lights/envMaps and stop — nothing was ever
-		// drawn with them, and the loop's bare callMethod("draw") passes
-		// no args, which every renderable rejects.
+		// The render dispatch. Sprites draw with just the view id their
+		// prototype carries; mesh renderers draw with the PBR scene
+		// bundle (view, camera, lights, environment, occlusion). This
+		// used to collect the scene and stop, and the loop's bare
+		// callMethod("draw") passed no args, which renderables reject —
+		// nothing ever rendered.
 		auto renderables = findAll(renderable::getPrototype());
-		for (auto it = renderables.begin(); it != renderables.end(); ++it) {
+		if (renderables.size() == 0) return;
+
+		auto cameras = getList("cameras");
+		auto cam = cameras.size() > 0
+					   ? cameras.getVar(0).getObject<camera>()
+					   : camera();
+		auto lights = findAll(light::getPrototype());
+		auto envs = findAll(envMap::getPrototype());
+		auto env = envs.size() > 0
+					   ? envs.getVar(0).getObject<envMap>()
+					   : envMap();
+		auto occ = occlusionQuery();
+
+		for (auto it = renderables.begin(); it != renderables.end();
+				 ++it) {
 			auto comp = it->getObject<renderable>();
-			comp.callMethod("draw", comp.getList("view"));
+			auto meshR = it->getObject<meshRenderer>();
+			if ((bool)meshR) {
+				auto drawArgs = list();
+				drawArgs.pushVar(
+					var(comp.getList("view").getUInt16(0)));
+				drawArgs.pushObject(cam);
+				drawArgs.pushVar(var(lights));
+				drawArgs.pushObject(env);
+				drawArgs.pushObject(occ);
+				meshR.draw(drawArgs);
+			} else
+				comp.callMethod("draw", comp.getList("view"));
 		}
 	}
 
@@ -235,6 +263,14 @@ namespace gold {
 		auto frameInterval =
 			std::chrono::duration<double, std::milli>(frameTime);
 		auto last = clock::now();
+
+		// A debugging aid: config {"screenshot", path} requests one PNG
+		// at frame 16 (the early frames finish their setup by then);
+		// useful for CI and agents checking a render.
+		const auto shotPath = config.getString("screenshot", string());
+		const bool wantShot = !shotPath.empty();
+		bool shotTaken = false;
+		uint64_t frameCount = 0;
 
 		while (getBool("running")) {
 			if (ws) {
@@ -262,6 +298,12 @@ namespace gold {
 			drawScene();
 			phys.debugDraw();
 			gfx.renderFrame();
+
+			++frameCount;
+			if (wantShot && !shotTaken && frameCount >= 16) {
+				shotTaken = true;
+				gfx.screenshot(ja(shotPath));
+			}
 
 			auto now = clock::now();
 			auto elapsed = now - last;

@@ -24,7 +24,8 @@ ctest --test-dir build --output-on-failure
 ## Examples (build with `-DGOLD_BUILD_EXAMPLES=ON`)
 * `examples/langExample` – the interpreter, the `script` facade, and sharing
   gold data between host and script
-* `examples/blahajExample` – loading and inspecting a glTF asset
+* `examples/blahajExample` – loads a glTF shark and renders it through the
+  PBR pipeline (engine loop, camera, punctual light)
 * `examples/conwaysGameOfLife` – a small entity-driven simulation on the game
   engine (requires `GOLD_BUILD_GAME`)
 * `examples/myWebProject` – a full-stack web service: routes, HTML builders,

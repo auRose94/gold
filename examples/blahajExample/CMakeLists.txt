@@ -28,3 +28,7 @@ target_compile_features(BlahajExample PRIVATE cxx_std_26)
 target_compile_options(BlahajExample PRIVATE -Wall -Wextra -pedantic)
 target_include_directories(BlahajExample PRIVATE "${GOLD_SOURCE_DIR}/include")
 target_link_libraries(BlahajExample PRIVATE gold::game)
+
+# The PBR mesh renderer compiles its shaders at runtime from source
+# (./shaders/pbr): symlink the toolchain shader sources here.
+link_symbolic_shaders(${CMAKE_CURRENT_BINARY_DIR})

@@ -79,7 +79,7 @@ float D_GGX(float NdotH, float alphaRoughness)
 {
     float alphaRoughnessSq = alphaRoughness * alphaRoughness;
     float f = (NdotH * NdotH) * (alphaRoughnessSq - 1.0) + 1.0;
-    return alphaRoughnessSq / (M_PI * f * f);
+    return alphaRoughnessSq / (GOLD_PI * f * f);
 }
 
 // Anisotropic GGX NDF with a single anisotropy parameter controlling the normal orientation.
@@ -90,7 +90,7 @@ float D_GGX_anisotropic(float NdotH, float TdotH, float BdotH, float anisotropy,
     float a2 = at * ab;
     vec3 f = vec3(ab * TdotH, at * BdotH, a2 * NdotH);
     float w2 = a2 / dot(f, f);
-    return a2 * w2 * w2 / M_PI;
+    return a2 * w2 * w2 / GOLD_PI;
 }
 
 float D_Ashikhmin(float NdotH, float alphaRoughness)
@@ -101,7 +101,7 @@ float D_Ashikhmin(float NdotH, float alphaRoughness)
     float sin2h = 1.0 - cos2h;
     float sin4h = sin2h * sin2h;
     float cot2 = -cos2h / (a2 * sin2h);
-    return 1.0 / (M_PI * (4.0 * a2 + 1.0) * sin4h) * (4.0 * exp(cot2) + sin4h);
+    return 1.0 / (GOLD_PI * (4.0 * a2 + 1.0) * sin4h) * (4.0 * exp(cot2) + sin4h);
 }
 
 //Sheen implementation-------------------------------------------------------------------------------------
@@ -115,14 +115,14 @@ float D_Charlie(float sheenRoughness, float NdotH)
     float invR = 1.0 / alphaG;
     float cos2h = NdotH * NdotH;
     float sin2h = 1.0 - cos2h;
-    return (2.0 + invR) * pow(sin2h, invR * 0.5) / (2.0 * M_PI);
+    return (2.0 + invR) * pow(sin2h, invR * 0.5) / (2.0 * GOLD_PI);
 }
 
 //https://github.com/KhronosGroup/glTF/tree/master/specification/2.0#acknowledgments AppendixB
 vec3 BRDF_lambertian(vec3 f0, vec3 f90, vec3 diffuseColor, float VdotH)
 {
     // see https://seblagarde.wordpress.com/2012/01/08/pi-or-not-to-pi-in-game-lighting-equation/
-    return (1.0 - F_Schlick(f0, f90, VdotH)) * (diffuseColor / M_PI);
+    return (1.0 - F_Schlick(f0, f90, VdotH)) * (diffuseColor / GOLD_PI);
 }
 
 //  https://github.com/KhronosGroup/glTF/tree/master/specification/2.0#acknowledgments AppendixB

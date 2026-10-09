@@ -5,7 +5,13 @@
 #include <bgfx/platform.h>
 #endif
 
+#include <bx/allocator.h>
+#include <bx/readerwriter.h>
+#include <bimg/bimg.h>
+#include <bimg/encode.h>
+
 #include <cstring>
+#include <fstream>
 #include <map>
 #include <mutex>
 
@@ -96,6 +102,64 @@ namespace gold {
 			renderBackendType type() const override { return _type; }
 			const char* name() const override { return "bgfx"; }
 
+			// The application callback: traces to the console, and screen
+			// shots become PNG files via the bundled image codecs (bgfx's
+			// default handler receives shots and does nothing with them).
+			class goldCallbacks : public bgfx::CallbackI {
+				void fatal(const char*, uint16_t, bgfx::Fatal::Enum code,
+					const char* message) override {
+					fprintf(
+						stderr, "[bgfx fatal %d] %s\n", (int)code, message);
+					abort();
+				}
+
+				void traceVargs(const char*, uint16_t, const char* format,
+					va_list arguments) override {
+					vfprintf(stderr, format, arguments);
+				}
+
+				void profilerBegin(const char*, uint32_t, const char*,
+					uint16_t) override {}
+				void profilerBeginLiteral(const char*, uint32_t,
+					const char*, uint16_t) override {}
+				void profilerEnd() override {}
+				bool cacheRead(uint64_t, void*, uint32_t) override {
+					return false;
+				}
+				void cacheWrite(uint64_t, const void*, uint32_t) override {}
+				uint32_t cacheReadSize(uint64_t) override { return 0; }
+				void captureBegin(uint32_t, uint32_t, uint32_t,
+					bgfx::TextureFormat::Enum, bool) override {}
+				void captureEnd() override {}
+				void captureFrame(const void*, uint32_t) override {}
+
+				void screenShot(const char* filePath, uint32_t width,
+					uint32_t height, uint32_t pitch,
+					bgfx::TextureFormat::Enum format, const void* data,
+					uint32_t, bool yflip) override {
+					bx::DefaultAllocator allocator;
+					auto block = bx::MemoryBlock(&allocator);
+					auto writer = bx::MemoryWriter(&block);
+					auto error = bx::Error();
+					const auto bytes = bimg::imageWritePng(
+						&writer, uint16_t(width), uint16_t(height),
+						(uint32_t)pitch, const_cast<void*>(data),
+						bimg::TextureFormat::Enum(format), yflip, &error);
+					if (!error.isOk()) {
+						fprintf(
+							stderr, "[bgfx shot] PNG write failed\n");
+						return;
+					}
+					std::ofstream out(filePath, std::ofstream::binary);
+					out.write(
+						(const char*)block.more(),
+						(std::streamsize)bytes);
+					fprintf(stderr, "[bgfx shot] saved %s (%ux%u)\n",
+						filePath, width, height);
+				}
+			};
+			goldCallbacks _callbacks;
+
 			bool initialize(nativeWindow nw, object config) override {
 				if (nw.handle || nw.display) {
 					_pd = bgfx::PlatformData();
@@ -106,6 +170,7 @@ namespace gold {
 				}
 				bgfx::Init init = bgfx::Init();
 				init.platformData = _pd;
+				init.callback = &_callbacks;
 				init.type = bgfx::RendererType::Enum(
 					config.getUInt16(
 						"rendererType",

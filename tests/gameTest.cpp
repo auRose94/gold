@@ -521,6 +521,84 @@ TEST(physics_bullet_box_falls_under_gravity) {
 	EXPECT_NE(backend, (physicsBackend*)nullptr);
 }
 
+TEST(varying_define_expansion) {
+	// The system shaderc rejects preprocessor directives in varying
+	// definitions, so the runtime compile expands them itself. Feed a
+	// mini varying.def through expandVaryingDefinition and check the
+	// directive-free result per define set.
+	namespace fs = std::filesystem;
+	auto root = fs::temp_directory_path() / "gold_varying_test";
+	std::error_code ec;
+	fs::create_directories(root, ec);
+	auto defPath = (root / "test.def.sc").string();
+	{
+		std::ofstream out(defPath);
+		out << "vec3 v_position:POSITION = vec3(0.0, 0.0, 0.0);\n"
+		       "#if defined(HAS_NORMALS) && !defined(HAS_TANGENTS)\n"
+		       "vec3 v_normal:NORMAL = vec3(0.0, 0.0, 0.0);\n"
+		       "#endif\n"
+		       "#if defined(HAS_NORMALS) && defined(HAS_TANGENTS)\n"
+		       "vec3 v_tbn0:TEXCOORD2 = vec3(0.0, 0.0, 0.0);\n"
+		       "#endif\n"
+		       "vec3 a_position:POSITION;\n"
+		       "#ifdef HAS_NORMALS\n"
+		       "vec3 a_normal:NORMAL;\n"
+		       "#endif\n"
+		       "vec2 a_texcoord0:TEXCOORD0;\n";
+	}
+
+	auto read = [](const string& p) {
+		std::ifstream in(p);
+		return string(
+			(std::istreambuf_iterator<char>(in)),
+			std::istreambuf_iterator<char>());
+	};
+
+	// With normals: v_normal + a_normal active, tbn gone.
+	auto expanded = read(expandVaryingDefinition(defPath, "HAS_NORMALS=1;"));
+	EXPECT_TRUE(expanded.find("v_normal") != string::npos);
+	EXPECT_TRUE(expanded.find("a_normal") != string::npos);
+	EXPECT_TRUE(expanded.find("v_tbn0") == string::npos);
+	EXPECT_TRUE(expanded.find('#') == string::npos);
+
+	// With normals and tangents: tbn in, v_normal out.
+	expanded =
+		read(expandVaryingDefinition(defPath, "HAS_NORMALS=1;HAS_TANGENTS=1;"));
+	EXPECT_TRUE(expanded.find("v_tbn0") != string::npos);
+	EXPECT_TRUE(expanded.find("a_normal") != string::npos);
+	EXPECT_TRUE(expanded.find("v_normal") == string::npos);
+
+	// Bare: only the unconditional declarations survive.
+	expanded = read(expandVaryingDefinition(defPath, ""));
+	EXPECT_TRUE(expanded.find("a_position") != string::npos);
+	EXPECT_TRUE(expanded.find("a_texcoord0") != string::npos);
+	EXPECT_TRUE(expanded.find("a_normal") == string::npos);
+	EXPECT_TRUE(expanded.find("v_normal") == string::npos);
+
+	fs::remove_all(root, ec);
+}
+
+TEST(transform_trs_composes) {
+	// Regression: getMatrix used to build its TRS via var operators
+	// that each REPLACED the matrix (translate/scale/rotate overwrite),
+	// so only the translation survived and rotations silently vanished.
+	transform t(jo());
+	t.setPosition({1.0, 2.0, 3.0});
+	t.setAxisRotation({vec3f(0, 1, 0), 1.5707963267948966});
+	t.setScale({2.0, 2.0, 2.0});
+	auto m = t.getMatrix();
+	// Expected row-major: scale 2, then 90&deg; yaw, then translate:
+	//  [ 0 0 2 0; 0 2 0 0; -2 0 0 0; 1 2 3 1 ]
+	EXPECT_NEAR(m.getFloat(12), 1.0f, 0.0001f);
+	EXPECT_NEAR(m.getFloat(13), 2.0f, 0.0001f);
+	EXPECT_NEAR(m.getFloat(14), 3.0f, 0.0001f);
+	EXPECT_NEAR(m.getFloat(0), 0.0f, 0.0001f);
+	EXPECT_NEAR(m.getFloat(2), 2.0f, 0.0001f);
+	EXPECT_NEAR(m.getFloat(8), -2.0f, 0.0001f);
+	EXPECT_NEAR(m.getFloat(5), 2.0f, 0.0001f);
+	EXPECT_NEAR(m.getFloat(15), 1.0f, 0.0001f);
+}
+
 int main() {
 	return goldtest::runAll();
 }

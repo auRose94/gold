@@ -185,9 +185,11 @@ if(TARGET gold::ui)
 	target_link_libraries(goldGame PRIVATE gold::ui)
 endif()
 
-# The shader compiler tool path, used at runtime to compile .sc shaders.
+# The shader compiler tool path + bgfx's shader include dir, used at
+# RUNTIME to compile .sc shaders (the PBR path compiles at app start).
 target_compile_definitions(goldGame PUBLIC
-	GOLD_SHADER_COMPILER="${GOLD_SHADER_COMPILER}")
+	GOLD_SHADER_COMPILER="${GOLD_SHADER_COMPILER}"
+	GOLD_BGFX_SHADER_INCLUDE="${GOLD_BGFX_SHADER_INCLUDE}")
 
 target_compile_features(
 	goldGame

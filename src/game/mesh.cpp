@@ -657,7 +657,7 @@ namespace gold {
 			if (it != primitives.end()) {
 				if (!(primitive = it->getObject()))
 					return genericError("No primitive object");
-				if (!primitive.getVar("primitive").isNumber())
+				if (!primitive.getVar("indices").isNumber())
 					return genericError("No index buffer");
 				auto indicies =
 					accessors.getObject(primitive.getUInt64("indices"));
@@ -709,7 +709,7 @@ namespace gold {
 				auto primitive = it->getObject();
 				if (!primitive)
 					return genericError("No primitive object");
-				if (!primitive.getVar("primitive").isNumber())
+				if (!primitive.getVar("indices").isNumber())
 					return genericError("No index buffer");
 				auto attributes = primitive.getObject("attributes");
 				auto indicies =

@@ -1,6 +1,6 @@
 // textures.glsl needs to be included
 
-const float M_PI = 3.141592653589793;
+const float GOLD_PI = 3.141592653589793;
 
 vec4 getVertexColor()
 {

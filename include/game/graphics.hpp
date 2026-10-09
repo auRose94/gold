@@ -9,6 +9,17 @@ namespace gold {
 	using std::map;
 	using std::string;
 	struct renderBackend;
+
+	/**
+	 * Expand a varying definition's #if/#ifdef/#ifndef/#else/#endif
+	 * lines against `defines` (the ';'-separated NAME=value list the
+	 * shader compile passes). Some shaderc vintages reject directives in
+	 * varying definitions; an expanded, directive-free file satisfies
+	 * every vintage. Returns the expanded temp file's path.
+	 */
+	string expandVaryingDefinition(const string& varyingPath,
+		const string& defines);
+
 	struct gfxBackend : public object {
 	 protected:
 		static object& getPrototype();
@@ -30,6 +41,9 @@ namespace gold {
 		var preFrame(list args = {});
 		var renderFrame(list args = {});
 		var getConfig(list args = {});
+		/** Debug helper: {path} — request a PNG of the main back buffer,
+		 *  written by the backend's shot callback when the frame ends. */
+		var screenshot(list args = {});
 	};
 
 	struct frameBuffer : public object {
@@ -101,6 +115,7 @@ namespace gold {
 	struct gpuTexture;
 	struct shaderProgram : public object {
 	 protected:
+
 		friend gfxBackend;
 		static object& getPrototype();
 		static map<string, shaderProgram> cache;

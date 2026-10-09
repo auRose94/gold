@@ -26,6 +26,19 @@ SAMPLERCUBE(u_LambertianEnvSampler, 22);
 SAMPLERCUBE(u_GGXEnvSampler, 23);
 SAMPLERCUBE(u_CharlieEnvSampler, 24);
 
+// One vec4 per PBR uniform-bank slot. The upstream uniform bank
+// (a vec4 array) never arrives through this bgfx fork's per-draw uniform
+// path (individually-named vec4s do), so the macros below alias onto
+// individually-uploaded uniforms.
+// Five mat4s carry the 20 PBR vec4 slots. This fork's per-draw write
+// path zeroes every vec4 uniform while mat4s land intact, so the bank
+// travels as matrices; each macro below reads one row.
+uniform mat4 u_PBRBank0;
+uniform mat4 u_PBRBank1;
+uniform mat4 u_PBRBank2;
+uniform mat4 u_PBRBank3;
+uniform mat4 u_PBRBank4;
+
 uniform mat3 u_NormalUVTransform;
 uniform mat3 u_EmissiveUVTransform;
 uniform mat3 u_OcclusionUVTransform;
@@ -49,71 +62,71 @@ uniform mat4 u_ViewProjectionMatrix;
 uniform mat4 u_ModelMatrix;
 uniform mat4 u_NormalMatrix;
 
-uniform vec4 u_UniformSet[20];
 
-#define u_MipCount u_UniformSet[0].x
-#define u_OcclusionStrength u_UniformSet[0].y
-#define u_NormalScale u_UniformSet[0].z
-#define u_Exposure u_UniformSet[0].w
 
-#define u_SheenRoughness u_UniformSet[1].x
-#define u_Anisotropy u_UniformSet[1].y
-#define u_SubsurfaceScale u_UniformSet[1].z
-#define u_SubsurfaceDistortion u_UniformSet[1].w
+#define u_MipCount u_PBRBank0[0].x
+#define u_OcclusionStrength u_PBRBank0[0].y
+#define u_NormalScale u_PBRBank0[0].z
+#define u_Exposure u_PBRBank0[0].w
 
-#define u_SubsurfacePower u_UniformSet[2].x
-#define u_ThinFilmThicknessMinimum u_UniformSet[2].y
-#define u_ThinFilmThicknessMaximum u_UniformSet[2].z
-#define u_Thickness u_UniformSet[2].w
+#define u_SheenRoughness u_PBRBank0[1].x
+#define u_Anisotropy u_PBRBank0[1].y
+#define u_SubsurfaceScale u_PBRBank0[1].z
+#define u_SubsurfaceDistortion u_PBRBank0[1].w
 
-#define u_NormalUVSet u_UniformSet[3].x
-#define u_EmissiveUVSet u_UniformSet[3].y
-#define u_OcclusionUVSet u_UniformSet[3].z
-#define u_BaseColorUVSet u_UniformSet[3].w
+#define u_SubsurfacePower u_PBRBank0[2].x
+#define u_ThinFilmThicknessMinimum u_PBRBank0[2].y
+#define u_ThinFilmThicknessMaximum u_PBRBank0[2].z
+#define u_Thickness u_PBRBank0[2].w
 
-#define u_MetallicRoughnessUVSet u_UniformSet[4].x
-#define u_DiffuseUVSet u_UniformSet[4].y
-#define u_SpecularGlossinessUVSet u_UniformSet[4].z
-#define u_ClearcoatUVSet u_UniformSet[4].w
+#define u_NormalUVSet u_PBRBank0[3].x
+#define u_EmissiveUVSet u_PBRBank0[3].y
+#define u_OcclusionUVSet u_PBRBank0[3].z
+#define u_BaseColorUVSet u_PBRBank0[3].w
 
-#define u_ClearcoatRoughnessUVSet u_UniformSet[5].x
-#define u_ClearcoatNormalUVSet u_UniformSet[5].y
-#define u_SheenColorIntensityUVSet u_UniformSet[5].z
-#define u_MetallicRougnessSpecularTextureUVSet u_UniformSet[5].w
+#define u_MetallicRoughnessUVSet u_PBRBank1[0].x
+#define u_DiffuseUVSet u_PBRBank1[0].y
+#define u_SpecularGlossinessUVSet u_PBRBank1[0].z
+#define u_ClearcoatUVSet u_PBRBank1[0].w
 
-#define u_SubsurfaceColorUVSet u_UniformSet[6].x
-#define u_SubsurfaceThicknessUVSet u_UniformSet[6].y
-#define u_ThinFilmUVSet u_UniformSet[6].z
-#define u_ThinFilmThicknessUVSet u_UniformSet[6].w
+#define u_ClearcoatRoughnessUVSet u_PBRBank1[1].x
+#define u_ClearcoatNormalUVSet u_PBRBank1[1].y
+#define u_SheenColorIntensityUVSet u_PBRBank1[1].z
+#define u_MetallicRougnessSpecularTextureUVSet u_PBRBank1[1].w
 
-#define u_ThicknessUVSet u_UniformSet[7].x
-#define u_AnisotropyUVSet u_UniformSet[7].y
-#define u_AnisotropyDirectionUVSet u_UniformSet[7].z
-#define u_MetallicFactor u_UniformSet[7].w
+#define u_SubsurfaceColorUVSet u_PBRBank1[2].x
+#define u_SubsurfaceThicknessUVSet u_PBRBank1[2].y
+#define u_ThinFilmUVSet u_PBRBank1[2].z
+#define u_ThinFilmThicknessUVSet u_PBRBank1[2].w
 
-#define u_RoughnessFactor u_UniformSet[8].x
-#define u_GlossinessFactor u_UniformSet[8].y
-#define u_SheenIntensityFactor u_UniformSet[8].z
-#define u_ClearcoatFactor u_UniformSet[8].w
+#define u_ThicknessUVSet u_PBRBank1[3].x
+#define u_AnisotropyUVSet u_PBRBank1[3].y
+#define u_AnisotropyDirectionUVSet u_PBRBank1[3].z
+#define u_MetallicFactor u_PBRBank1[3].w
 
-#define u_ClearcoatRoughnessFactor u_UniformSet[9].x
-#define u_MetallicRoughnessSpecularFactor u_UniformSet[9].y
-#define u_SubsurfaceThicknessFactor u_UniformSet[9].z
-#define u_ThinFilmFactor u_UniformSet[9].w
+#define u_RoughnessFactor u_PBRBank2[0].x
+#define u_GlossinessFactor u_PBRBank2[0].y
+#define u_SheenIntensityFactor u_PBRBank2[0].z
+#define u_ClearcoatFactor u_PBRBank2[0].w
 
-#define u_Transmission u_UniformSet[10].x
-#define u_AlphaCutoff u_UniformSet[10].y
-#define u_IOR_and_f0 u_UniformSet[10].zw
+#define u_ClearcoatRoughnessFactor u_PBRBank2[1].x
+#define u_MetallicRoughnessSpecularFactor u_PBRBank2[1].y
+#define u_SubsurfaceThicknessFactor u_PBRBank2[1].z
+#define u_ThinFilmFactor u_PBRBank2[1].w
 
-#define u_BaseColorFactor u_UniformSet[11]
-#define u_DiffuseFactor u_UniformSet[12]
-#define u_SpecularFactor u_UniformSet[13].xyz
-#define u_SheenColorFactor u_UniformSet[14].xyz
-#define u_AnisotropyDirection u_UniformSet[15].xyz
-#define u_SubsurfaceColorFactor u_UniformSet[16].xyz
-#define u_AbsorptionColor u_UniformSet[17].xyz
-#define u_Camera u_UniformSet[18].xyz
-#define u_EmissiveFactor u_UniformSet[19].xyz
+#define u_Transmission u_PBRBank2[2].x
+#define u_AlphaCutoff u_PBRBank2[2].y
+#define u_IOR_and_f0 u_PBRBank2[2].zw
+
+#define u_BaseColorFactor u_PBRBank2[3]
+#define u_DiffuseFactor u_PBRBank3[0]
+#define u_SpecularFactor u_PBRBank3[1].xyz
+#define u_SheenColorFactor u_PBRBank3[2].xyz
+#define u_AnisotropyDirection u_PBRBank3[3].xyz
+#define u_SubsurfaceColorFactor u_PBRBank4[0].xyz
+#define u_AbsorptionColor u_PBRBank4[1].xyz
+#define u_Camera u_PBRBank4[2].xyz
+#define u_EmissiveFactor u_PBRBank4[3].xyz
 
 #if defined(USE_MORPHING)
 uniform vec4 u_morphWeights[WEIGHT_COUNT];

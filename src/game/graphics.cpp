@@ -14,22 +14,201 @@
 #include <cstring>
 #include <file.hpp>
 #include <filesystem>
+#include <fstream>
 #include <game/renderBackend.hpp>
 #include <game/windowSystem.hpp>
 #include <image.hpp>
 #include <iostream>
+#include <set>
+#include <sstream>
 #include <sys/wait.h>
 #include <unistd.h>
 
 namespace gold {
 	using namespace std;
 
+	/**
+	 * Expand a varying definition's #if/#ifdef/#ifndef/#else/#endif
+	 * lines against `defines` (the ';'-separated NAME=value list the
+	 * compile passes to the tool). Directive-free output satisfies every
+	 * shaderc vintage; the system tool rejects directives in varying
+	 * definitions outright. Returns the expanded temp file's path, ""
+	 * when it couldn't be written (the caller then omits the varying and
+	 * the tool's own error surfaces).
+	 */
+	string expandVaryingDefinition(const string& varyingPath,
+		const string& defines) {
+		ifstream in(varyingPath);
+		if (!in) return varyingPath;
+
+		set<string> definedSet;
+		stringstream defineStream(defines);
+		string part;
+		while (getline(defineStream, part, ';')) {
+			if (part.empty()) continue;
+			auto cut = part.find('=');
+			if (cut != string::npos) part = part.substr(0, cut);
+			definedSet.insert(part);
+		}
+
+		// Condition grammar: or -> and ('||' and)*; and -> unary
+		// ('&&' unary)*; unary -> '!' unary | '(' or ')' | defined( id )
+		// | id (a bare macro names itself).
+		struct condCursor {
+			const string& text;
+			size_t i = 0;
+			const set<string>& defined;
+
+			void skipSpace() {
+				while (i < text.size() && text[i] == ' ') ++i;
+			}
+
+			bool parseOr() {
+				auto out = parseAnd();
+				for (;;) {
+					skipSpace();
+					if (i + 1 < text.size() && text[i] == '|' &&
+						text[i + 1] == '|') {
+						i += 2;
+						out = out || parseAnd();
+						continue;
+					}
+					return out;
+				}
+			}
+
+			bool parseAnd() {
+				auto out = parseUnary();
+				for (;;) {
+					skipSpace();
+					if (i + 1 < text.size() && text[i] == '&' &&
+						text[i + 1] == '&') {
+						i += 2;
+						out = out && parseUnary();
+						continue;
+					}
+					return out;
+				}
+			}
+
+			bool parseUnary() {
+				skipSpace();
+				if (i < text.size() && text[i] == '!') {
+					++i;
+					return !parseUnary();
+				}
+				return parseAtom();
+			}
+
+			bool parseAtom() {
+				skipSpace();
+				if (i >= text.size()) return false;
+				if (text[i] == '(') {
+					++i;
+					auto out = parseOr();
+					skipSpace();
+					if (i < text.size() && text[i] == ')') ++i;
+					return out;
+				}
+				const string token = "defined";
+				if (text.compare(i, token.size(), token) == 0) {
+					i += token.size();
+					skipSpace();
+					if (i < text.size() && text[i] == '(') ++i;
+					skipSpace();
+					const string id = ident();
+					skipSpace();
+					if (i < text.size() && text[i] == ')') ++i;
+					return defined.count(id) > 0;
+				}
+				return defined.count(ident()) > 0;
+			}
+
+			string ident() {
+				skipSpace();
+				string id;
+				while (i < text.size() &&
+					   (isalnum((unsigned char)text[i]) ||
+						   text[i] == '_'))
+					id += text[i++];
+				return id;
+			}
+		};
+
+		string expanded;
+		// Each frame is one open conditional chain (true = content
+		// flows).
+		vector<char> stack{1};
+		auto active = [&stack]() {
+			for (auto s : stack)
+				if (!s) return false;
+			return true;
+		};
+
+		string line;
+		while (getline(in, line)) {
+			size_t t = 0;
+			while (t < line.size() &&
+				   (line[t] == ' ' || line[t] == '\t'))
+				++t;
+			string text = line.substr(t);
+			if (!text.empty() && text[0] == '#') {
+				size_t d = 1;
+				while (d < text.size() && text[d] == ' ') ++d;
+				size_t start = d;
+				while (d < text.size() &&
+					   (isalnum((unsigned char)text[d]) ||
+						   text[d] == '_'))
+					++d;
+				const string directive =
+					text.substr(start, d - start);
+				if (directive == "endif") {
+					if (stack.size() > 1) stack.pop_back();
+					continue;
+				}
+				if (directive == "else") {
+					if (stack.size() > 1) stack.back() = !stack.back();
+					continue;
+				}
+				if (directive == "if" || directive == "ifdef" ||
+					directive == "ifndef") {
+					condCursor cur{text, d, definedSet};
+					bool out;
+					if (directive == "ifdef") {
+						const string name = cur.ident();
+						out = !name.empty() && definedSet.count(name) > 0;
+					} else if (directive == "ifndef") {
+						const string name = cur.ident();
+						out = name.empty() || definedSet.count(name) == 0;
+					} else
+						out = cur.parseOr();
+					stack.push_back(out ? 1 : 0);
+					continue;
+				}
+				// Any other directive: drop the line.
+				continue;
+			}
+			if (active()) expanded += line + "\n";
+		}
+
+		const string tempPath =
+			filesystem::temp_directory_path().string() +
+			"/gold-varying-" +
+			to_string(hash<string>()(varyingPath + "|" + defines)) +
+			".def.sc";
+		ofstream out(tempPath);
+		if (!out) return "";
+		out << expanded;
+		return tempPath;
+	}
+
 	// Compile a .sc shader with the bgfx shaderc tool (an external program
 	// built by bgfx.cmake, or the system bgfx-shaderc). The compiled .bin is
 	// read back from stdout. GOLD_SHADER_COMPILER is the tool path.
 	static const bgfx::Memory* compileShaderSource(
 		char type, const char* filePath, const char* defines,
-		const char* varyingPath, const char* profile) {
+		const char* varyingPath, const char* profile,
+		const vector<string>& includeDirs) {
 		const char* typeName = type == 'v' ? "vertex"
 			: type == 'f' ? "fragment" : "compute";
 		string prof = (profile && *profile) ? string(profile)
@@ -40,16 +219,33 @@ namespace gold {
 			"--type", typeName,
 			"--platform", "linux",
 			"--profile", prof,
+			// bgfx's own shader headers (bgfx_shader.sh and friends),
+			// then caller-supplied dirs — the generated source lives in
+			// a temp dir, so the shader library dir must come from the
+			// caller, not from the input's directory.
+			"-i", GOLD_BGFX_SHADER_INCLUDE,
 			"--stdout",
 		};
+		for (const auto& dir : includeDirs)
+			if (!dir.empty()) {
+				args.push_back("-i");
+				args.push_back(dir);
+			}
 		if (defines && *defines) {
 			args.push_back("--define");
 			args.push_back(defines);
 		}
 		if (varyingPath && *varyingPath
 			&& filesystem::exists(filesystem::path(varyingPath))) {
-			args.push_back("--varyingdef");
-			args.push_back(varyingPath);
+			// Expand the varying's conditionals (some shaderc vintages
+			// reject directives there); the expanded file satisfies all
+			// of them and keeps vertex layouts defined-conditional.
+			const auto expanded = expandVaryingDefinition(
+				varyingPath, defines ? defines : "");
+			if (!expanded.empty()) {
+				args.push_back("--varyingdef");
+				args.push_back(expanded);
+			}
 		}
 
 		vector<char*> argv;
@@ -76,8 +272,14 @@ namespace gold {
 		close(fds[0]);
 		int status = 0;
 		waitpid(pid, &status, 0);
-		if (!WIFEXITED(status) || WEXITSTATUS(status) != 0 || out.empty())
+		if (!WIFEXITED(status) || WEXITSTATUS(status) != 0 || out.empty()) {
+			// Surface the tool's own message so compile failures explain
+			// themselves instead of silently skipping a program.
+			cerr << "Shader compile failed (" << filePath << "):\n";
+			cerr.write(reinterpret_cast<const char*>(out.data()),
+				(std::streamsize)out.size());
 			return nullptr;
+		}
 		return bgfx::copy(out.data(), uint32_t(out.size()));
 	}
 
@@ -117,6 +319,7 @@ namespace gold {
 			{"debug", false},
 			{"window", var()},
 			{"initialize", method(&gfxBackend::initialize)},
+			{"screenshot", method(&gfxBackend::screenshot)},
 			{"renderFrame", method(&gfxBackend::renderFrame)},
 			{"preFrame", method(&gfxBackend::preFrame)},
 			{"destroy", method(&gfxBackend::destroy)},
@@ -161,6 +364,17 @@ namespace gold {
 				return bgfx::RendererType::Vulkan;
 		}
 		return bgfx::RendererType::Noop;
+	}
+
+	var gfxBackend::screenshot(list args) {
+		auto backend = gfxBackend::render();
+		if (!backend || !backend->isValid())
+			return genericError("No active render backend");
+		const auto path = args.size() > 0 ? args[0].getString()
+										  : string("screenshot");
+		// An invalid handle means the main window's back buffer.
+		backend->requestScreenShot(renderHandle{}, path.c_str());
+		return var(this);
 	}
 
 	var gfxBackend::initialize(list args) {
@@ -515,6 +729,11 @@ namespace gold {
 			// Compile from source
 			auto type = char(getUInt8("type", uint8_t('c')));
 			auto path = filesystem::path(s.getString());
+			// The shader library's include dir: the ORIGINAL source's
+			// directory (the .sh include library) — captured before the
+			// io-generation may re-point me at the temp compile file.
+			const auto libraryDir =
+				filesystem::path(path).parent_path().string();
 			auto defines = getString("defines");
 			auto varDef = filesystem::path(path).replace_filename(
 				"varying.def.sc");
@@ -525,15 +744,43 @@ namespace gold {
 				// Generate source from inputs and outputs
 				// Prepend i/o arguments for application
 				auto source = file::readFile(path).getObject<file>();
-				string tempDir =
-					filesystem::temp_directory_path().string();
 				auto now =
 					to_string(duration_cast<std::chrono::milliseconds>(
 											std::chrono::high_resolution_clock::now()
 												.time_since_epoch())
 											.count());
-				string tempPath = tempDir + "/shaders/" + now + ".sc";
-				filesystem::create_directories(tempDir + "/shaders");
+				// The generated source compiles from a temp dir beside an
+				// EXPANDED (directive-free) varying.def.sc: the tool's own
+				// sibling lookup supplies the declarations, and varying
+				// conditionals are resolved per-compile (some shaderc
+				// vintages reject directives in varying definitions).
+				string tempDir =
+					filesystem::temp_directory_path().string();
+				string shaderTempDir = tempDir + "/shaders/" + now;
+				string tempPath = shaderTempDir + "/" +
+					(path.filename().empty()
+						 ? string("main.sc")
+						 : path.filename().string());
+				filesystem::create_directories(shaderTempDir);
+				// The expanded varying rides the same dir.
+				const auto expandedVarying = expandVaryingDefinition(
+					varying, defines.empty() ? string() : defines);
+				if (!expandedVarying.empty() &&
+					expandedVarying != varying) {
+					auto varyingBytes =
+						file::readFile(expandedVarying).getObject<file>();
+					auto data = varyingBytes.getBinary("data");
+					auto vout = ofstream(
+						shaderTempDir + "/varying.def.sc",
+						ofstream::binary);
+					vout.write(
+						reinterpret_cast<const char*>(data.data()),
+						(std::streamsize)data.size());
+				}
+				// Keep passing it explicitly too; the sibling is a
+				// fallback for tool vintages that ignore the flag.
+				varying = expandedVarying.empty() ? varying
+												  : expandedVarying;
 				auto tmpf = fopen(tempPath.c_str(), "w");
 				if (!tmpf) {
 					empty();
@@ -566,9 +813,15 @@ namespace gold {
 				path = tempPath;
 			}
 			// The selected shader compiler supplies the backend profile.
+			// The include dirs: the original source's directory (the
+			// shader's own .sh library) and the varying's directory.
 			auto mem = compileShaderSource(
 				type, (const char*)path.c_str(), defines.c_str(),
-				varying.c_str(), nullptr);
+				varying.c_str(), nullptr,
+				vector<string>{
+					libraryDir,
+					filesystem::path(varying).parent_path().string(),
+				});
 			if (mem) {
 				auto strData = string_view((char*)mem->data, mem->size);
 				auto h = std::hash<string_view>();
@@ -643,12 +896,12 @@ namespace gold {
 			auto frag = getObject<shaderObject>("frag");
 			auto vert = getObject<shaderObject>("vert");
 			if (frag && vert) {
-				auto fHandle = bgfx::ShaderHandle{
-					frag.getUInt16("idx", bgfx::kInvalidHandle)};
-				auto vHandle = bgfx::ShaderHandle{
-					vert.getUInt16("idx", bgfx::kInvalidHandle)};
-				auto handle = bgfx::createProgram(vHandle, fHandle);
-				setUInt16("idx", handle.idx);
+			auto fHandle = bgfx::ShaderHandle{
+				frag.getUInt16("idx", bgfx::kInvalidHandle)};
+			auto vHandle = bgfx::ShaderHandle{
+				vert.getUInt16("idx", bgfx::kInvalidHandle)};
+			auto handle = bgfx::createProgram(vHandle, fHandle);
+			setUInt16("idx", handle.idx);
 			}
 		} else if (getType("comp") == typeObject) {
 			auto comp = getObject<shaderObject>("comp");
@@ -834,10 +1087,12 @@ namespace gold {
 			auto cull = state.getString("cull");
 			if (cull != "") {
 				toLower(cull);
-				if (exists(cull, "cw"))
-					flags |= BGFX_STATE_CULL_CW;
-				else if (exists(cull, "ccw"))
+				// "ccw" contains "cw" as a substring — check the longer
+				// token first, or "ccw" never reaches its own branch.
+				if (exists(cull, "ccw"))
 					flags |= BGFX_STATE_CULL_CCW;
+				else if (exists(cull, "cw"))
+					flags |= BGFX_STATE_CULL_CW;
 			} else {
 				flags |= BGFX_STATE_CULL_CW;
 			}
@@ -858,8 +1113,10 @@ namespace gold {
 					flags |= BGFX_STATE_PT_LINES;
 				else if (exists(primitiveType, "points"))
 					flags |= BGFX_STATE_PT_POINTS;
-			} else {
-				flags |= BGFX_STATE_PT_TRISTRIP;
+				// "triangles"/anything else: no PT flag = triangle
+				// list. (The default used to be TRISTRIP, which read
+				// ordinary glTF index buffers as strips and drew
+				// garbage.)
 			}
 
 			if (state.getVar("pointSize").isNumber()) {

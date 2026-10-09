@@ -144,11 +144,30 @@ namespace gold {
 		auto rot = getVar("rot");
 		auto scl = getVar("scl");
 
-		auto results = mat4x4f({});
-		results = results * scl;
-		results = results * rot;
-		results = results + pos;
+		// Compose T*R*S with bx directly: the var operators used here
+		// before (mat * scale, mat * quat, mat + pos) each REPLACE the
+		// matrix with a fresh translate/scale/rotate instead of
+		// composing, so the last step (translation) was the whole
+		// matrix and rotations silently vanished.
+		float t[16], r[16], s[16], sr[16], trs[16];
+		bx::mtxTranslate(
+			t, pos.getFloat(0), pos.getFloat(1), pos.getFloat(2));
+		bx::mtxFromQuaternion(
+			r,
+			bx::Quaternion(
+				rot.getFloat(0), rot.getFloat(1), rot.getFloat(2),
+				rot.getFloat(3)));
+		bx::mtxScale(
+			s, scl.getFloat(0), scl.getFloat(1), scl.getFloat(2));
+		// Row-major chain: scale, then rotate, then translate.
+		bx::mtxMul(sr, s, r);
+		bx::mtxMul(trs, sr, t);
 
+		auto results = mat4x4f({
+			trs[0], trs[1], trs[2], trs[3],
+			trs[4], trs[5], trs[6], trs[7],
+			trs[8], trs[9], trs[10], trs[11],
+			trs[12], trs[13], trs[14], trs[15]});
 		setVar("mtx", results);
 		erase("rebuild");
 		return results;

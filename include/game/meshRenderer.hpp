@@ -4,13 +4,17 @@
 #include "camera.hpp"
 
 namespace gold {
+	using std::string;
 	struct meshRenderer : public renderable {
 	 protected:
 		static object& getPrototype();
 
 		void setMaterial(camera cam, object primitive, object mesh);
-		object configureVertex(object primitive, object mesh);
-		object configureFragment(object primitive, object mesh);
+		string gatherDefines(object primitive, object meshEntry);
+		object configureVertex(
+			object primitive, object meshEntry, const string& defines);
+		object configureFragment(
+			object primitive, object meshEntry, const string& defines);
 
 	 public:
 		meshRenderer();

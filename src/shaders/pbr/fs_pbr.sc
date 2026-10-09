@@ -23,7 +23,7 @@
 //     https://github.com/ux3d/glTF/tree/extensions/KHR_materials_thinfilm/extensions/2.0/Khronos/KHR_materials_thinfilm
 
 #include <bgfx_shader.sh>
-#include "uniform.sh"
+#include "uniforms.sh"
 #include "tonemapping.sh"
 #include "textures.sh"
 #include "functions.sh"
@@ -501,7 +501,27 @@ void main() {
 
 #if defined(USE_PUNCTUAL)
 	for (int i = 0; i < LIGHT_COUNT; ++i) {
-		Light light = u_Lights[i];
+		// u_Lights is bgfx-flat (mat4 per light; uniforms don't carry
+		// structs): unpack the fields — direction.xyz+range,
+		// color.rgb+intensity, position.xyz+innerConeCos,
+		// outerConeCos+type.
+		mat4 lm = u_Lights[i];
+		Light light;
+		light.direction = lm[0].xyz;
+		light.range = lm[0].w;
+		light.color = lm[1].xyz;
+		light.intensity = lm[1].w;
+		light.position = lm[2].xyz;
+		light.innerConeCos = lm[2].w;
+		light.outerConeCos = lm[3].x;
+		light.type = int(lm[3].y + 0.5);
+
+		// A zero-intensity light contributes nothing, and skipping it
+		// also dodges NaNs from normalizing an unset direction:
+		// 0 * NaN still poisons the sum.
+		if (light.intensity <= 0.0) {
+			continue;
+		}
 
 		vec3 pointToLight = -light.direction;
 		float rangeAttenuation = 1.0;
