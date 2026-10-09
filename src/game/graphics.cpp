@@ -740,9 +740,6 @@ namespace gold {
 		if (backend) {
 			auto handle = backend->createUniform(
 				name.c_str(), t, num);
-			fprintf(stderr, "[dbg] uniform %s t=%u num=%u -> idx=%u\n",
-				name.c_str(), (unsigned)t, (unsigned)num,
-				(unsigned)handle.idx);
 			if (handle.valid())
 				uniforms[name] = obj{
 					{"idx", handle.idx},
@@ -774,25 +771,16 @@ namespace gold {
 
 	void shaderProgram::bindTexture(
 		string sampler, uint8_t stage, gpuTexture tex) {
-		fprintf(stderr, "[dbg] facadeBind %s tex=%u stage=%u\n",
-			sampler.c_str(), (unsigned)tex.getUInt16("idx", 0xffff),
-			(unsigned)stage);
 		if (!tex || !gfxBackend::backend()) return;
 		auto uniform = uniforms[sampler];
 		auto backend = gfxBackend::backend();
-		if (!backend || !uniform)
-			fprintf(stderr, "[dbg] bind MISS %s\n", sampler.c_str());
 		if (!backend || !uniform) return;
 		auto uniformHandle = renderHandle{
 			uniform.getUInt16("idx", uint16_t(0xFFFF))};
 		auto texHandle = renderHandle{
 			tex.getUInt16("idx", uint16_t(0xFFFF))};
-		if (!uniformHandle.valid() || !texHandle.valid()) {
-			fprintf(stderr,
-				"[dbg] bind bail uni=%u tex=%u\n", uniformHandle.idx,
-				texHandle.idx);
+		if (!uniformHandle.valid() || !texHandle.valid())
 			return;
-		}
 		// 0 leaves the sampler flags as they were set at creation.
 		backend->setTextureUniform(stage, uniformHandle, texHandle, 0);
 	}

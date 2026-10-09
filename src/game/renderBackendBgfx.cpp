@@ -737,13 +737,12 @@ namespace gold {
 			renderHandle createIndexBuffer(const void* data, uint32_t size,
 				uint64_t flags) override {
 				return toHandle(bgfx::createIndexBuffer(
-					mem(data, size), uint32_t(BGFX_BUFFER_INDEX32) | flags));
+					mem(data, size), uint32_t(flags)));
 			}
 			renderHandle createDynamicIndexBuffer(const void* data,
 				uint32_t size, uint64_t flags) override {
 				return toHandle(bgfx::createDynamicIndexBuffer(
-					mem(data, size),
-					uint32_t(BGFX_BUFFER_INDEX32) | flags));
+					mem(data, size), uint32_t(flags)));
 			}
 			renderHandle createTransientVertexBuffer(object layoutDesc,
 				uint16_t count) override {
@@ -793,8 +792,6 @@ namespace gold {
 			void setVertexBuffer(uint8_t stream, renderHandle h,
 				uint32_t start, uint32_t num) override {
 				const uint32_t count = num == 0 ? UINT32_MAX : num;
-				fprintf(stderr, "[dbg] setVB stream=%u h=%u start=%u num=%u\n",
-					stream, h.idx, start, count);
 				auto it = transientVBs.find(h);
 				if (it != transientVBs.end()) {
 					bgfx::setVertexBuffer(stream, it->second.get(), start,
@@ -806,8 +803,6 @@ namespace gold {
 			void setIndexBuffer(renderHandle h, uint32_t start,
 				uint32_t num) override {
 				const uint32_t count = num == 0 ? UINT32_MAX : num;
-				fprintf(stderr, "[dbg] setIB h=%u start=%u num=%u\n",
-					h.idx, start, count);
 				auto it = transientIBs.find(h);
 				if (it != transientIBs.end()) {
 					bgfx::setIndexBuffer(it->second.get(), start, count);
@@ -823,9 +818,6 @@ namespace gold {
 
 			void submit(uint8_t view, renderHandle program, uint32_t depth,
 				uint16_t flags) override {
-				fprintf(stderr,
-					"[dbg] submit view=%u prog=%u depth=%u flags=%u\n",
-					view, program.idx, depth, flags & 0xff);
 				bgfx::submit(view, prog(program), depth, flags);
 			}
 			void submitQuery(uint8_t view, renderHandle program,
