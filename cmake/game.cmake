@@ -103,6 +103,12 @@ if(SDL3_FOUND)
 			"include"
 			"include/game"
 	)
+	# The SDL3 plugin also carries the SDL_GPU render backend; shader
+	# compilation is a backend concern, so the tool paths bake in here
+	# the same way the bgfx plugin's do.
+	target_compile_definitions(goldSDL3 PRIVATE
+		GOLD_SHADER_COMPILER="${GOLD_SHADER_COMPILER}"
+		GOLD_BGFX_SHADER_INCLUDE="${GOLD_BGFX_SHADER_INCLUDE}")
 	# The SDL window backend acquires EGL surfaces when SDL runs on
 	# Wayland, so the plugin carries that interop too.
 	target_link_libraries(

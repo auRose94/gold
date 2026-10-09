@@ -171,6 +171,41 @@ if(GOLD_BUILD_GAME)
 			cxx_std_26
 	)
 	add_test(NAME goldRenderBackendTests COMMAND goldRenderBackendTests)
+
+	# The SDL_GPU backend's own target: the plugin must be present (the
+	# backend is registered by its static initializer), and the tests run
+	# against the offscreen video driver's headless device.
+	if(TARGET goldSDL3)
+		add_executable(
+			goldSDLGpuTests
+			tests/sdlGpuBackendTest.cpp
+		)
+		target_compile_options(goldSDLGpuTests PRIVATE -Wall -Wextra -pedantic)
+		target_include_directories(
+			goldSDLGpuTests
+			PUBLIC
+				"include"
+				"include/game"
+				"tests"
+				"${CMAKE_BINARY_DIR}"
+		)
+		target_link_libraries(
+			goldSDLGpuTests
+			PRIVATE
+				gold::game
+		)
+		target_compile_features(
+			goldSDLGpuTests
+			PRIVATE
+				cxx_std_26
+		)
+		# The backend rides the plugin: keep both built for the test run.
+		add_dependencies(goldSDLGpuTests goldSDL3)
+		add_test(NAME goldSDLGpuTests COMMAND goldSDLGpuTests)
+		# The GPU lives behind the offscreen SDL video driver in tests.
+		set_tests_properties(goldSDLGpuTests PROPERTIES ENVIRONMENT
+			"SDL_VIDEODRIVER=offscreen")
+	endif()
 endif()
 
 if(GOLD_BUILD_WEB)
