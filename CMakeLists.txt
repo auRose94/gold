@@ -117,6 +117,14 @@ if(GOLD_BUILD_GAME)
 	include(cmake/shaders.cmake)
 	include(cmake/game.cmake)
 endif()
+# The MCP development module rides the web module's transports and
+# registers into the game module's mcpServerSystem seam (it links
+# both), so it configures after them. Skipped when no transport
+# exists; the seam degrades gracefully at runtime instead (the engine
+# logs and keeps running).
+if(TARGET goldWeb AND TARGET goldGame AND LWS_FOUND)
+	include(cmake/mcp.cmake)
+endif()
 if(GOLD_BUILD_TESTS)
 	include(cmake/tests.cmake)
 endif()
@@ -165,6 +173,11 @@ if(TARGET goldGame)
 	install(DIRECTORY include/game/
 		DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/game)
 endif()
+if(TARGET goldMcp)
+	list(APPEND gold_INSTALL_LIBS goldMcp)
+	install(DIRECTORY include/mcp/
+		DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mcp)
+endif()
 
 # The module targets' interfaces carry genex-wrapped include dirs (the
 # export needs install-tree paths) and depend only on each other and
@@ -175,7 +188,7 @@ endif()
 # path. This also keeps cmake's link-path rpath off dependent shared
 # libs, whose trailing-empty-component trips the install-time
 # RPATH_CHANGE check ("no valid ELF RPATH entry").
-foreach(goldLib goldShared goldWeb goldUI goldLang goldGame)
+foreach(goldLib goldShared goldWeb goldUI goldLang goldGame goldMcp)
 	if(TARGET ${goldLib})
 		set_target_properties(${goldLib} PROPERTIES INSTALL_RPATH "$ORIGIN")
 	endif()
@@ -212,6 +225,9 @@ if(TARGET goldLang)
 endif()
 if(TARGET goldGame)
 	set_target_properties(goldGame PROPERTIES EXPORT_NAME game)
+endif()
+if(TARGET goldMcp)
+	set_target_properties(goldMcp PROPERTIES EXPORT_NAME mcp)
 endif()
 
 install(

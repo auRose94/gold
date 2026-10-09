@@ -261,3 +261,35 @@ if(GOLD_BUILD_UI AND GOLD_BUILD_WEB)
 	target_compile_features(goldUITests PRIVATE cxx_std_26)
 	add_test(NAME goldUITests COMMAND goldUITests)
 endif()
+
+# The MCP module: the dispatcher is transport-free (driven with plain
+# gold vars); the transport tests run the real HTTP endpoint like the
+# server suite does (own loop thread, raw loopback sockets, bounded
+# waits).
+if(TARGET goldMcp)
+	add_executable(
+		goldMcpTests
+		tests/mcpTest.cpp
+	)
+	if(MSVC)
+		target_compile_options(goldMcpTests PRIVATE /W4)
+	else()
+		target_compile_options(goldMcpTests PRIVATE -Wall -Wextra -pedantic)
+	endif()
+	target_include_directories(
+		goldMcpTests
+		PUBLIC
+			"include"
+			"include/mcp"
+			"include/web"
+			"tests"
+	)
+	target_link_libraries(
+		goldMcpTests
+		PRIVATE
+			gold::mcp
+			gold::web
+	)
+	target_compile_features(goldMcpTests PRIVATE cxx_std_26)
+	add_test(NAME goldMcpTests COMMAND goldMcpTests)
+endif()

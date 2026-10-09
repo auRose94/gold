@@ -18,6 +18,7 @@ add_library(
 		src/game/inputSystem.cpp
 		src/game/inputSystemEvdev.cpp
 		src/game/light.cpp
+		src/game/mcpServerSystem.cpp
 		src/game/mesh.cpp
 		src/game/meshRenderer.cpp
 		src/game/meshShape.cpp
