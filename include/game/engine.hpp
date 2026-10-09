@@ -20,6 +20,7 @@ namespace gold {
 	 protected:
 		friend struct world;
 
+		void boot(string company, string gameName);
 		void registerComponent(component& comp);
 
 		void cleanUp();
@@ -36,7 +37,20 @@ namespace gold {
 
 		engine();
 		engine(string company, string gameName);
+		// Same as above, with the console arguments overriding the
+		// backend selections the settings file made (flags: window-backend,
+		// render-backend, renderer — see backendOverrides).
+		engine(string company, string gameName, int argc, char* argv[]);
 		static set<string> allowedConfigNames();
+
+		/** Console-argument backend selection: takes the raw argument
+		 *  tokens (argv contents; a leading program name is fine) and
+		 *  returns a settings-shaped overrides object — "window"/
+		 *  "graphics" sections — or an empty object when nothing matched.
+		 *  Recognizes --window-backend=NAME[,FALLBACK...],
+		 *  --render-backend=NAME and --renderer=NAME, each also as
+		 *  "--flag value". */
+		static object backendOverrides(list args);
 		var start(list args = {});
 		var initialize(list args = {});
 		var loadSettings(list args = {});

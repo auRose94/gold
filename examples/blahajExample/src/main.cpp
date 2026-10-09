@@ -40,7 +40,14 @@ int main(int argc, char** argv) {
 	const string defaultPath =
 		assets + "/models/props/Blahaj/"
 		"Blahaj_Low_poly_blahaj1_Low_poly_blahaj1.gltf";
-	const string modelPath = argc > 1 ? string(argv[1]) : defaultPath;
+	// The model path is the first positional argument: "--..." console
+	// flags are backend selectors and don't shadow it.
+	string modelPath = defaultPath;
+	for (int i = 1; i < argc; ++i) {
+		if (string(argv[i]).starts_with("--")) continue;
+		modelPath = argv[i];
+		break;
+	}
 	mesh model{path(modelPath)};
 	auto error = model.getString("error");
 	if (!error.empty()) {
@@ -57,8 +64,9 @@ int main(int argc, char** argv) {
 		<< "  images: " << model.getList("images").size() << '\n';
 
 	// Now render it: the engine loop drives camera views, the PBR mesh
-	// dispatch, and the window.
-	engine app("GoldRoseCode", "BlahajExample");
+	// dispatch, and the window. The console arguments pick the backends
+	// (--window-backend/--render-backend/--renderer).
+	engine app("GoldRoseCode", "BlahajExample", argc, argv);
 
 	auto cam = app.getPrimaryCamera().getObject<camera>();
 	auto camTrans =

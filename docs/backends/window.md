@@ -19,3 +19,6 @@ compositor:
 ```json
 { "backend": ["wayland", "sdl", "headless"] }
 ```
+
+The same selection is reachable from the launch command on an engine
+constructed with `argc`/`argv`: `--window-backend=NAME[,FALLBACK...]`.

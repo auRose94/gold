@@ -25,6 +25,22 @@ The `gold::game` module provides a component-based engine for 3D and 2D games, b
   render without reading the screen).
 - Config `"graphics": {"debug": true}` enables bgfx's debug overlay/stats.
 
+## Console arguments
+
+An engine constructed with `argc`/`argv` lets the launch command override the
+backend selections the settings file (`config.json`) made — the command line
+wins over the settings file, which wins over the defaults:
+
+```sh
+./myApp --window-backend=wayland,sdl   # window system, with fallback chain
+./myApp --render-backend=sdlgpu        # render backend (bgfx default)
+./myApp --renderer=Vulkan              # the graphics "backend" renderer-API hint
+```
+
+`engine::backendOverrides(list args)` is the parser by itself — gold
+arguments in, settings-shaped overrides out — so scripts and tests can feed
+it data directly.
+
 ## Documentation
 - [Render Backends](backends/render.md)
 - [Window System](backends/window.md)

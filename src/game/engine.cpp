@@ -3,7 +3,11 @@
 
 #include <chrono>
 #include <iostream>
+#include <map>
+#include <sstream>
+#include <string>
 #include <thread>
+#include <utility>
 
 #include "camera.hpp"
 #include "component.hpp"
@@ -91,7 +95,30 @@ namespace gold {
 		return var();
 	}
 
-	var engine::initialize(list) {
+	namespace {
+	/** The console-argument backend flags land after the settings file,
+	 *  so the command line wins: defaults < config.json < argv. Each
+	 *  override key overwrites the same key in the config's section. */
+	void applyConsoleOverrides(object& config, object& overrides) {
+		for (auto sectionName : engine::allowedConfigNames()) {
+			auto sectionOverrides = overrides.getObject(sectionName);
+			if (!sectionOverrides) continue;
+			auto section = config.getObject(sectionName, obj({}));
+			for (auto it = sectionOverrides.begin();
+					 it != sectionOverrides.end(); ++it) {
+				section[it->first] = it->second;
+				cout << "Backend override (console): " << sectionName
+					<< "." << it->first << " = "
+					<< (it->second.isList() ? string("(fallback chain)")
+											: it->second.getString())
+					<< endl;
+			}
+			config.setObject(sectionName, section);
+		}
+	}
+}  // namespace
+
+var engine::initialize(list) {
 		setList("entities", list({}));
 
 		// Warm the backend registries before the settings load: the SDL
@@ -105,6 +132,10 @@ namespace gold {
 
 		auto configVar = loadSettings();
 		auto config = configVar.getObject();
+		// The console-argument flags apply last so they win over the
+		// settings file.
+		if (auto overrides = getObject("backendOverrides"))
+			applyConsoleOverrides(config, overrides);
 		auto gameName = getString("gameName");
 
 		auto windowConfig = config.getObject("window", obj({}));
@@ -335,16 +366,87 @@ namespace gold {
 		return var();
 	}
 
-	engine::engine() : obj() {}
-
-	engine::engine(string company, string gameName) : obj() {
+	void engine::boot(string company, string gameName) {
 		setParent(getPrototype());
 		setList("entities", list({}));
 		setList("cameras", list({}));
 		setList("components", list({}));
 		setString("company", company);
 		setString("gameName", gameName);
+	}
+
+	engine::engine() : obj() {}
+
+	engine::engine(string company, string gameName) : obj() {
+		boot(company, gameName);
 		initialize();
+	}
+
+	// The flags must exist before initialize() reads the settings, since
+	// the constructor itself boots everything.
+	engine::engine(string company, string gameName, int argc, char* argv[])
+		: obj() {
+		boot(company, gameName);
+		if (argv && argc > 0) {
+			list tokens;
+			for (int i = 0; i < argc; ++i) tokens.pushString(argv[i]);
+			auto overrides = backendOverrides(tokens);
+			if (overrides) setObject("backendOverrides", overrides);
+		}
+		initialize();
+	}
+
+	object engine::backendOverrides(list args) {
+		// One flag per selectable backend; each writes a single key into
+		// the settings section it names.
+		static const map<string, pair<string, string>> flags = {
+			{"window-backend", {"window", "backend"}},
+			{"windowBackend", {"window", "backend"}},
+			{"render-backend", {"graphics", "renderBackend"}},
+			{"renderBackend", {"graphics", "renderBackend"}},
+			{"renderer", {"graphics", "backend"}},
+		};
+
+		object overrides;
+		for (uint64_t i = 0; i < args.size(); ++i) {
+			auto token = args[i].getString();
+			if (!token.starts_with("--")) continue;
+			token.erase(0, 2);
+			auto cut = token.find('=');
+			auto name = cut != string::npos ? token.substr(0, cut)
+											: token;
+			// Joined values ride the "='; split values take the next
+			// token when it is not itself a flag.
+			string value;
+			if (cut != string::npos) {
+				value = token.substr(cut + 1);
+			} else if (i + 1 < args.size()) {
+				auto next = args[i + 1].getString();
+				if (!next.empty() && !next.starts_with("--")) {
+					value = next;
+					++i;
+				}
+			}
+
+			auto flag = flags.find(name);
+			if (flag == flags.end() || value.empty()) continue;
+			auto section =
+				overrides.getObject(flag->second.first, obj({}));
+			// The window config takes a fallback chain: commas become
+			// the name list the window facade already accepts.
+			if (flag->second.first == "window" &&
+				value.find(',') != string::npos) {
+				list names;
+				stringstream values(value);
+				string part;
+				while (getline(values, part, ','))
+					if (!part.empty()) names.pushString(part);
+				section.setList("backend", names);
+			} else
+				section.setString(flag->second.second, value);
+			overrides.setObject(flag->second.first, section);
+		}
+		return overrides;
 	}
 
 	set<string> engine::allowedConfigNames() {

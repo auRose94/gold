@@ -191,6 +191,61 @@ TEST(window_handler_override) {
 	win.destroy();
 }
 
+TEST(engine_console_backend_flags_parse) {
+	auto over = engine::backendOverrides(
+		ja("--window-backend=sdl3", "--render-backend=sdlgpu",
+			"--renderer", "Vulkan"));
+	auto windowSection = over.getObject("window");
+	EXPECT_TRUE((bool)windowSection);
+	EXPECT_EQ(
+		string(windowSection.getString("backend")), string("sdl3"));
+	auto gfxSection = over.getObject("graphics");
+	EXPECT_TRUE((bool)gfxSection);
+	EXPECT_EQ(string(gfxSection.getString("renderBackend")),
+		string("sdlgpu"));
+	EXPECT_EQ(string(gfxSection.getString("backend")),
+		string("Vulkan"));
+
+	// The camel-case aliases resolve to the same keys.
+	auto camel = engine::backendOverrides(
+		ja("--windowBackend=sdl2", "--renderBackend=bgfx"));
+	EXPECT_EQ(
+		string(camel.getObject("window").getString("backend")),
+		string("sdl2"));
+	EXPECT_EQ(
+		string(camel.getObject("graphics").getString("renderBackend")),
+		string("bgfx"));
+
+	// Comma-separated window backends become the fallback chain list.
+	auto chain = engine::backendOverrides(
+		ja("--window-backend=wayland,sdl"));
+	auto names = chain.getObject("window").getList("backend");
+	EXPECT_EQ(names.size(), uint64_t(2));
+	EXPECT_EQ(string(names.getString(0)), string("wayland"));
+	EXPECT_EQ(string(names.getString(1)), string("sdl"));
+
+	// Non-flag arguments (program name, positional app arguments) and
+	// unknown flags leave the overrides empty.
+	auto none =
+		engine::backendOverrides(ja("prog", "model.gltf", "--nope=x"));
+	EXPECT_FALSE((bool)none);
+
+	// A flag with no value is skipped.
+	auto empty = engine::backendOverrides(ja("--render-backend"));
+	EXPECT_FALSE((bool)empty);
+}
+
+TEST(engine_console_backend_flags_pick_the_window) {
+	// The parsed section drops straight into the window facade, so the
+	// chain resolution and the headless auto-append behave exactly as
+	// they do for config-driven selection.
+	auto over = engine::backendOverrides(ja("--window-backend=headless"));
+	window win(over.getObject("window"));
+	EXPECT_TRUE(win.create().isEmpty());
+	EXPECT_EQ(string(win.getString("backend")), string("headless"));
+	win.destroy();
+}
+
 TEST(input_backend_interface) {
 	auto input = createInputSystem("evdev");
 	EXPECT_TRUE(input != nullptr);

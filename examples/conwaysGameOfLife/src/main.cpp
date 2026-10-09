@@ -38,10 +38,12 @@ namespace {
 	}
 }  // namespace
 
-int main(int argc, char** argv) {
+	int main(int argc, char** argv) {
 	using list = gold::list;
+	// The console arguments pick the backends
+	// (--window-backend/--render-backend/--renderer).
 	engine main =
-		engine("GoldRoseCode", "ConwaysGameOfLife");
+		engine("GoldRoseCode", "ConwaysGameOfLife", argc, argv);
 	auto cam = main.getPrimaryCamera().getObject<camera>();
 	auto camTrans = cam.getComponent({transform::getPrototype()})
 										.getObject<gold::transform>();
