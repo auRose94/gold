@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -990,6 +991,11 @@ namespace gold {
 		 SDL_GPUTextureFormat _format = SDL_GPU_TEXTUREFORMAT_INVALID;
 		 uint16_t _width = 0, _height = 0;
 		 bool _offscreen = false;
+		 // Frame pacing telemetry (the graphics "stats" flag): rolling
+		 // acquire/frame wall times, reported per 120 frames.
+		 bool _stats = false;
+		 uint64_t _statN = 0, _statAcquireNS = 0, _statFrameNS = 0;
+		 std::chrono::steady_clock::time_point _statMark{};
 		 // The config's rgba: the fresh views' default clear.
 		 uint32_t _defaultClearColor = 0x6ab0deff;
 		 float _defaultClearDepth = 1.0f;
@@ -1047,6 +1053,7 @@ namespace gold {
 				}
 				_width = config.getUInt16("width", 1360);
 				_height = config.getUInt16("height", 800);
+				_stats = config.getBool("stats");
 				_defaultClearColor = config.getUInt32(
 					"rgba", 0x6ab0deff);
 				if (_window) {
@@ -1056,10 +1063,24 @@ namespace gold {
 						_device = nullptr;
 						return false;
 					}
+					// MAILBOX when available: replace-on-overrun present
+					// cannot miss a compositor deadline, which matches
+					// the engine's own frameTime pacing. Unsupported
+					// drivers keep SDL's default (VSYNC/FIFO).
+					if (SDL_WindowSupportsGPUSwapchainComposition(
+							_device, _window,
+							SDL_GPU_SWAPCHAINCOMPOSITION_SDR)) {
+						if (!SDL_SetGPUSwapchainParameters(_device,
+								_window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR,
+								SDL_GPU_PRESENTMODE_MAILBOX))
+							fprintf(stderr, "[sdlgpu] %s\n",
+								SDL_GetError());
+					}
 					_format =
 						SDL_GetGPUSwapchainTextureFormat(_device, _window);
 					_offscreen = false;
 				}
+				_statMark = std::chrono::steady_clock::now();
 				return true;
 			}
 
@@ -1698,16 +1719,22 @@ namespace gold {
 				// 4c replaces the second half with the view-pass walk;
 				// today the frame is: uploads, then a cleared present.
 				if (!_device) return false;
+				const auto statFrameStart =
+					std::chrono::steady_clock::now();
 				SDL_GPUCommandBuffer* cmd =
 					SDL_AcquireGPUCommandBuffer(_device);
 				if (!cmd) return false;
 				runPendingUploads(cmd);
 				SDL_GPUTexture* swapchain = nullptr;
 				uint32_t swapW = 0, swapH = 0;
+				const auto statAcquireStart =
+					std::chrono::steady_clock::now();
 				if (!_offscreen && _window) {
 					SDL_WaitAndAcquireGPUSwapchainTexture(cmd, _window,
 						&swapchain, &swapW, &swapH);
 				}
+				const auto statAcquired =
+					std::chrono::steady_clock::now();
 				// A screenshot frame renders into an owned transfer-
 				// source RT (the swapchain cannot be read back) and
 				// blits to the swapchain after the passes.
@@ -1769,6 +1796,34 @@ namespace gold {
 				for (auto& up : _pendingTexUploads)
 					SDL_ReleaseGPUTransferBuffer(_device, up.tb);
 				_pendingTexUploads.clear();
+				if (_stats) {
+					const auto now =
+						std::chrono::steady_clock::now();
+					_statAcquireNS +=
+						(uint64_t)std::chrono::duration_cast<
+							std::chrono::nanoseconds>(
+							statAcquired - statAcquireStart)
+							.count();
+					_statFrameNS +=
+						(uint64_t)std::chrono::duration_cast<
+							std::chrono::nanoseconds>(
+							now - statFrameStart)
+							.count();
+					if (++_statN >= 120) {
+						const double secs =
+							std::chrono::duration<double>(now - _statMark)
+								.count();
+						fprintf(stderr,
+							"[sdlgpu] %llu frames in %.2fs (%.1f fps); "
+							"acquire wait %.2fms; endFrame %.2fms\n",
+							(unsigned long long)_statN, secs,
+							_statN / secs,
+							_statAcquireNS / (_statN * 1e6),
+							_statFrameNS / (_statN * 1e6));
+						_statMark = now;
+						_statN = _statAcquireNS = _statFrameNS = 0;
+					}
+				}
 				return true;
 			}
 
@@ -2593,6 +2648,14 @@ namespace gold {
 						drawItemToPass(cmd, pass, vr, item, colorFormat,
 							depthFormat);
 					SDL_EndGPURenderPass(pass);
+				}
+				// bgfx's view semantics: everything submitted lives one
+				// frame. Views that skipped their pass (dead framebuffer
+				// textures) empty with the rest, or their queues grow
+				// unbounded and the frame cost climbs away.
+				for (auto& [_, vr] : _views) {
+					vr.draws.clear();
+					vr.touched = false;
 				}
 			}
 
