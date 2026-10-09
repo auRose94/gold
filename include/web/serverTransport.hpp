@@ -26,6 +26,10 @@ namespace gold {
 		 *  host/port (+SSL settings) off `server`. Returns var(true)
 		 *  after the loop yields, or an error. */
 		virtual var run(object server) = 0;
+
+		/** Request a graceful loop exit so a blocking run() returns.
+		 *  Callable from any thread; never frees the transport. */
+		virtual void stop() {}
 	};
 
 	using createServerTransportFn = serverTransport* (*)();
@@ -37,4 +41,11 @@ namespace gold {
 	/** The shared dispatch policy: run a gold route handler, turning any
 	 *  exception into a 500 reply on that connection. */
 	var dispatchRoute(func handler, var req, var res);
+
+	/** The mount/static-file dispatch shared by transports: resolve the
+	 *  request path against the server's buffered mounts (gold file
+	 *  objects) under the ETag/304/mime/cache-control policy, 404 when
+	 *  miss. Transports route unmatched mounts here in their fallback
+	 *  chain. */
+	func makeMountHandler(object host);
 }  // namespace gold

@@ -272,8 +272,11 @@ namespace gold {
 		if (name == "sdl2")
 			return {"libSDL2-2.0.so.0", "libSDL2.so", "SDL2.dll"};
 		if (name == "websockets")
-			return {"libwebsockets.so.19", "libwebsockets.so.18",
-				"libwebsockets.so", "libwebsockets.dll"};
+			// libwebsockets 4.x context-creation structs changed between
+			// minor versions; probe the installed ABI only, not the
+			// older 4.x sonames (their structs would silently mismatch).
+			return {"libwebsockets.so.21", "libwebsockets.so",
+				"libwebsockets.dll"};
 		if (name == "bullet")
 			return {"libbullet.so.3.27", "libbullet.so", "bullet.dll"};
 		if (name == "zlib")

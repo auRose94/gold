@@ -7,38 +7,48 @@
 	auto res = args[1].getObject<response>();
 
 namespace gold {
-	struct request;
-	struct response;
-	struct session;
+		struct request;
+		struct response;
+		struct session;
+		struct wsConn;
 
-	/**
-	 * The HTTP server facade, transport-independent: routes are buffered
-	 * as gold data ("routes": verb -> {pattern -> func}), and start()
-	 * resolves a serverTransport (config "transport"; a loadable plugin
-	 * like libgoldUws or libgoldLws) whose run() consumes everything.
-	 */
-	struct server : public object {
-	 protected:
-		static object& getPrototype();
+/** The status line for a status code ("200 OK", "404 Not Found"); shared
+ *  by transports when assembling raw responses. */
+string httpStatusLine(uint16_t code);
 
-	 public:
-		server();
-		server(object config);
+/** The HTTP server facade, transport-independent: routes are buffered
+ *  as gold data ("routes": verb -> {pattern -> func}), and start()
+ *  resolves a serverTransport (config "transport"; a loadable plugin
+ *  like libgoldUws or libgoldLws) whose run() consumes everything. */
+struct server : public object {
+		 protected:
+			static object& getPrototype();
 
-		/** Blocking: resolves the transport and runs it. Returns an error
-		 *  when the bind fails instead of entering the loop. */
-		var start(list args = {});
-		var get(list args);
-		var post(list args);
-		var put(list args);
-		var patch(list args);
-		var del(list args);
-		var options(list args);
-		var setMountPoint(list args);
-		var setErrorHandler(list args);
-		var initialize(list args = {});
-		var destroy(list args = {});
-	};
+		 public:
+			server();
+			server(object config);
+
+			/** Blocking: resolves the transport and runs it. Returns an error
+			 *  when the bind fails instead of entering the loop. */
+			var start(list args = {});
+			/** Request a graceful stop of a running start(); safe from any
+			 *  thread. Returns false when nothing is running. */
+			var stop(list args = {});
+			/** Buffer a WebSocket route: `ws(pattern, {open, message,
+			 *  close})`. open(sock) fires when a client connects,
+			 *  message(sock, data) per message, close(sock) on teardown. */
+			var ws(list args);
+			var get(list args);
+			var post(list args);
+			var put(list args);
+			var patch(list args);
+			var del(list args);
+			var options(list args);
+			var setMountPoint(list args);
+			var setErrorHandler(list args);
+			var initialize(list args = {});
+			var destroy(list args = {});
+		};
 
 	/** A request: gold data (headers/params/query/method/path) staged by
 	 *  the transport that accepted the connection. */
@@ -84,5 +94,18 @@ namespace gold {
 		var onWritable(list args);
 		var onAborted(list args);
 		var onData(list args);
+	};
+
+	/** A WebSocket connection handed to a server.ws() handler. Sends
+	 *  (text or binary) stage and flush on the connection's writable
+	 *  moment; close() requests a graceful close. */
+	struct wsSocket : public object {
+	 public:
+		static object& getPrototype();
+		wsSocket();
+		wsSocket(wsConn* c, const string& path);
+
+		var send(list args);
+		var close(list args = {});
 	};
 }  // namespace gold

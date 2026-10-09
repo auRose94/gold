@@ -8,11 +8,40 @@ document store.
 - Express-like routing (per-method routes with pattern parameters)
 - Swappable server transports: the server facade is transport-free —
   routes buffer as gold data and `start()` resolves a transport plugin
-  via `config "transport"` (`"uws"` is the vendored stopgap; a
-  libwebsockets port follows). See [plugins](../backends/plugins.md).
+  via `config "transport"`. The real engine is `"lws"` (libgoldLws,
+  built when the system libwebsockets package exists): HTTP, WebSocket
+  routes, HTTPS, and graceful stop. `"uws"` remains as the vendored
+  stopgap. See [plugins](../backends/plugins.md).
 - HTML5 rendering with pragmatic templating
 - File-based `dataStore` persistence
 - The HTML/CSS parsers that also feed the `ui` module's renderer
+
+## Server facade
+
+Routes buffer onto the server as gold data until `start()` dispatches
+them into the transport:
+
+```cpp
+auto serv = server(jo("host", "127.0.0.1", "port", 8080, "transport", "lws"));
+serv.get({"/users/:id", func(...)});
+serv.ws({"/echo", jo(
+    "open", func(...),            // (sock) — push "welcome" via sock.send
+    "message", func(...),         // (sock, data) — echo etc.
+    "close", func(...))});        // (sock)
+serv.start();                     // blocks on the transport loop
+serv.stop();                      // from another thread: the loop exits
+```
+
+Route matching follows the uWS conventions gold grew with: `:id` segments
+capture one path segment, a trailing wildcard (`/assets/*`) captures the
+rest including slashes; unmatched requests fall through mounts, then the
+`setErrorHandler` handler (the 404-page hook), then an automatic 404.
+
+`start()` returns an error instead of looping when the bind fails.
+Because `stop()` makes the loop return, the transport needs no
+process-`_Exit` tricks and servers can be restarted inside one process.
+On `"lws"`, `"sslCert"`/`"sslKey"` (a PEM pair) switch the vhost to
+HTTPS on the same port.
 
 ## HTML5 Rendering
 

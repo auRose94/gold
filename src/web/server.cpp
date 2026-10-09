@@ -96,12 +96,14 @@ namespace gold {
 			{"cacheControl", "max-age=120"},
 			{"transport", "uws"},
 			{"start", method(&server::start)},
+			{"stop", method(&server::stop)},
 			{"get", method(&server::get)},
 			{"post", method(&server::post)},
 			{"put", method(&server::put)},
 			{"patch", method(&server::patch)},
 			{"del", method(&server::del)},
 			{"options", method(&server::options)},
+			{"ws", method(&server::ws)},
 			{"setMountPoint", method(&server::setMountPoint)},
 			{"setErrorHandler", method(&server::setErrorHandler)},
 			{"initialize", method(&server::initialize)},
@@ -144,6 +146,14 @@ namespace gold {
 		return proto;
 	}
 
+	obj& wsSocket::getPrototype() {
+		static auto proto = obj({
+			{"send", method(&wsSocket::send)},
+			{"close", method(&wsSocket::close)},
+		});
+		return proto;
+	}
+
 	// ------------------------------------------------------------- server
 
 	var server::start(list) {
@@ -160,9 +170,43 @@ namespace gold {
 		if (!resolved)
 			return genericError(
 				"No server transport available (" + transport + ")");
+		// Keep the instance reachable for stop() from another thread;
+		// dropped again before the delete below (and by destroy()).
+		setPtr("handle", (void*)resolved);
 		auto run = resolved->run(*this);
+		setPtr("handle", nullptr);
 		delete resolved;
 		return run;
+	}
+
+	var server::stop(list) {
+		// A running transport answers a stop REQUEST (its loop exits and
+		// start() returns on its own thread); this never touches its
+		// state after that, and never frees it.
+		auto running = (serverTransport*)getPtr("handle");
+		if (!running) return var(false);
+		running->stop();
+		return var(true);
+	}
+
+	/** Buffer a WebSocket route: "ws" rides in the routes object like a
+	 *  verb, but maps pattern -> {open, message, close} handlers object. */
+	var server::ws(list args) {
+		auto pattern = args[0].getString();
+		auto handlers = args[1].getObject();
+		if (!handlers) return genericError("missing handlers object");
+		auto routes = getObject("routes");
+		if (!routes) {
+			routes = obj({});
+			setObject("routes", routes);
+		}
+		auto wsRoutes = routes.getObject("ws");
+		if (!wsRoutes) {
+			wsRoutes = obj({});
+			routes.setObject("ws", wsRoutes);
+		}
+		wsRoutes.setObject(pattern, handlers);
+		return var();
 	}
 
 	namespace {
@@ -485,7 +529,7 @@ namespace gold {
 		return getString("query");
 	}
 
-	var request::getUrl(list args) { return getString("path"); }
+	var request::getUrl(list) { return getString("path"); }
 
 	var request::getYield(list args) {
 		(void)args;
@@ -497,6 +541,40 @@ namespace gold {
 		auto value = args[0].getBool();
 		if (auto s = (session*)getPtr("session")) s->setYield(value);
 		return value;
+	}
+
+	// ----------------------------------------------------------- wsSocket
+
+	wsSocket::wsSocket() : obj() {}
+
+	wsSocket::wsSocket(wsConn* c, const string& path) : obj() {
+		setParent(getPrototype());
+		setPtr("conn", (void*)c);
+		setString("path", path);
+	}
+
+	var wsSocket::send(list args) {
+		auto conn = (wsConn*)getPtr("conn");
+		if (!conn) return genericError("socket is not connected");
+		auto value = args[0];
+		// Text for anything stringish; binary frames only for real
+		// byte payloads (gold stores strings as byte views too, so a
+		// bare isView() would misroute every message).
+		if (value.isString() || value.getType() == typeStringView)
+			conn->sendRaw(value.getString(), false);
+		else if (value.isView()) {
+			auto bin = value.getBinary();
+			conn->sendRaw(
+				string(string_view((char*)bin.data(), bin.size())), true);
+		} else
+			conn->sendRaw((string)value, false);
+		return var();
+	}
+
+	var wsSocket::close(list) {
+		auto conn = (wsConn*)getPtr("conn");
+		if (conn) conn->closeConn();
+		return var();
 	}
 
 	bool request::isWWWFormURLEncoded() {

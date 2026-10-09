@@ -34,6 +34,21 @@ stay under script control. Shape components are descriptor data
 ("shapeKind" + size/mesh/node); the backend materializes collision
 shapes at body time.
 
+**The web server's transport** is a plugin seam too
+(`createServerTransport`): `server.start()` resolves a transport by the
+config name, which consumes the buffered routes and blocks on its own
+loop. `libgoldLws` (backend `"lws"`) is the real engine: HTTP over the
+system libwebsockets package (headers only at build; sonames
+"websockets" probe `libwebsockets.so.21` first — 4.x context structs
+change between minors), routes with `:param` patterns matched in gold,
+static-mount fallbacks shared with the facade, WebSocket routes
+(`server.ws(pattern, {open, message, close})`), optional
+`"sslCert"`/`"sslKey"` HTTPS, and a graceful `server.stop()` (the loop
+returns, start() unblocks). Without the system package the build skips
+the plugin and `start()` reports "no server transport available". The
+`libgoldUws` stopgap (vendored uWebSockets) predates this seam and is
+slated for removal now that lws covers it.
+
 Loading one is all that is needed: the plugin's static initializers call
 the standard registrars (`registerWindowSystem`,
 `registerInputSystem`, `registerAudioSystem`,

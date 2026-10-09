@@ -42,4 +42,21 @@ namespace gold {
 		/** Body-data arrival: handler(string raw, bool final). */
 		virtual void onDataRaw(func handler) = 0;
 	};
+
+	/**
+	 * The per-connection WebSocket state behind gold's wsSocket facade
+	 * (server.ws(route, {open, message, close})). Sends stage and are
+	 * flushed on the connection's own next writable moment; close
+	 * requests a graceful close. Transports implement both interfaces in
+	 * one per-connection object.
+	 */
+	struct wsConn {
+		virtual ~wsConn() = default;
+
+		/** Stage a message for the peer: text frames by default, one
+		 *  binary frame when `binary` is set. */
+		virtual bool sendRaw(const string& data, bool binary) = 0;
+		/** Request a graceful close. */
+		virtual void closeConn() = 0;
+	};
 }  // namespace gold

@@ -130,8 +130,6 @@ namespace gold {
 			into.setString("path", string(httpReq->getUrl()));
 		}
 
-		/** The per-connection dispatch: fill the gold facades, run the
-		 *  handler through the shared error policy. */
 		auto routeInto(func handler) {
 			return [handler](auto* res, auto* req) {
 				uwsSession sess(res, req);
@@ -139,122 +137,6 @@ namespace gold {
 				response rs(&sess);
 				fillRequest(req, rq);
 				dispatchRoute(handler, rq, rs);
-			};
-		}
-
-		// The static-file mount handler (shared by mount URLs).
-		static auto mimeMap = map<string, string>({
-			{".bin", "application/octet-stream"},
-			{".zip", "application/zip"},
-			{".rar", "application/x-rar-compressed"},
-			{".json", "application/json"},
-			{".bson", "application/bson"},
-			{".js", "application/javascript"},
-			{".xml", "application/xml"},
-			{".gz", "application/gzip"},
-			{".bz", "application/x-bzip"},
-			{".bz2", "application/x-bzip2"},
-			{".azw", "application/vnd.amazon.ebook"},
-			{".doc", "application/msword"},
-			{".ogx", "application/ogg"},
-			{".pdf", "application/pdf"},
-			{".tar", "application/x-tar"},
-			{".xhtml", "application/xhtml+xml"},
-			{".xls", "application/vnd.ms-excel"},
-			{".7z", "application/x-7z-compressed"},
-			{".abw", "application/x-abiword"},
-			{".arc", "application/x-freearc"},
-			{".html", "text/html"},
-			{".htm", "text/html"},
-			{".csv", "text/csv"},
-			{".css", "text/css"},
-			{".rtf", "text/rtf"},
-			{".txt", "text/plain"},
-			{".ics", "text/calendar"},
-			{".xlsx",
-			 "application/"
-			 "vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
-			{".ttf", "font/ttf"},
-			{".woff", "font/woff"},
-			{".woff2", "font/woff2"},
-			{".png", "image/png"},
-			{".jpg", "image/jpeg"},
-			{".jpeg", "image/jpeg"},
-			{".gif", "image/gif"},
-			{".webp", "image/webp"},
-			{".dds", "image/vnd-ms.dds"},
-			{".wav", "audio/wav"},
-			{".mp3", "audio/mpeg"},
-			{".glb", "model/gltf-binary"},
-			{".gltf", "model/gltf+json"},
-		});
-
-		auto mountInto(object host) {
-			return [host](auto* res, auto* req) {
-				uwsSession sess(res, req);
-				request rq(&sess);
-				response rs(&sess);
-				fillRequest(req, rq);
-				dispatchRoute(func([host](list args) mutable -> var {
-					auto reqObj = args[0].getObject<request>();
-					auto resObj = args[1].getObject<response>();
-					auto p = string(reqObj.getUrl());
-					auto mounts = host.getObject("mounts");
-					auto f = mounts.getObject<file>(p);
-					if (!f) {
-						auto assetIndex = p.find("/assets/");
-						if (assetIndex != string::npos) {
-							p = p.substr(0, assetIndex) +
-								p.substr(assetIndex + 8);
-							f = mounts.getObject<file>(p);
-						}
-						if (!f) {
-							auto indexIndex = p.find("/index.");
-							if (indexIndex != string::npos) {
-								p = p.substr(0, indexIndex);
-								f = mounts.getObject<file>(p);
-							}
-						}
-					}
-					auto chash =
-						reqObj.getHeader({"if-none-match"}).getString();
-					auto control = host.getString("cacheControl");
-					if (f) {
-						auto loaded = f.load();
-						if (loaded.isView()) {
-							auto hash = f.hash().getString();
-							if (hash == chash) {
-								// "304 Not Modified".
-								resObj.writeStatus(list({(uint16_t)304}));
-								resObj.writeHeader(
-									{"Cache-Control", control});
-								resObj.end(list());
-								return var();
-							}
-							auto bin = loaded.getBinary();
-							resObj.writeStatus(list({(uint16_t)200}));
-							// Find, not []: unknown types must not mutate
-							// the shared map per request.
-							auto ext = fs::path(p).extension().string();
-							auto mimeIt = mimeMap.find(ext);
-							const string ct = mimeIt != mimeMap.end()
-												  ? mimeIt->second
-												  : "application/octet-stream";
-							resObj.writeHeader({"Content-Type", ct});
-							resObj.writeHeader(
-								{"Cache-Control", control});
-							resObj.writeHeader({"ETag", hash});
-							resObj.end(list({bin}));
-							return var();
-						}
-						resObj.writeStatus(list({(uint16_t)404}));
-						resObj.end(list());
-						return var();
-					}
-					resObj.writeStatus(list({(uint16_t)404}));
-					resObj.end(list());
-					return var();
-				}), rq, rs);
 			};
 		}
 
@@ -278,7 +160,8 @@ namespace gold {
 
 				for (auto it = mounts.begin(); it != mounts.end(); ++it) {
 					auto url = it->first;
-					app.get(url, mountInto(host));
+					app.get(url,
+						routeInto(makeMountHandler(host)));
 				}
 
 				auto routes = host.getObject("routes");
