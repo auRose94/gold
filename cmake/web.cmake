@@ -37,8 +37,11 @@ endif()
 target_include_directories(
 	goldWeb
 	PUBLIC
-		"include"
-		"include/web"
+		# Genex-wrapped for the export (see shared.cmake).
+		$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+		$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include/web>
+		$<INSTALL_INTERFACE:include>
+		$<INSTALL_INTERFACE:include/web>
 )
 
 target_link_libraries (

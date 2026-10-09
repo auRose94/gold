@@ -106,8 +106,11 @@ endif()
 target_include_directories(
 	goldUI
 	PUBLIC
-		"include"
-		"include/ui"
+		# Genex-wrapped for the export (see shared.cmake).
+		$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+		$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include/ui>
+		$<INSTALL_INTERFACE:include>
+		$<INSTALL_INTERFACE:include/ui>
 )
 
 # gold::web carries the HTML/CSS parsers; the freetype shim handles

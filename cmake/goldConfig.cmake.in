@@ -1,0 +1,10 @@
+@PACKAGE_INIT@
+
+# The exported module targets carry their system-package link
+# dependencies; find them before importing.
+include(CMakeFindDependencyMacro)
+find_dependency(OpenSSL)
+find_dependency(OpenGL)
+find_dependency(bgfx)
+include("${CMAKE_CURRENT_LIST_DIR}/goldTargets.cmake")
+check_required_components(gold)

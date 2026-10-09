@@ -30,7 +30,10 @@ endif()
 target_include_directories(
 	goldShared
 	PUBLIC
-		"include"
+		# Genex-wrapped: the export requires install-tree paths for the
+		# install interface and absolute paths in the build.
+		$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+		$<INSTALL_INTERFACE:include>
 )
 
 target_link_libraries (

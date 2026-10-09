@@ -58,10 +58,14 @@ endif()
 target_include_directories(
 	goldGame
 	PUBLIC
-		"include"
-		"include/game"
-		${CMAKE_CURRENT_BINARY_DIR}
-		${CMAKE_CURRENT_SOURCE_DIR}/3rdParty/generated/wayland
+		# Genex-wrapped for the export (see shared.cmake). The generated
+		# shader/wayland dirs are build-tree-only.
+		$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+		$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include/game>
+		$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
+		$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/3rdParty/generated/wayland>
+		$<INSTALL_INTERFACE:include>
+		$<INSTALL_INTERFACE:include/game>
 )
 
 find_package(PkgConfig QUIET)

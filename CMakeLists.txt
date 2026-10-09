@@ -125,3 +125,105 @@ if(GOLD_BUILD_EXAMPLES)
 		add_subdirectory(examples/myWebProject)
 	endif()
 endif()
+
+# -----------------------------------------------------------------------------
+# Install + export. gold installs as: headers, the core static library, the
+# shared module libraries, and the loadable plugins in the SAME lib dir --
+# the plugin loader's module-anchored search path points there, so plugins
+# ship next to the modules they extend. find_package(gold) imports the
+# module targets under their in-tree names (gold::shared, gold::web, ...).
+# -----------------------------------------------------------------------------
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+set(gold_INSTALL_LIBS goldShared)
+if(TARGET goldWeb)
+	list(APPEND gold_INSTALL_LIBS goldWeb)
+	install(DIRECTORY include/web/
+		DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/web)
+endif()
+if(TARGET goldUI)
+	list(APPEND gold_INSTALL_LIBS goldUI)
+	install(DIRECTORY include/ui/
+		DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/ui)
+endif()
+if(TARGET goldLang)
+	list(APPEND gold_INSTALL_LIBS goldLang)
+	install(DIRECTORY include/lang/
+		DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/lang)
+endif()
+if(TARGET goldGame)
+	list(APPEND gold_INSTALL_LIBS goldGame)
+	install(DIRECTORY include/game/
+		DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/game)
+endif()
+
+# The module targets' interfaces carry genex-wrapped include dirs (the
+# export needs install-tree paths) and depend only on each other and
+# gold::shared plus the system packages the config file finds below.
+# The module libraries carry no RPATH of their own: build-tree users
+# (tests, examples) link through executables whose own rpath covers the
+# modules' deps, and installed trees rely on the consumer's search
+# path. This also keeps cmake's link-path rpath off dependent shared
+# libs, whose trailing-empty-component trips the install-time
+# RPATH_CHANGE check ("no valid ELF RPATH entry").
+foreach(goldLib goldShared goldWeb goldUI goldLang goldGame)
+	if(TARGET ${goldLib})
+		set_target_properties(${goldLib} PROPERTIES SKIP_BUILD_RPATH ON)
+	endif()
+endforeach()
+install(
+	TARGETS ${gold_INSTALL_LIBS}
+	EXPORT goldTargets
+	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+	ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+	RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+# Optional plugins land beside the modules (loader search path).
+foreach(goldPlugin goldLws goldSDL3 goldSDL2 goldBullet goldUIUltralight)
+	if(TARGET ${goldPlugin})
+		install(TARGETS ${goldPlugin}
+			LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+			RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+	endif()
+endforeach()
+
+install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+# Export under the in-tree alias names (gold::web, gold::ui, ...).
+set_target_properties(goldShared PROPERTIES EXPORT_NAME shared)
+if(TARGET goldWeb)
+	set_target_properties(goldWeb PROPERTIES EXPORT_NAME web)
+endif()
+if(TARGET goldUI)
+	set_target_properties(goldUI PROPERTIES EXPORT_NAME ui)
+endif()
+if(TARGET goldLang)
+	set_target_properties(goldLang PROPERTIES EXPORT_NAME lang)
+endif()
+if(TARGET goldGame)
+	set_target_properties(goldGame PROPERTIES EXPORT_NAME game)
+endif()
+
+install(
+	EXPORT goldTargets
+	FILE goldTargets.cmake
+	NAMESPACE gold::
+	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/gold
+)
+configure_package_config_file(
+	cmake/goldConfig.cmake.in
+	"${CMAKE_CURRENT_BINARY_DIR}/cmake/goldConfig.cmake"
+	INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/gold
+)
+write_basic_package_version_file(
+	"${CMAKE_CURRENT_BINARY_DIR}/cmake/goldConfigVersion.cmake"
+	# (the module cmakes call project() too and reset PROJECT_VERSION)
+	VERSION 0.1.0
+	COMPATIBILITY SameMajorVersion
+)
+install(FILES
+	"${CMAKE_CURRENT_BINARY_DIR}/cmake/goldConfig.cmake"
+	"${CMAKE_CURRENT_BINARY_DIR}/cmake/goldConfigVersion.cmake"
+	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/gold
+)

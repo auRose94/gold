@@ -31,8 +31,11 @@ endif()
 target_include_directories(
 	goldLang
 	PUBLIC
-		"include"
-		"include/lang"
+		# Genex-wrapped for the export (see shared.cmake).
+		$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+		$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include/lang>
+		$<INSTALL_INTERFACE:include>
+		$<INSTALL_INTERFACE:include/lang>
 )
 
 target_link_libraries (

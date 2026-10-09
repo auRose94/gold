@@ -280,7 +280,7 @@ TEST(server_lws_websocket_open_message_close) {
 	auto msgFn = func([messages](list args) -> var {
 		messages->fetch_add(1, std::memory_order_relaxed);
 		auto sock = args[0].getObject<wsSocket>();
-		sock.send(list({args[1]}));  // echo the payload back
+		sock.send(ja(args[1]));  // echo the payload back
 		return var();
 	});
 	auto closeFn = func([closedCount](list) -> var {
