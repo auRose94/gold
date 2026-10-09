@@ -88,6 +88,7 @@ namespace gold {
 			uint16_t num = 1;
 			uint32_t offset = 0;
 			uint16_t slots = 1;
+			bool isArray = false;  // the decl's [n] survives (u_Lights[1])
 		};
 
 		struct stageSampler {
@@ -106,6 +107,11 @@ namespace gold {
 			// descriptors map gold attribs through this table, mirroring
 			// bgfx's per-program glGetAttribLocation.
 			map<string, uint32_t> ioLocations;
+			// The SDL sampler slot per sampler name: SDL requires every
+			// declared sampler bound and slots contiguous from zero, so
+			// slot = the sampler's index in the (stripped) list; the
+			// facade's stage numbers map through the NAME.
+			map<string, uint32_t> samplerSlots;
 		};
 
 		struct programRecord {
@@ -149,6 +155,8 @@ namespace gold {
 			bool cube = false;
 			SDL_GPUSampler* sampler = nullptr;  // cached per texture
 			uint32_t samplerFlags = 0;
+			// The gold format (the update path converts 16-bit RGBA).
+			texFormat goldFormat = texFormat::RGBA8;
 		};
 
 		// --- format maps ----------------------------------------------------
@@ -156,12 +164,30 @@ namespace gold {
 		// SDL map is explicit so drift shows as INVALID instead of wrong
 		// bytes. Compressed formats land here when their block math is
 		// wired.
+		// The engine's texture contract: the caller's format number rides
+		// bimg 5.x's own enum values (the image facade's decodes emit
+		// them; the bgfx backend passes them straight through — its cast
+		// lands on the same-named format). The SDL map reads the same
+		// numbers; the bytes never change shape.
+		binary sdlTextureBytes(texFormat, const void* data, uint32_t size) {
+			binary out;
+			if (!data || !size) return out;
+			out.assign((const uint8_t*)data,
+				(const uint8_t*)data + size);
+			return out;
+		}
+
 		SDL_GPUTextureFormat toSDLFormat(texFormat f, bool srgb) {
 			switch (f) {
 			case texFormat::RGBA8:
 				return srgb
 					? SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM_SRGB
 					: SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+			case texFormat::RGBA16:
+				// The data converts to 8-bit before the upload (SDL has
+				// no UNORM 16-bit RGBA texture); the mapped format
+				// answers the converted bytes.
+				return SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
 			case texFormat::BGRA8:
 				return srgb
 					? SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM_SRGB
@@ -598,9 +624,11 @@ namespace gold {
 			if (stem == "indices") return uint32_t(vertexAttrib::Indices);
 			if (stem == "weight") return uint32_t(vertexAttrib::Weight);
 			// texcoord0..7: the TexCoord0 slot is 10.
-			if (stem.rfind("texcoord", 0) == 0 && stem.size() > 9)
+			if (stem.rfind("texcoord", 0) == 0
+				&& stem.size() > 8
+				&& isdigit((unsigned char)stem[8]))
 				return uint32_t(vertexAttrib::TexCoord0) +
-					uint32_t(stem[9] - '0');
+					uint32_t(stem[8] - '0');
 			return 0;
 		}
 
@@ -751,6 +779,7 @@ namespace gold {
 					entry.num = uint16_t(count);
 					entry.offset = blockOffset;
 					entry.slots = slots;
+					entry.isArray = bracket != string::npos;
 					blockOffset += std140UniformSize(
 						type, uint16_t(count));
 					entries.push_back(entry);
@@ -772,6 +801,16 @@ namespace gold {
 					auto glslType = st.substr(head, typeEnd - head);
 					auto name = st.substr(
 						typeEnd + 1, st.rfind(';') - (typeEnd + 1));
+					// Unused io drops: Vulkan requires the pipeline's
+					// descriptors to cover every DECLARED vertex input,
+					// and the engine's meshes only ship data for the
+					// attributes they actually load.
+					string bodyless;
+					for (auto& other : lines) {
+						if (other == line) continue;
+						bodyless += other + "\n";
+					}
+					if (!identifierUsed(bodyless, name)) continue;
 					const auto loc = semanticLocation(name);
 					keep.push_back(indent + "layout(location = " +
 						to_string(loc) + ") " +
@@ -795,9 +834,9 @@ namespace gold {
 							? "mat4"
 						: entry.type == renderUniformType::Mat3
 							? "mat3" : "vec4";
-					block.push_back("    " + string(type) + " " +
-						entry.name +
-						(entry.num > 1
+					block.push_back(
+						"    " + string(type) + " " + entry.name +
+						(entry.isArray || entry.num > 1
 							? "[" + to_string(entry.num) + "]"
 							: "") + ";");
 				}
@@ -1043,6 +1082,12 @@ namespace gold {
 							pipeline);
 					for (auto& [_, tex] : _depthTextures)
 						SDL_ReleaseGPUTexture(_device, tex);
+					if (_fillerTex)
+						SDL_ReleaseGPUTexture(_device, _fillerTex);
+					if (_fillerSmp)
+						SDL_ReleaseGPUSampler(_device, _fillerSmp);
+					_fillerTex = nullptr;
+					_fillerSmp = nullptr;
 					_views.clear();
 					_uniforms.clear();
 					_stages.clear();
@@ -1154,9 +1199,13 @@ namespace gold {
 						SDL_GetError());
 					return renderHandle{};
 				}
+				// The SDL sampler slots: the (stripped) list's order.
 				const uint16_t idx = _nextStage++;
 				_stages[idx] = rec;
 				_stages[idx].shader = shader;
+				auto& stored = _stages[idx];
+				for (uint32_t s = 0; s < stored.samplers.size(); ++s)
+					stored.samplerSlots[stored.samplers[s].name] = s;
 				return renderHandle{idx};
 			}
 
@@ -1185,12 +1234,15 @@ namespace gold {
 					activeVarying = expanded;
 
 				// Pass 1: the bgfx preprocessor produces the GLSL text
-				// (what the GL path compiles today).
+				// (what the GL path compiles today). The bgfx shader
+				// library (bgfx_shader.sh and friends) is this backend's
+				// own include, ahead of the caller's dirs.
 				vector<string> args {
 					GOLD_SHADER_COMPILER, "-f", path,
 					"--type", vertex ? "vertex" : "fragment",
 					"--platform", "linux",
 					"--profile", "330",
+					"-i", GOLD_BGFX_SHADER_INCLUDE,
 					"--preprocess", "--stdout",
 				};
 				if (!activeVarying.empty()
@@ -1435,6 +1487,15 @@ namespace gold {
 						int(f));
 					return renderHandle{};
 				}
+				if (w == 0 || h == 0
+					|| (type == SDL_GPU_TEXTURETYPE_3D && d == 0)) {
+					// The callers guard; a zero-dim create would fail the
+					// device's validation. Skip loudly.
+					fprintf(stderr,
+						"[sdlgpu] text2D: zero extent %ux%ux%u (fmt %d)\n",
+						w, h, d, int(f));
+					return renderHandle{};
+				}
 				SDL_GPUTextureCreateInfo ci {};
 				ci.type = type;
 				ci.format = format;
@@ -1448,7 +1509,9 @@ namespace gold {
 				ci.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
 				SDL_GPUTexture* tex = SDL_CreateGPUTexture(_device, &ci);
 				if (!tex) {
-					fprintf(stderr, "[sdlgpu] %s\n", SDL_GetError());
+					fprintf(stderr,
+						"[sdlgpu] texture %ux%u fmt %d: %s\n", w, h,
+						int(f), SDL_GetError());
 					return renderHandle{};
 				}
 				const uint16_t idx = _nextTexture++;
@@ -1464,9 +1527,13 @@ namespace gold {
 					? 6 : max<uint16_t>(1, numLayers);
 				rec.cube = type == SDL_GPU_TEXTURETYPE_CUBE;
 				rec.samplerFlags = uint32_t(flags & 0xFFFFFFFF);
+				rec.goldFormat = f;
 				_textures[idx] = rec;
-				if (data && size)
-					pendingTextureUpload(idx, data, size);
+				if (data && size) {
+					auto converted = sdlTextureBytes(f, data, size);
+					pendingTextureUpload(idx, converted.data(),
+						uint32_t(converted.size()));
+				}
 				return renderHandle{idx};
 			}
 
@@ -1521,21 +1588,30 @@ namespace gold {
 			}
 			// updateTexture: the facade routes cube faces through here;
 			// the engine's update calls always send whole mips today.
+			void updateTextureConverted(renderHandle h, const void* data,
+				uint32_t size) {
+				auto it = _textures.find(h.idx);
+				if (it == _textures.end()) return;
+				auto converted = sdlTextureBytes(
+					it->second.goldFormat, data, size);
+				pendingTextureUpload(h.idx, converted.data(),
+					uint32_t(converted.size()));
+			}
 			void updateTexture(renderHandle h, uint8_t side, uint8_t mip,
 				const void* data, uint32_t size) override {
 				(void)side;
 				(void)mip;
-				pendingTextureUpload(h.idx, data, size);
+				updateTextureConverted(h, data, size);
 			}
 			void updateTexture2D(renderHandle h, uint8_t mip,
 				const void* data, uint32_t size) override {
 				(void)mip;
-				pendingTextureUpload(h.idx, data, size);
+				updateTextureConverted(h, data, size);
 			}
 			void updateTexture3D(renderHandle h, uint8_t mip,
 				const void* data, uint32_t size) override {
 				(void)mip;
-				pendingTextureUpload(h.idx, data, size);
+				updateTextureConverted(h, data, size);
 			}
 			void destroyTexture(renderHandle h) override {
 				auto it = _textures.find(h.idx);
@@ -1576,6 +1652,8 @@ namespace gold {
 					SDL_ReleaseGPUTransferBuffer(_device, tb);
 					return false;
 				}
+				fprintf(stderr, "[sdlgpu] read dl: tex w %u h %u mip %u\n",
+					mw, mh, targetMip);
 				SDL_GPUCopyPass* cp = SDL_BeginGPUCopyPass(cmd);
 				SDL_GPUTextureRegion region {};
 				region.texture = rec.texture;
@@ -1630,16 +1708,59 @@ namespace gold {
 					SDL_WaitAndAcquireGPUSwapchainTexture(cmd, _window,
 						&swapchain, &swapW, &swapH);
 				}
-				renderViews(cmd, swapchain,
-					swapchain
-						? SDL_GetGPUSwapchainTextureFormat(
-							_device, _window)
-						: _format,
-					swapW, swapH);
+				// A screenshot frame renders into an owned transfer-
+				// source RT (the swapchain cannot be read back) and
+				// blits to the swapchain after the passes.
+				SDL_GPUTexture* renderTarget = swapchain;
+				SDL_GPUTextureFormat rtFormat = swapchain
+					? SDL_GetGPUSwapchainTextureFormat(_device, _window)
+					: _format;
+				SDL_GPUTexture* shotTex = nullptr;
+				if (!_shots.empty() && swapchain) {
+					SDL_GPUTextureCreateInfo ci {};
+					ci.type = SDL_GPU_TEXTURETYPE_2D;
+					ci.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+					ci.width = swapW;
+					ci.height = swapH;
+					ci.layer_count_or_depth = 1;
+					ci.num_levels = 1;
+					// (SDL's backend makes every texture transfer-src
+					// capable; no usage flag exists.)
+					ci.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER
+						| SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;
+					renderTarget = SDL_CreateGPUTexture(_device, &ci);
+					rtFormat = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+					shotTex = renderTarget;
+				}
+				renderViews(cmd, renderTarget, rtFormat, swapW, swapH);
+				if (shotTex) {
+					// The present: blit the RT into the swapchain.
+					SDL_GPUBlitInfo blit {};
+					blit.source.texture = shotTex;
+					blit.source.w = swapW;
+					blit.source.h = swapH;
+					blit.destination.texture = swapchain;
+					blit.destination.w = swapW;
+					blit.destination.h = swapH;
+					blit.load_op = SDL_GPU_LOADOP_DONT_CARE;
+					blit.filter = SDL_GPU_FILTER_LINEAR;
+					SDL_BlitGPUTexture(cmd, &blit);
+					// The readbacks ride this frame's content; queue them
+					// for the post-submit wait.
+					for (auto& shot : _shots)
+						_pendingShots.push_back(
+							{shot.fb == 0xFFFF ? uint16_t(0)
+											   : shot.fb,
+							 shot.path, shotTex, swapW, swapH});
+					_shots.clear();
+				}
 				SDL_SubmitGPUCommandBuffer(cmd);
-				// Screenshots: post-submit readback of the frame's target
-				// (a swapchain or framebuffer color).
-				retireShots();
+				if (shotTex || !_pendingShots.empty())
+					SDL_WaitForGPUIdle(_device);
+				// Screenshots: readbacks of the frame's own textures.
+				drainPendingShots();
+				if (shotTex)
+					SDL_ReleaseGPUTexture(_device, shotTex);
 				// Transfer buffers ride the submitted copy pass; SDL frees
 				// them safely, so a release here only queues the free.
 				for (auto& up : _pendingUploads)
@@ -1649,6 +1770,97 @@ namespace gold {
 					SDL_ReleaseGPUTransferBuffer(_device, up.tb);
 				_pendingTexUploads.clear();
 				return true;
+			}
+
+			// The readback rows of a finished shot: texture + size +
+			// destination. The command buffer (the frame's) finished.
+			struct shotReadback {
+				uint16_t fbOrTexture;   // 0 = the shot frame's texture
+				string path;
+				SDL_GPUTexture* texture;
+				uint32_t w, h;
+			};
+			vector<shotReadback> _pendingShots;
+
+			void drainPendingShots() {
+				for (auto& shot : _pendingShots) {
+					SDL_GPUTexture* src = shot.texture;
+					if (shot.fbOrTexture != 0) {
+						auto fbIt = _framebuffers.find(shot.fbOrTexture);
+						if (fbIt == _framebuffers.end()
+							|| fbIt->second.colors.empty()) {
+							fprintf(stderr,
+								"[sdlgpu] shot: no color\n");
+							continue;
+						}
+						auto texIt = _textures.find(
+							fbIt->second.colors[0]);
+						if (texIt == _textures.end()) continue;
+						src = texIt->second.texture;
+						shot.w = texIt->second.width;
+						shot.h = texIt->second.height;
+					}
+					if (!src || !shot.w || !shot.h) continue;
+					const uint32_t bytes =
+						toMipBytes(SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
+							shot.w, shot.h, 1);
+					SDL_GPUTransferBufferCreateInfo ti {};
+					ti.usage = SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD;
+					ti.size = bytes;
+					SDL_GPUTransferBuffer* tb =
+						SDL_CreateGPUTransferBuffer(_device, &ti);
+					if (!tb) return;
+					{
+						SDL_GPUCommandBuffer* cmd =
+							SDL_AcquireGPUCommandBuffer(_device);
+						if (!cmd) {
+							SDL_ReleaseGPUTransferBuffer(_device, tb);
+							return;
+						}
+							fprintf(stderr,
+							"[sdlgpu] drain dl: %u tex? %d w %u h %u\n",
+							shot.fbOrTexture, src != nullptr, shot.w,
+							shot.h);
+						SDL_GPUCopyPass* cp =
+							SDL_BeginGPUCopyPass(cmd);
+						SDL_GPUTextureRegion region {};
+						region.texture = src;
+						region.w = shot.w;
+						region.h = shot.h;
+						region.d = 1;
+						SDL_GPUTextureTransferInfo dstInfo {};
+						dstInfo.transfer_buffer = tb;
+						SDL_DownloadFromGPUTexture(cp, &region,
+							&dstInfo);
+						SDL_EndGPUCopyPass(cp);
+						SDL_SubmitGPUCommandBuffer(cmd);
+					}
+					SDL_WaitForGPUIdle(_device);
+					auto* mapped =
+						SDL_MapGPUTransferBuffer(_device, tb, false);
+					// The readback rows are top-down; the PNG wants the
+					// same order (no flip).
+					bx::DefaultAllocator allocator;
+					auto block = bx::MemoryBlock(&allocator);
+					auto writer = bx::MemoryWriter(&block);
+					auto error = bx::Error();
+					const auto pngSize = bimg::imageWritePng(&writer,
+						uint16_t(shot.w), uint16_t(shot.h), shot.w * 4,
+						const_cast<void*>(mapped),
+						bimg::TextureFormat::RGBA8, false, &error);
+					SDL_UnmapGPUTransferBuffer(_device, tb);
+					SDL_ReleaseGPUTransferBuffer(_device, tb);
+					if (error.isOk()) {
+						std::ofstream out(shot.path,
+							std::ofstream::binary);
+						out.write((const char*)block.more(),
+							(std::streamsize)pngSize);
+						fprintf(stderr, "[sdlgpu] shot %s (%ux%u)\n",
+							shot.path.c_str(), shot.w, shot.h);
+					} else
+						fprintf(stderr, "[sdlgpu] shot png failed\n");
+				}
+				_pendingShots.clear();
 			}
 
 			// One blocking readback per shot: the present submit finished
@@ -1770,6 +1982,30 @@ namespace gold {
 					return;
 				auto* cp = SDL_BeginGPUCopyPass(cmd);
 				vector<SDL_GPUTransferBuffer*> toRelease;
+				if (_fillerUploadPending && _fillerTex) {
+					SDL_GPUTransferBufferCreateInfo ti {};
+					ti.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+					ti.size = 4;
+					SDL_GPUTransferBuffer* tb =
+						SDL_CreateGPUTransferBuffer(_device, &ti);
+					if (tb) {
+						auto* mem =
+							SDL_MapGPUTransferBuffer(_device, tb, false);
+						const uint8_t white[4] = {255, 255, 255, 255};
+						memcpy(mem, white, 4);
+						SDL_UnmapGPUTransferBuffer(_device, tb);
+						SDL_GPUTextureTransferInfo srcInfo {};
+						srcInfo.transfer_buffer = tb;
+						SDL_GPUTextureRegion dst {};
+						dst.texture = _fillerTex;
+						dst.w = 1;
+						dst.h = 1;
+						SDL_UploadToGPUTexture(cp, &srcInfo, &dst,
+							false);
+						toRelease.push_back(tb);
+						_fillerUploadPending = false;
+					}
+				}
 				for (auto& up : _pendingUploads) {
 					auto it = _buffers.find(up.buffer);
 					if (it == _buffers.end()) {
@@ -1933,7 +2169,7 @@ namespace gold {
 			bool _hasIndex = false;
 			uint16_t _indexBuffer = 0xFFFF;
 			uint32_t _indexFirst = 0, _indexCount = 0;
-			map<uint16_t, uint16_t> _texBinds;
+			vector<pair<uint16_t, uint16_t>> _texUniformBinds;
 
 			struct pipelineKey {
 				uint16_t program;
@@ -2004,23 +2240,24 @@ namespace gold {
 				memcpy(_modelMtx, mtx, 64);
 				_hasModel = true;
 			}
-			void setTexture(uint8_t stage, const char* sampler,
-				renderHandle tex, uint32_t flags) override {
-				(void)sampler;
-				if (!tex.valid()) {
-					_texBinds.erase(stage);
-					return;
-				}
-				_texBinds[stage] = tex.idx;
-				(void)flags;  // the texture's own sampler modes win
+			// Sampler binds: the item carries (uniform index, texture); the
+			// draw resolves the SDL slot via the stage's sampler name
+			// table (SDL wants every declared sampler bound, with slots
+			// contiguous from zero in the stage's own order).
+			void setTexture(uint8_t, const char*, renderHandle, uint32_t)
+				override {
+				// The named path has no facade users today (bindTexture
+				// goes through a registered uniform); bgfx-only.
 			}
 			// The facade binds through a registered sampler-uniform
-			// (bindTexture): for SDL the bind is (slot-stage, texture);
-			// the sampler modes ride the texture.
+			// (bindTexture): the uniform's NAME is what the stage's
+			// sampler table knows.
 			void setTextureUniform(uint8_t stage, renderHandle uniform,
 				renderHandle tex, uint32_t flags) override {
-				(void)uniform;
-				setTexture(stage, "", tex, flags);
+				(void)stage;
+				(void)flags;
+				if (!uniform.valid() || !tex.valid()) return;
+				_texUniformBinds.push_back({uniform.idx, tex.idx});
 			}
 			void setVertexBuffer(uint8_t stream, renderHandle h,
 				uint32_t start, uint32_t num) override {
@@ -2064,10 +2301,9 @@ namespace gold {
 				item.vBinds = _vBinds;
 				item.vStarts = _vStarts;
 				item.vCounts = _vCounts;
-				for (auto& [stage, tex] : _texBinds)
-					item.texBinds.push_back({stage, tex});
-				// bgfx sorts by depth within the view; stable keeps the
-				// submit order for equal keys.
+				for (auto& [uni, tex] : _texUniformBinds)
+					item.texBinds.push_back({uni, tex});
+				_texUniformBinds.clear();
 				auto& draws = ensureView(view).draws;
 				draws.push_back(std::move(item));
 			}
@@ -2395,21 +2631,41 @@ namespace gold {
 
 				pushUniformPackets(cmd, progIt->second, vr, item);
 
-				// Samplers: fragment side by slot; the texture's own
-				// sampler modes (SDL caps combined samplers at 16).
-				for (auto& [slot, tex] : item.texBinds) {
-					auto texIt = _textures.find(tex);
-					if (texIt == _textures.end()) continue;
-					SDL_GPUSampler* sampler = samplerFor(texIt->second);
-					if (!sampler) continue;
-					SDL_GPUTextureSamplerBinding bind {};
-					bind.sampler = sampler;
-					bind.texture = texIt->second.texture;
-					// The blob path remaps its bindings to this order.
-					SDL_BindGPUFragmentSamplers(pass, slot, &bind, 1);
+				// Samplers: SDL requires every declared sampler bound, and
+				// slots contiguous from zero (the bind array's index IS the
+				// slot). The item's binds resolve uniform NAME -> the
+				// fs's (stripped) order; unbound slots ride the filler.
+				auto fsProgramIt = _programs.find(item.program);
+				if (fsProgramIt != _programs.end()) {
+					auto fsRecIt = _stages.find(
+						fsProgramIt->second.fs);
+					if (fsRecIt != _stages.end()
+						&& !fsRecIt->second.samplers.empty()) {
+						auto& fsRec = fsRecIt->second;
+						vector<SDL_GPUTextureSamplerBinding> binds(
+							fsRec.samplers.size());
+						for (uint32_t s = 0; s < binds.size(); ++s) {
+							binds[s].sampler = fillerSampler();
+							binds[s].texture = fillerTexture();
+						}
+						for (auto& [uni, tex] : item.texBinds) {
+							auto uIt = _uniforms.find(uni);
+							if (uIt == _uniforms.end()) continue;
+							auto slot = fsRec.samplerSlots.find(
+								uIt->second.name);
+							if (slot == fsRec.samplerSlots.end())
+								continue;
+							auto texIt = _textures.find(tex);
+							if (texIt == _textures.end()) continue;
+							binds[slot->second].sampler =
+								samplerFor(texIt->second);
+							binds[slot->second].texture =
+								texIt->second.texture;
+						}
+						SDL_BindGPUFragmentSamplers(pass, 0,
+							binds.data(), uint32_t(binds.size()));
+					}
 				}
-				// Wait: slot = the SDL slot for the FS's set; the sprite
-				// fs's sampler = slot 0. Vertex-side samplers are unused.
 
 				vector<SDL_GPUBufferBinding> bindings;
 				for (auto& [slot, buf] : item.vBinds) {
@@ -2969,6 +3225,46 @@ namespace gold {
 				}
 			}
 
+			// A 1x1 white filler for the sampler slots that carry no
+			// texture (SDL requires every declared sampler bound); its
+			// pixels ride the next copy pass.
+			SDL_GPUTexture* _fillerTex = nullptr;
+			SDL_GPUSampler* _fillerSmp = nullptr;
+			bool _fillerUploadPending = false;
+
+			SDL_GPUTexture* fillerTexture() {
+				if (_fillerTex) return _fillerTex;
+				SDL_GPUTextureCreateInfo ci {};
+				ci.type = SDL_GPU_TEXTURETYPE_2D;
+				ci.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+				ci.width = 1;
+				ci.height = 1;
+				ci.layer_count_or_depth = 1;
+				ci.num_levels = 1;
+				ci.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
+				SDL_GPUTexture* tex = SDL_CreateGPUTexture(_device, &ci);
+				SDL_GPUSamplerCreateInfo si {};
+				si.min_filter = SDL_GPU_FILTER_NEAREST;
+				si.mag_filter = SDL_GPU_FILTER_NEAREST;
+				SDL_GPUSampler* sampler = SDL_CreateGPUSampler(_device, &si);
+				if (!tex || !sampler) {
+					fprintf(stderr, "[sdlgpu] filler: %s\n",
+						SDL_GetError());
+					SDL_ReleaseGPUTexture(_device, tex);
+					SDL_ReleaseGPUSampler(_device, sampler);
+					return nullptr;
+				}
+				_fillerTex = tex;
+				_fillerSmp = sampler;
+				_fillerUploadPending = true;
+				return _fillerTex;
+			}
+
+			SDL_GPUSampler* fillerSampler() {
+				fillerTexture();
+				return _fillerSmp;
+			}
+
 			// The texture's sampler: the gold sampler flag word -> SDL.
 			SDL_GPUSampler* samplerFor(textureRecord& rec) {
 				if (rec.sampler) return rec.sampler;
@@ -3023,6 +3319,12 @@ namespace gold {
 				uint32_t w, uint32_t h, uint32_t d,
 				texFormat f, SDL_GPUTextureUsageFlags usage) {
 				(void)d;
+				if (w == 0 || h == 0) {
+					fprintf(stderr,
+						"[sdlgpu] zero-dim RT create: %ux%u (type %d, "
+						"fb-path)\n", w, h, int(type));
+					return renderHandle{};
+				}
 				const bool depth =
 					SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET & usage;
 				auto format = depth

@@ -222,6 +222,7 @@ namespace gold {
 	obj& gfxBackend::getPrototype() {
 		static auto proto = obj({
 			{"backend", "OpenGL"},
+			{"renderBackend", "bgfx"},
 			{"vSync", true},
 			{"maxAnisotropy", false},
 			{"stats", false},
@@ -237,8 +238,12 @@ namespace gold {
 		return proto;
 	}
 
+	// The "renderBackend" selector round-trips through getConfig so the
+	// settings file keeps it across runs; "backend" is the renderer-API
+	// hint the backend itself parses.
 	obj defaultBackendConfig = obj({
 		{"backend", "OpenGL"},
+		{"renderBackend", "bgfx"},
 		{"vSync", true},
 		{"maxAnisotropy", false},
 		{"stats", false},
