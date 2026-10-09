@@ -321,6 +321,47 @@ TEST(gltf_external_buffers_and_normalized_accessors) {
 	std::filesystem::remove_all(root, ec);
 }
 
+TEST(gltf_index_buffer_carries_its_packed_width) {
+	// UNSIGNED_INT (5125) indices pack 4 bytes each and must carry the
+	// BufferIndex32 flag; UNSIGNED_SHORT (5123) pack 2 bytes and must not.
+	// The backend turns the flag into its own 16/32-bit read, so a wrong
+	// flag makes it read every index pair as one huge index and the mesh
+	// disappears (the behaviour this pins down).
+	auto root = std::filesystem::temp_directory_path() / "gold_gltf_index_width";
+	std::error_code ec;
+	std::filesystem::remove_all(root, ec);
+	std::filesystem::create_directories(root);
+	{
+		std::ofstream bin(root / "idx.bin", std::ios::binary);
+		const unsigned char bytes[] = {
+			// accessor 0: three uint32 indices 0,1,2
+			0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0,
+			// accessor 1: three uint16 indices 0,1,2
+			0, 0, 1, 0, 2, 0};
+		bin.write(reinterpret_cast<const char*>(bytes), sizeof(bytes));
+	}
+	std::ofstream gltf(root / "idx.gltf");
+	gltf << R"({"buffers":[{"uri":"idx.bin","byteLength":18}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":12},{"buffer":0,"byteOffset":12,"byteLength":6}],"accessors":[{"bufferView":0,"componentType":5125,"count":3,"type":"SCALAR"},{"bufferView":1,"componentType":5123,"count":3,"type":"SCALAR"}],"meshes":[{"primitives":[{"indices":0},{"indices":1}]}],"nodes":[{"name":"n","mesh":0}]})";
+	gltf.close();
+
+	mesh loaded(root / "idx.gltf");
+	EXPECT_EQ(loaded.getString("error"), "");
+	auto u32 = loaded.getIndexBufferHandle({"n", uint64_t(0)})
+		.getObject<indexBuffer>();
+	EXPECT_TRUE(u32);
+	EXPECT_TRUE(u32.getBool("index32"));
+	EXPECT_EQ(loaded.getList("accessors").getObject(0).getBinary("packed").size(),
+		(size_t)12);
+	auto u16 = loaded.getIndexBufferHandle({"n", uint64_t(1)})
+		.getObject<indexBuffer>();
+	EXPECT_TRUE(u16);
+	EXPECT_FALSE(u16.getBool("index32"));
+	EXPECT_EQ(loaded.getList("accessors").getObject(1).getBinary("packed").size(),
+		(size_t)6);
+
+	std::filesystem::remove_all(root, ec);
+}
+
 TEST(gltf_asset_cache_can_be_cleared) {
 	mesh::clearAssetCache();
 	EXPECT_EQ(mesh::assetCacheSize(), (uint64_t)0);

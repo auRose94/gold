@@ -297,7 +297,8 @@ namespace gold {
 		// Layout descriptors are gold lists of
 		// {attrib, count, type, normalized, asInt} entries (the vertexLayout
 		// facade's begin/add/end builds one). Backends materialize them in
-		// their own form.
+		// their own form. The `flags` words are gold-native bufferFlags
+		// (BufferIndex32 marks 32-bit index entries; absent means 16-bit).
 		virtual renderHandle createVertexBuffer(const void* data,
 			uint32_t size, object layoutDesc, uint64_t flags = 0) = 0;
 		virtual renderHandle createDynamicVertexBuffer(const void* data,
@@ -312,8 +313,9 @@ namespace gold {
 			(void)layoutDesc; (void)count;
 			return renderHandle{};
 		}
-		virtual renderHandle createTransientIndexBuffer(uint16_t count) {
-			(void)count;
+		virtual renderHandle createTransientIndexBuffer(uint16_t count,
+			uint64_t flags = 0) {
+			(void)count; (void)flags;
 			return renderHandle{};
 		}
 		/** Write into any buffer kind (dynamic or transient; the backend

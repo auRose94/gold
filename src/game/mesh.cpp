@@ -686,6 +686,8 @@ namespace gold {
 				auto ibh = indexBuffer({
 					{"type", standardBufferType},
 					{"data", bin},
+					// The width the indices were packed at just above.
+					{"index32", componentType == 5125},
 				});
 				indicies.setObject("ibh", ibh);
 				return ibh;

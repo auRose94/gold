@@ -138,4 +138,13 @@ namespace gold {
 		DiscardAll = uint16_t((1u << 6) - 1),
 	};
 
+	/** Vertex/index buffer creation flags (gold-native; a backend
+	 *  translates them to its own buffer bits). */
+	enum bufferFlags : uint64_t {
+		BufferNone = 0,
+		/** Index entries are 32-bit. Absent, an index buffer is 16-bit —
+		 *  the glTF UNSIGNED_INT vs UNSIGNED_SHORT split. */
+		BufferIndex32 = 1ull << 0,
+	};
+
 }  // namespace gold

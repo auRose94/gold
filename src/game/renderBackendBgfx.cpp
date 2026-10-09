@@ -691,10 +691,8 @@ namespace gold {
 			/** Materialize a gold layout descriptor — a vertexLayout object
 			 *  whose "descriptor" list carries {attrib, count, type,
 			 *  normalized, asInt} entries — into a bgfx layout. bgfx's add()
-			 *  takes (attrib, count, type, asInt, normalized); the flags
-			 *  land in the right slots (the previous facade code passed
-			 *  the pair swapped, which was invisible while every caller
-			 *  sent both false). */
+			 *  takes (attrib, count, type, normalized, asInt), the same
+			 *  field order as the descriptor. */
 			static bgfx::VertexLayout materializeLayout(object layoutObj) {
 				bgfx::VertexLayout layout;
 				layout.begin();
@@ -707,11 +705,17 @@ namespace gold {
 							e.getUInt8("count"),
 							toBGFXAttribType(
 								(vertexAttribType)e.getUInt8("type")),
-							e.getBool("asInt"), e.getBool("normalized"));
+							e.getBool("normalized"), e.getBool("asInt"));
 					}
 				}
 				layout.end();
 				return layout;
+			}
+
+			// gold bufferFlags -> bgfx buffer bits.
+			static uint32_t toBGFXBufferFlags(uint64_t flags) {
+				return (flags & BufferIndex32) ? BGFX_BUFFER_INDEX32
+											   : BGFX_BUFFER_NONE;
 			}
 
 			// The transient chunks handed out under gold handles, so their
@@ -737,12 +741,12 @@ namespace gold {
 			renderHandle createIndexBuffer(const void* data, uint32_t size,
 				uint64_t flags) override {
 				return toHandle(bgfx::createIndexBuffer(
-					mem(data, size), uint32_t(flags)));
+					mem(data, size), toBGFXBufferFlags(flags)));
 			}
 			renderHandle createDynamicIndexBuffer(const void* data,
 				uint32_t size, uint64_t flags) override {
 				return toHandle(bgfx::createDynamicIndexBuffer(
-					mem(data, size), uint32_t(flags)));
+					mem(data, size), toBGFXBufferFlags(flags)));
 			}
 			renderHandle createTransientVertexBuffer(object layoutDesc,
 				uint16_t count) override {
@@ -754,11 +758,12 @@ namespace gold {
 				transientVBs[h] = std::unique_ptr<bgfx::TransientVertexBuffer>(tvb);
 				return h;
 			}
-			renderHandle createTransientIndexBuffer(uint16_t count) override {
+			renderHandle createTransientIndexBuffer(uint16_t count,
+				uint64_t flags) override {
 				bgfx::TransientIndexBuffer* tib =
 					new bgfx::TransientIndexBuffer();
 				allocTransientIndexBuffer(tib, count,
-					uint32_t(BGFX_BUFFER_INDEX32));
+					(flags & BufferIndex32) != 0);
 				renderHandle h{uint16_t(transientIBs.size() + 1)};
 				transientIBs[h] =
 					std::unique_ptr<bgfx::TransientIndexBuffer>(tib);

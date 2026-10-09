@@ -1554,17 +1554,21 @@ namespace gold {
 		auto type = getUInt8("type");
 		if (!backend) return;
 		auto bytes = getStringView("data");
+		// The width the data was packed at (glTF UNSIGNED_INT vs
+		// UNSIGNED_SHORT); the backend reads it as gold's BufferIndex32.
+		const uint64_t flags = getBool("index32", false)
+			? uint64_t(BufferIndex32) : uint64_t(BufferNone);
 		if (type == standardBufferType) {
 			auto handle = backend->createIndexBuffer(
-				bytes.data(), uint32_t(bytes.size()), 0);
+				bytes.data(), uint32_t(bytes.size()), flags);
 			setUInt16("idx", handle.idx);
 		} else if (type == dynamicBufferType) {
 			auto handle = backend->createDynamicIndexBuffer(
-				bytes.data(), uint32_t(bytes.size()), 0);
+				bytes.data(), uint32_t(bytes.size()), flags);
 			setUInt16("idx", handle.idx);
 		} else if (type == transientBufferType) {
 			auto handle = backend->createTransientIndexBuffer(
-				getUInt16("count"));
+				getUInt16("count"), flags);
 			setUInt16("idx", handle.idx);
 		}
 	}
