@@ -7,7 +7,7 @@ Gold is a C++20/26 data-driven framework with JS/TS-style ergonomics. Core conce
 * `gold::lang` – TypeScript-like scripting whose runtime is gold data
 * Pluggable backends: window, input, audio, render, dataStore
 * Web module: Express-like HTTP server, HTML/CSS parsers, file-based dataStore
-* Game module: component-based engine, bgfx rendering, SDL3 window/input
+* Game module: component-based engine, bgfx + SDL_GPU rendering as loadable plugins, SDL3 window/input
 * UI module: HTML/CSS renderer (cascade, block/flex/grid layout, CPU rasterizer) driving a texture in-world
 
 ## Quick start

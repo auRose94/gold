@@ -34,6 +34,19 @@ stay under script control. Shape components are descriptor data
 ("shapeKind" + size/mesh/node); the backend materializes collision
 shapes at body time.
 
+**Rendering** is the same seam (`createRenderBackend`): the render
+engine ships as `libgoldBgfx` (backend `"bgfx"`, the default — system
+bgfx/bimg/bx headers with the renderer library linked PRIVATEly;
+libgoldGame itself carries no bgfx code), and the typed registry
+resolves a `renderBackendType` miss through the name probe, so even
+typed calls load the plugin on demand. The SDL3 plugin also carries
+the SDL_GPU parity backend (`"sdlgpu"`; `"sdl"` aliases to it). The
+graphics facade asks by config name (`"renderBackend": "bgfx"`
+default) and falls back to `"bgfx"` when nothing provides the
+request. Without a bgfx package the plugin is skipped like every
+other optional backend (the embedded-shader toolchain still assumes
+bgfx today; the SDL_GPU parity path is the follow-up).
+
 **The web server's transport** is a plugin seam too
 (`createServerTransport`): `server.start()` resolves a transport by the
 config name, which consumes the buffered routes and blocks on its own

@@ -58,18 +58,21 @@ option(GOLD_BUILD_LANG "Build the gold scripting-language module" ON)
 option(GOLD_BUILD_TESTS "Build the gold test suite" ON)
 option(GOLD_BUILD_EXAMPLES "Build the gold example projects" OFF)
 
-# bgfx/bx/bimg come from the system bgfx package (shared lib + headers +
-# the bgfx-shaderc tool). gold no longer vendors the bgfx sources: the
-# render backend is a loadable plugin compiled against these system
-# headers, so the core binaries carry none of them. Without the package,
-# the game module cannot be built (the SDL_GPU render plugin is the
-# documented parity alternative on platforms without a bgfx package).
+# bgfx/bx/bimg come from the system bgfx package (headers + renderer
+# lib + the bgfx-shaderc tool). gold no longer vendors the bgfx sources
+# and carries none of the renderer in the core binaries: the bgfx
+# backend ships as the loadable libgoldBgfx plugin (libgoldGame keeps
+# only the bx/bimg header and container-decode use). The BUILD still
+# needs the package while the engine's embedded shaders are bgfx .sc
+# blobs; the SDL_GPU parity path is the follow-up that drops this.
 find_package(bgfx QUIET)
 if(GOLD_BUILD_GAME AND NOT bgfx_FOUND)
 	message(FATAL_ERROR
-		"gold::game needs the system bgfx package (libbgfx + headers + the "
-		"bgfx-shaderc tool, e.g. the bgfx-cmake package on Arch); build "
-		"with GOLD_BUILD_GAME=OFF, or use the SDL_GPU render parity path")
+		"the gold game module needs the system bgfx package (the "
+		"bgfx-shaderc tool for its embedded shaders + libbgfx for the "
+		"goldBgfx render plugin, e.g. the bgfx-cmake package on Arch); "
+		"build with GOLD_BUILD_GAME=OFF or use the SDL_GPU render "
+		"parity path")
 endif()
 set(GOLD_BGFX_TARGET bgfx::bgfx)
 set(GOLD_BX_TARGET bgfx::bx)

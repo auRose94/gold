@@ -53,6 +53,24 @@ TEST(bgfx_headless_frame_contract) {
 	delete backend;
 }
 
+TEST(bgfx_plugin_loads_through_name_registry) {
+	// The bgfx factory itself lives in libgoldBgfx.so — nothing in the
+	// module registers it statically any more — so a hit here proves the
+	// name registry resolves the load.
+	auto backend = createRenderBackend("bgfx");
+	EXPECT_TRUE(backend != nullptr);
+	if (backend) {
+		EXPECT_EQ(string(backend->name()), string("bgfx"));
+		backend->destroy();
+		delete backend;
+	}
+	EXPECT_TRUE(plugin::isLoaded("bgfx"));
+
+	// An unprovided name fails closed with an explanatory lastError.
+	EXPECT_TRUE(createRenderBackend("vulkan") == nullptr);
+	EXPECT_FALSE(string(plugin::lastError()).empty());
+}
+
 int main() {
 	return goldtest::runAll();
 }
