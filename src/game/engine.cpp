@@ -92,6 +92,15 @@ namespace gold {
 	var engine::initialize(list) {
 		setList("entities", list({}));
 
+		// Warm the backend registries before the settings load: the SDL
+		// plugin's registrar provides the application data directory the
+		// settings/saves live in, and it loads on first backend use —
+		// without this warmup the settings file was silently unreachable.
+		// (The instance is throwaway; nothing is initialized until
+		// create().)
+		if (auto* warmup = createWindowSystem(list({"sdl", "headless"})))
+			delete warmup;
+
 		auto configVar = loadSettings();
 		auto config = configVar.getObject();
 		auto gameName = getString("gameName");
@@ -193,10 +202,16 @@ namespace gold {
 	}
 
 	void engine::drawScene() {
+		// The render dispatch: every renderable draws itself with the
+		// view ids its prototype carries ("view": [0], ...). This used to
+		// collect renderables/lights/envMaps and stop — nothing was ever
+		// drawn with them, and the loop's bare callMethod("draw") passes
+		// no args, which every renderable rejects.
 		auto renderables = findAll(renderable::getPrototype());
-		auto lights = findAll(light::getPrototype());
-		auto envMaps = findAll(envMap::getPrototype());
-		auto cameras = getList("cameras");
+		for (auto it = renderables.begin(); it != renderables.end(); ++it) {
+			auto comp = it->getObject<renderable>();
+			comp.callMethod("draw", comp.getList("view"));
+		}
 	}
 
 	var engine::start(list) {
@@ -241,7 +256,10 @@ namespace gold {
 			initComps();
 			sortComponents();
 			callMethod("update");
-			callMethod("draw");
+			// The render dispatch: drawScene gives every renderable its
+			// proto's view ids (the old bare callMethod("draw") passed no
+			// args, which renderables reject, so nothing ever rendered).
+			drawScene();
 			phys.debugDraw();
 			gfx.renderFrame();
 

@@ -117,39 +117,7 @@ function( add_bgfx_shader FILE RETURN)
 	endif()
 endfunction()
 
-function ( read_to_hex_const PATH NAME OUTOUT DEPENDS)
-
-	get_filename_component( FILENAME "${PATH}" NAME_WE )
-	string( SUBSTRING "${FILENAME}" 0 2 TYPE )
-	set( REQUIRED_DEFINE false )
-	if( "${TYPE}" STREQUAL "fs" )
-		set( REQUIRED_DEFINE true )
-	elseif( "${TYPE}" STREQUAL "vs" )
-		set( REQUIRED_DEFINE true )
-	endif()
-
-	if(EXISTS ${PATH})
-		#message(STATUS "inlining ${PATH} at ${NAME}")
-		file(READ ${PATH} DATA_READ HEX)
-		string(REGEX REPLACE "(.)(.)"
-       "0x\\1\\2, " DATA_FIXED
-       ${DATA_READ})
-		set(DATA ${DATA_FIXED})
-		list(APPEND DEPENDS ${PATH} )
-	else()
-		set(DATA "")
-	endif()
-	string(LENGTH DATA DATA_SIZE)
-	if(${REQUIRED_DEFINE} OR EXISTS ${PATH}) 
-		if (DATA STREQUAL "")		
-			set(${OUTOUT} "${${OUTOUT}}\nstatic const std::vector<uint8_t> ${NAME} = { 0x00, };\n" PARENT_SCOPE)
-		else()
-			set(${OUTOUT} "${${OUTOUT}}\nstatic const std::vector<uint8_t> ${NAME} = { ${DATA}0x00, };\n" PARENT_SCOPE)
-		endif()
-	endif()
-endfunction()
-
-function( inline_shader NAME HEADER BUFFER)
+function( inline_shader NAME HEADER)
 	set(VERT_SHADER "" PARENT_SCOPE)
 	set(FRAG_SHADER "" PARENT_SCOPE)
 	set(COMP_SHADER "" PARENT_SCOPE)
@@ -158,11 +126,11 @@ function( inline_shader NAME HEADER BUFFER)
 	set(FRAG_NAME "fs_${NAME}")
 	set(COMP_NAME "cs_${NAME}")
 
-	set(VERT_PATH 
+	set(VERT_PATH
 		${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/${NAME}/${VERT_NAME}.sc)
-	set(FRAG_PATH 
+	set(FRAG_PATH
 		${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/${NAME}/${FRAG_NAME}.sc)
-	set(COMP_PATH 
+	set(COMP_PATH
 		${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/${NAME}/${COMP_NAME}.sc)
 
 	if(EXISTS ${VERT_PATH})
@@ -179,63 +147,46 @@ function( inline_shader NAME HEADER BUFFER)
 	endif()
 
 	target_sources(Shaders PUBLIC ${SHADERS})
-	
-	set( ${BUFFER} "//THIS FILE IS GENERATED;")
-	set( DEPENDS "")
 
-	# dx9
-	set( DX9_FRAG_OUTPUT ${SHADERS_ROOT}/dx9/${FRAG_NAME}.bin )
-	set( DX9_VERT_OUTPUT ${SHADERS_ROOT}/dx9/${VERT_NAME}.bin )
-	read_to_hex_const(${DX9_FRAG_OUTPUT} "dx9_fs_${NAME}" ${BUFFER} DEPENDS)
-	read_to_hex_const(${DX9_VERT_OUTPUT} "dx9_vs_${NAME}" ${BUFFER} DEPENDS)
-
-	# dx11
-	set( DX11_FRAG_OUTPUT ${SHADERS_ROOT}/dx11/${FRAG_NAME}.bin )
-	set( DX11_VERT_OUTPUT ${SHADERS_ROOT}/dx11/${VERT_NAME}.bin )
-	set( DX11_COMP_OUTPUT ${SHADERS_ROOT}/dx11/${COMP_NAME}.bin )
-	read_to_hex_const(${DX11_FRAG_OUTPUT} "dx11_fs_${NAME}" ${BUFFER} DEPENDS)
-	read_to_hex_const(${DX11_VERT_OUTPUT} "dx11_vs_${NAME}" ${BUFFER} DEPENDS)
-	read_to_hex_const(${DX11_COMP_OUTPUT} "dx11_cs_${NAME}" ${BUFFER} DEPENDS)
-
-	# metal
-	set( METAL_FRAG_OUTPUT ${SHADERS_ROOT}/metal/${FRAG_NAME}.bin )
-	set( METAL_VERT_OUTPUT ${SHADERS_ROOT}/metal/${VERT_NAME}.bin )
-	set( METAL_COMP_OUTPUT ${SHADERS_ROOT}/metal/${COMP_NAME}.bin )
-	read_to_hex_const(${METAL_FRAG_OUTPUT} "metal_fs_${NAME}" ${BUFFER} DEPENDS)
-	read_to_hex_const(${METAL_VERT_OUTPUT} "metal_vs_${NAME}" ${BUFFER} DEPENDS)
-	read_to_hex_const(${METAL_COMP_OUTPUT} "metal_cs_${NAME}" ${BUFFER} DEPENDS)
-
-	# essl
-	set( ESSL_FRAG_OUTPUT ${SHADERS_ROOT}/essl/${FRAG_NAME}.bin )
-	set( ESSL_VERT_OUTPUT ${SHADERS_ROOT}/essl/${VERT_NAME}.bin )
-	set( ESSL_COMP_OUTPUT ${SHADERS_ROOT}/essl/${COMP_NAME}.bin )
-	read_to_hex_const(${ESSL_FRAG_OUTPUT} "essl_fs_${NAME}" ${BUFFER} DEPENDS)
-	read_to_hex_const(${ESSL_VERT_OUTPUT} "essl_vs_${NAME}" ${BUFFER} DEPENDS)
-	read_to_hex_const(${ESSL_COMP_OUTPUT} "essl_cs_${NAME}" ${BUFFER} DEPENDS)
-
-	# glsl
-	set( GLSL_FRAG_OUTPUT ${SHADERS_ROOT}/glsl/${FRAG_NAME}.bin )
-	set( GLSL_VERT_OUTPUT ${SHADERS_ROOT}/glsl/${VERT_NAME}.bin )
-	set( GLSL_COMP_OUTPUT ${SHADERS_ROOT}/glsl/${COMP_NAME}.bin )
-	read_to_hex_const(${GLSL_FRAG_OUTPUT} "glsl_fs_${NAME}" ${BUFFER} DEPENDS)
-	read_to_hex_const(${GLSL_VERT_OUTPUT} "glsl_vs_${NAME}" ${BUFFER} DEPENDS)
-	read_to_hex_const(${GLSL_COMP_OUTPUT} "glsl_cs_${NAME}" ${BUFFER} DEPENDS)
-
-	# spirv
-	set( SPIRV_FRAG_OUTPUT ${SHADERS_ROOT}/spirv/${FRAG_NAME}.bin )
-	set( SPIRV_VERT_OUTPUT ${SHADERS_ROOT}/spirv/${VERT_NAME}.bin )
-	set( SPIRV_COMP_OUTPUT ${SHADERS_ROOT}/spirv/${COMP_NAME}.bin )
-	read_to_hex_const(${SPIRV_FRAG_OUTPUT} "spirv_fs_${NAME}" ${BUFFER} DEPENDS)
-	read_to_hex_const(${SPIRV_VERT_OUTPUT} "spirv_vs_${NAME}" ${BUFFER} DEPENDS)
-	read_to_hex_const(${SPIRV_COMP_OUTPUT} "spirv_cs_${NAME}" ${BUFFER} DEPENDS)
-
-	if(EXISTS ${HEADER})
-		file(READ ${HEADER} CURRENT_CONTENT)
-		string(COMPARE NOTEQUAL "${${BUFFER}}" CURRENT_CONTENT SHOULD_UPDATE)
-		file(GENERATE OUTPUT ${HEADER} CONTENT "${${BUFFER}}" CONDITION ${SHOULD_UPDATE})
+	# Build-time embedding: a custom command turns each compiled .bin
+	# into a byte-array constant in the target header. The old flow
+	# embedded at configure time, baking {0x00} placeholders into fresh
+	# builds until a second configure — the game rendered nothing.
+	#
+	# The embed emits EVERY consumer-visible (variant, kind) key; the
+	# script writes a {0x00} placeholder for paths that exist only on
+	# other platforms (dx11/metal on Linux, say), since consumer code
+	# switches over all of them by name.
+	if(EXISTS ${COMP_PATH})
+		set(KINDS fs vs cs)
 	else()
-		file(WRITE ${HEADER} "${${BUFFER}}")
+		set(KINDS fs vs)
 	endif()
+	set(EMBED_ENTRIES "")
+	foreach(variant IN ITEMS dx9 dx11 metal essl glsl spirv)
+		foreach(kind IN ITEMS ${KINDS})
+			list(APPEND EMBED_ENTRIES
+				"${variant}_${kind}_${NAME}|${SHADERS_ROOT}/${variant}/${kind}_${NAME}.bin")
+		endforeach()
+	endforeach()
+	# The entries list carries semicolons that would be mangled when
+	# passed as a -D value through make/ninja shells; hand it over via a
+	# configure-time file instead (one "name|path" per line).
+	string(JOIN "\n" entriesText ${EMBED_ENTRIES})
+	file(WRITE
+		"${CMAKE_CURRENT_BINARY_DIR}/${NAME}EmbedEntries.txt"
+		"${entriesText}")
+	add_custom_command(
+		OUTPUT ${HEADER}
+		COMMAND ${CMAKE_COMMAND}
+			-DOUT=${HEADER}
+			-DENTRIES_FILE=${CMAKE_CURRENT_BINARY_DIR}/${NAME}EmbedEntries.txt
+			-P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/shaderEmbedScript.cmake
+		DEPENDS ${VERT_SHADER} ${FRAG_SHADER} ${COMP_SHADER}
+		COMMENT "Embedding ${NAME} shaders into ${HEADER}"
+	)
+	set_property(
+		GLOBAL APPEND PROPERTY GOLD_SHADER_EMBED_HEADERS ${HEADER})
 endfunction()
 
 function(link_symbolic_shaders BUILD_PATH)
@@ -273,14 +224,12 @@ function(link_symbolic_shaders BUILD_PATH)
 endfunction()
 
 
-set(spriteBuffer "")
-inline_shader(
-	"sprite" 
-	"${CMAKE_CURRENT_BINARY_DIR}/shaderSprite.hpp" 
-	spriteBuffer)
+inline_shader("sprite" "${CMAKE_CURRENT_BINARY_DIR}/shaderSprite.hpp")
 
-set(wfBuffer "")
-inline_shader(
-	"wireframe" 
-	"${CMAKE_CURRENT_BINARY_DIR}/shaderWireframe.hpp" 
-	wfBuffer)
+inline_shader("wireframe" "${CMAKE_CURRENT_BINARY_DIR}/shaderWireframe.hpp")
+
+# One buildable sink for both headers; goldGame orders itself behind it
+# (add_dependencies in game.cmake), so its objects never compile against
+# missing or stale embeds.
+get_property(EMBED_HEADERS GLOBAL PROPERTY GOLD_SHADER_EMBED_HEADERS)
+add_custom_target(shaderEmbed DEPENDS ${EMBED_HEADERS})

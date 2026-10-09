@@ -23,14 +23,16 @@ using namespace std;
 using namespace gold;
 
 namespace {
-	/** The assets live next to the executable (the build tree symlinks
-	 *  them into the example's output dir; a bundled install does the
-	 *  same), so run-from-anywhere flows resolve them there first. */
+	/** The assets live beside the executable under an "assets" directory
+	 *  (the build tree symlinks the source assets there; a bundled
+	 *  install ships the same), so run-from-anywhere flows resolve them
+	 *  there first and fall back to the working directory. */
 	string assetsDir(const char* argv0) {
 		namespace fs = std::filesystem;
 		if (argv0) {
 			auto base = fs::absolute(argv0).parent_path();
-			if (fs::is_directory(base / "assets")) return base.string();
+			if (fs::is_directory(base / "assets"))
+				return (base / "assets").string();
 		}
 		return "./assets";
 	}
@@ -57,6 +59,12 @@ int main(int argc, char** argv) {
 	auto circleTexture = gpuTexture(
 		jo("path", assets + "/circle.dds",
 			"flags", "min_anis;mag_point;mip_point"));
+	// A texture that failed to load is a setup error the user should see,
+	// not a silent blank screen.
+	if (circleTexture.getUInt16("idx") == 65535)
+		cerr << "Failed to load " << assets + "/circle.dds"
+			 << " (the example expects its assets next to the binary)"
+			 << endl;
 
 	component simulator;
 

@@ -37,7 +37,7 @@ add_library(
 		3rdParty/generated/wayland/xdg-shell-protocol.c
 		src/game/world.cpp
 )
-add_dependencies(goldGame Shaders)
+add_dependencies(goldGame Shaders shaderEmbed)
 add_library(
 	gold::game ALIAS goldGame
 )

@@ -1264,7 +1264,6 @@ namespace gold {
 				// Load from file, set to object
 				auto textRet = file::readFile(path).getObject<file>();
 				auto fileData = textRet.getBinary("data");
-
 				handle = parseData(fileData);
 			}
 		}
