@@ -4,8 +4,8 @@ project(gold CXX)
 
 # The web module: transport-independent server facade (routes are
 # buffered; start() resolves a loadable serverTransport plugin), the
-# file-backed dataStore, and the HTML/CSS helpers. The transports
-# themselves (the uWS stopgap, then libwebsockets) are plugins.
+# file-backed dataStore, and the HTML/CSS helpers. The transport
+# itself (libwebsockets) is a plugin.
 add_library(
 	goldWeb
 	SHARED
@@ -61,40 +61,6 @@ target_compile_features(
 		cxx_std_26
 )
 
-# The uWS transport: the HTTP stopgap plugin. Header-only uWS templates
-# instantiate here (and only here), compiled against the vendored
-# submodule until the libwebsockets port lands.
-add_library(
-	goldUws
-	SHARED
-		src/web/transportUws.cpp
-)
-add_library(
-	gold::uws ALIAS goldUws
-)
-set_target_properties(
-	goldUws
-	PROPERTIES
-		OUTPUT_NAME libgoldUws
-		PREFIX ""
-		LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
-)
-target_compile_options(goldUws PRIVATE -Wall -Wextra -pedantic)
-target_include_directories(
-	goldUws
-	PRIVATE
-		"include"
-		"include/web"
-		3rdParty/uWebSockets/src
-)
-target_link_libraries(
-	goldUws
-	PRIVATE
-		gold::web
-		uSockets
-)
-target_compile_features(goldUws PRIVATE cxx_std_26)
-
 # The libwebsockets transport: gold's real HTTP/WebSocket engine, built
 # only when the system package exists (graceful degradation otherwise —
 # the server facade reports "no server transport available" at start).
@@ -136,5 +102,5 @@ if(LWS_FOUND)
 	)
 	target_compile_features(goldLws PRIVATE cxx_std_26)
 else()
-	message(STATUS "gold: system libwebsockets not found; building without the lws server transport (uws stopgap only)")
+	message(STATUS "gold: system libwebsockets not found; building without the lws server transport")
 endif()

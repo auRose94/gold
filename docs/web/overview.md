@@ -10,8 +10,7 @@ document store.
   routes buffer as gold data and `start()` resolves a transport plugin
   via `config "transport"`. The real engine is `"lws"` (libgoldLws,
   built when the system libwebsockets package exists): HTTP, WebSocket
-  routes, HTTPS, and graceful stop. `"uws"` remains as the vendored
-  stopgap. See [plugins](../backends/plugins.md).
+  routes, HTTPS, and graceful stop. See [plugins](../backends/plugins.md).
 - HTML5 rendering with pragmatic templating
 - File-based `dataStore` persistence
 - The HTML/CSS parsers that also feed the `ui` module's renderer
@@ -32,7 +31,7 @@ serv.start();                     // blocks on the transport loop
 serv.stop();                      // from another thread: the loop exits
 ```
 
-Route matching follows the uWS conventions gold grew with: `:id` segments
+Route matching follows the conventions gold grew with (uWS-style): `:id` segments
 capture one path segment, a trailing wildcard (`/assets/*`) captures the
 rest including slashes; unmatched requests fall through mounts, then the
 `setErrorHandler` handler (the 404-page hook), then an automatic 404.

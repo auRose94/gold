@@ -94,7 +94,7 @@ namespace gold {
 			{"host", "127.0.0.1"},
 			{"port", 8080},
 			{"cacheControl", "max-age=120"},
-			{"transport", "uws"},
+			{"transport", "lws"},
 			{"start", method(&server::start)},
 			{"stop", method(&server::stop)},
 			{"get", method(&server::get)},
@@ -160,11 +160,11 @@ namespace gold {
 		// Not initialized: the pre-transport contract returned false
 		// without entering a loop — keep it.
 		if (!getBool("initialized")) return var(false);
-		// The transport (uWS stopgap or the libwebsockets port, both
-		// loadable plugins) consumes the buffered routes + config and
-		// blocks on its own loop.
+		// The transport (the loadable libgoldLws plugin — libwebsockets)
+		// consumes the buffered routes + config and blocks on its own
+		// loop. A failed bind reports an error instead of looping.
 		auto names = list();
-		const auto transport = getString("transport", "uws");
+		const auto transport = getString("transport", "lws");
 		if (!transport.empty()) names.pushString(transport);
 		auto resolved = createServerTransport(names);
 		if (!resolved)

@@ -3,9 +3,9 @@
 // package. When the package is absent the build skips this plugin and
 // the server facade degrades to "no server transport available".
 //
-// Dispatch order matches the uWS stopgap: verb routes (:param patterns,
-// registration order) → mount fallbacks → the server's errorHandler →
-// the automatic 404. Route handlers are dispatched on the service-loop
+// Dispatch order — the convention the stopgap established: verb routes
+// (:param patterns, registration order) → mount fallbacks → the
+// server's errorHandler → the automatic 404. Route handlers are dispatched on the service-loop
 // thread; start() blocks on that thread until stop() is requested from
 // any thread.
 

@@ -87,10 +87,9 @@ host via the `script` facade (`setGlobal`/`getGlobal`/`eval`/`call`).
 - `examples/` — runnable projects (`langExample`, `blahajExample`,
   `conwaysGameOfLife`, `myWebProject`).
 - `docs/` — module docs; `docs/index.md` is the entry point.
-- `3rdParty/` — remaining vendored deps only (`bullet3`, `uWebSockets`/
-  `uSockets` stopgaps, `generated/` build input; bx/bimg/bgfx come from
-  the system bgfx package). Do not edit; queued phases migrate bullet to
-  a physics plugin and the web transport to libwebsockets
+- `3rdParty/` — only `generated/` build input and the gitignored
+  ultralight SDK; bx/bimg/bgfx come from the system bgfx package, and
+  SDL3/bullet/libwebsockets are system packages behind loadable plugins
   (`docs/backends/plugins.md`).
 
 ## Test suite

@@ -459,9 +459,15 @@ namespace gold {
 						}
 					}
 				}
+				// Evict before inserting: clearing AFTER an insert would
+				// wipe the fresh glyph, and the `return &cache[key]` that
+				// follows would then cache and hand back an empty one.
+				if (d->cache.size() >= 8192) {
+					d->cache.clear();
+					cacheSize_ = 0;
+				}
 				d->cache[key] = std::move(bitmap);
 				cacheSize_ = d->cache.size();
-				if (cacheSize_ > 8192) clearCache();
 				return &d->cache[key];
 			}
 
@@ -501,9 +507,12 @@ namespace gold {
 				}
 			}
 
+			if (d->cache.size() >= 8192) {
+				d->cache.clear();
+				cacheSize_ = 0;
+			}
 			d->cache[key] = std::move(bitmap);
 			cacheSize_ = d->cache.size();
-			if (cacheSize_ > 8192) clearCache();
 			return &d->cache[key];
 		}
 

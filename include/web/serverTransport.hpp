@@ -8,8 +8,7 @@ namespace gold {
 	 * facade keeps the API (routes, mounts, error handler, config) as
 	 * gold data; `run()` consumes it and blocks on the transport's own
 	 * event loop. Transports register into a registry with the usual
-	 * chain + plugin-load hook — the uWS stopgap ships as libgoldUws,
-	 * the libwebsockets port as libgoldLws.
+	 * chain + plugin-load hook; libwebsockets ships as libgoldLws.
 	 *
 	 * Dispatch policy is shared: transports route a request to the gold
 	 * handler func from the server's buffered route data, then hand the

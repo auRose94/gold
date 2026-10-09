@@ -1,12 +1,11 @@
 // First tests for the HTTP server: routing, the per-verb 404 catch-all,
-// the 500 error policy for throwing handlers, and listener lifecycle.
+// the 500 error policy for throwing handlers, WebSocket routes, mounts,
+// and listener lifecycle.
 //
-// The vendored uWS transport is thread-affine (the App binds to the lazy
-// loop of whatever thread creates it) and has no loop-stop API, so the
-// live server is built, configured, and started inside ONE detached
-// thread and the process ends with _Exit() after the report — see the
-// comment in main(). All waits are bounded so a regression fails, and
-// never hangs the runner.
+// The lws transport (the only one served by this suite now) supports
+// graceful stop: every live-server test owns its loop thread, stops it,
+// and joins. All waits are bounded so a regression fails, and never
+// hangs the runner.
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -183,82 +182,6 @@ TEST(server_bind_failure_reports_error) {
 	// Without a listener bound yet this reports a plain false.
 	server neverBound;
 	EXPECT_TRUE(neverBound.start().getBool() == false);
-}
-
-TEST(server_routes_404_catch_all_and_error_policy) {
-	// The App must be created, configured, and run on the same thread: the
-	// transport binds to that thread's event loop. The server is leaked on
-	// purpose; nothing else can free it safely.
-	auto* web = new server();
-
-	auto hello = func([](list args) -> var {
-		auto res = args[1].getObject<response>();
-		res.writeStatus(list({string("200 OK")}));
-		res.end(list({string("hello")}));
-		return var();
-	});
-
-	auto boom = func([](list) -> var {
-		throw std::runtime_error("route blew up");
-	});
-
-	// setYield must be reachable on the prototype: without it the handler
-	// neither answers nor yields and the router stops mid-chain.
-	auto yielding = func([](list args) -> var {
-		auto req = args[0].getObject<request>();
-		req.setYield(list({var(true)}));
-		return var();
-	});
-
-	// Same-thread init/registration/start — the documented production
-	// pattern; only the loop thread may touch the handle.
-	const int port = 20000 + (::getpid() % 20000);
-	std::thread loop([=]() {
-		web->initialize();
-		web->get(list({string("/hello"), hello}));
-		web->post(list({string("/boom"), boom}));
-		web->get(list({string("/yield"), yielding}));
-		web->setString("host", "127.0.0.1");
-		web->setInt32("port", port);
-		web->start();
-	});
-
-	const bool up = waitUntilUp(port);
-	EXPECT_TRUE(up);
-	if (up) {
-		auto hit = exchange(port,
-			"GET /hello HTTP/1.1\r\nConnection: close\r\n\r\n");
-		EXPECT_TRUE(hit.find("200 OK") != string::npos);
-		EXPECT_TRUE(hit.find("hello") != string::npos);
-
-		auto miss = exchange(port,
-			"GET /missing HTTP/1.1\r\nConnection: close\r\n\r\n");
-		EXPECT_TRUE(miss.find("404 Not Found") != string::npos);
-
-		// Non-GET 404: previously an unmatched POST left the connection
-		// hanging with no response.
-		auto missPost = exchange(port,
-			"POST /missing HTTP/1.1\r\nConnection: close\r\n\r\n");
-		EXPECT_TRUE(missPost.find("404 Not Found") != string::npos);
-
-		// A throwing handler answers 500, never unwinds into the loop.
-		auto err = exchange(port,
-			"POST /boom HTTP/1.1\r\nConnection: close\r\n\r\n");
-		EXPECT_TRUE(err.find("500 Internal Server Error") != string::npos);
-
-		// (Not a same-port collision case: uSockets sets SO_REUSEPORT, so a
-		// second bind to the same port legally succeeds on Linux.)
-		auto err2 = exchange(port,
-			"GET /boom HTTP/1.1\r\nConnection: close\r\n\r\n");
-		EXPECT_TRUE(err2.find("404 Not Found") != string::npos);
-
-		// Yield falls through to the next matching handler: the catch-all.
-		auto yielded = exchange(port,
-			"GET /yield HTTP/1.1\r\nConnection: close\r\n\r\n");
-		EXPECT_TRUE(yielded.find("404 Not Found") != string::npos);
-	}
-	// The loop thread keeps running; it is reaped at process exit.
-	loop.detach();
 }
 
 TEST(server_lws_post_body_flows_into_on_data) {
@@ -609,12 +532,8 @@ TEST(server_lws_routes_404_500_and_stops) {
 
 int main() {
 	const int code = goldtest::runAll();
-	// The uws stopgap legs keep detached loops (no graceful stop in that
-	// vintage); skipping the library teardown avoids its loop-cleanup
-	// assertion on a live loop. Every expect already counted and runAll
-	// has reported — flush that report past _Exit so the runner still
-	// sees it. (The lws legs join cleanly; the hack retires with the
-	// uws stopgap.)
-	std::cout << std::flush;
-	std::_Exit(code);
+
+	// The lws transport stops and joins cleanly — no teardown dodge
+	// needed anymore.
+	return code;
 }

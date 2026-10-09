@@ -45,9 +45,7 @@ static-mount fallbacks shared with the facade, WebSocket routes
 (`server.ws(pattern, {open, message, close})`), optional
 `"sslCert"`/`"sslKey"` HTTPS, and a graceful `server.stop()` (the loop
 returns, start() unblocks). Without the system package the build skips
-the plugin and `start()` reports "no server transport available". The
-`libgoldUws` stopgap (vendored uWebSockets) predates this seam and is
-slated for removal now that lws covers it.
+the plugin and `start()` reports "no server transport available".
 
 Loading one is all that is needed: the plugin's static initializers call
 the standard registrars (`registerWindowSystem`,

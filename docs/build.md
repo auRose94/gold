@@ -57,9 +57,8 @@ ctest --test-dir build --output-on-failure
   `libsdl3-dev` on Debian.
 - **bgfx** — required for the game module (system package).
 
-Other dependencies (bullet, freetype, uWebSockets/uSockets) still build from
-`3rdParty/` sources for now; they migrate one by one to runtime dynamic
-loading — backend code moves into optional plugin shared libraries that
+Other dependencies (freetype, bullet, libwebsockets, SDL3) come from system
+packages; backend code moves into optional plugin shared libraries that
 require nothing but their system package at build time (`feature/dynamic-
 backends`, phases 2+).
 

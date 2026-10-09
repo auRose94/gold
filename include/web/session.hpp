@@ -12,8 +12,8 @@ namespace gold {
 	 * JSON/HTML bodies, header staging, body buffering) is transport-
 	 * independent and implemented once in server.cpp.
 	 *
-	 * A transport implementation (the uWS stopgap plugin, the libwebsockets
-	 * port) creates a session per request, fills the gold request object's
+	 * A transport implementation (libwebsockets, loadable as the libgoldLws
+	 * plugin) creates a session per request, fills the gold object's
 	 * data fields (headers/params/query/method/path), and hands both
 	 * facades to the dispatch helpers.
 	 */

@@ -9,12 +9,6 @@ if(NOT MSVC)
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-gnu-zero-variadic-macro-arguments")
 endif(NOT MSVC)
 
-# ------------------------------------------------------------ web module deps
-if(GOLD_BUILD_WEB)
-	include(cmake/uSockets.cmake)
-	include(cmake/uWebSockets.cmake)
-endif()
-
 # Bullet is NOT built here: physics runs through the loadable
 # libgoldBullet plugin compiled against the system bullet package (see
 # cmake/game.cmake). Vendored physics sources were removed.

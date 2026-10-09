@@ -333,7 +333,8 @@ is absent). Selection policy: system package → platform-parity package →
 feature absent.
 
 Still vendored as stopgaps: `bullet3` (queued: physics plugin) and
-`uWebSockets`/`uSockets` (queued: port to libwebsockets). JSON and the
+libwebsockets (the web transport, a loadable plugin over the system
+package). JSON and the
 binary data formats (BSON/CBOR/MsgPack/UBJSON) are implemented in-tree
 (`src/goldjson.cpp`); the web document store is in-tree too (`dataStore`
 with a "file" backend in `src/web/dataStoreFile.cpp`). Crypto++/snappy,
