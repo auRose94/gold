@@ -345,6 +345,10 @@ namespace gold {
 				for (auto it = config.begin(); it != config.end(); ++it)
 					facade.setVar(it->first, it->second);
 				facade.initialize({});
+				// Start listening right away: clients may arrive before
+				// the engine loop starts (tool calls queue until the
+				// first pump — see mcpServerContext's execute modes).
+				facade.start({});
 				return var();
 			}
 			void setRoots(object roots) override {

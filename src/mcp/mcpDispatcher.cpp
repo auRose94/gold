@@ -77,7 +77,9 @@ namespace gold {
 					"Debug server for a running gold app. Browse app "
 					"state with state_list/state_get (gold data paths), "
 					"mutate with state_set, invoke methods with call, "
-					"and run gold::lang with eval."));
+					"and run gold::lang with eval. For the module "
+					"surfaces: entities_list, ui_query/ui_set/ui_event, "
+					"screenshot, and window_input."));
 		}
 
 		if (method == "ping") return envelope(id, jo());

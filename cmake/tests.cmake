@@ -118,6 +118,12 @@ if(GOLD_BUILD_GAME)
 		PRIVATE
 			gold::game
 	)
+	# When the mcp module is built, the engine-seam lifecycle test runs
+	# against it (the engine dlopens libgoldMcp on first backend use).
+	if(TARGET goldMcp)
+		target_compile_definitions(goldGameTests PRIVATE GOLD_MCP_MODULE=1)
+		add_dependencies(goldGameTests goldMcp)
+	endif()
 	target_compile_features(
 		goldGameTests
 		PRIVATE
@@ -289,6 +295,7 @@ if(TARGET goldMcp)
 		PRIVATE
 			gold::mcp
 			gold::web
+			gold::game
 	)
 	target_compile_features(goldMcpTests PRIVATE cxx_std_26)
 	add_test(NAME goldMcpTests COMMAND goldMcpTests)

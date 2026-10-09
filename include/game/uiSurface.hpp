@@ -94,15 +94,37 @@ namespace gold {
 		var elementRect(list args = {});
 		/** Upload / layout / paint counters, for a debug HUD. */
 		var stats(list args = {});
+		/** The current document, serialized back to markup (a gold-callable
+		 *  view onto the renderer's C++-only markup()). */
+		var markup(list args = {});
+		/** Query element descriptors by CSS selector (renderer::query).
+		 *  An empty selector returns an empty list — use markup() for
+		 *  the whole document. */
+		var query(list args = {});
+		/** Set an element's style declarations by element id
+		 *  (renderer::setStyle). */
+		var setStyle(list args = {});
 
 	 private:
+		/** The renderer instance lives in the OBJECT'S DATA (setPtr),
+		 *  not as a C++ facade member: MCP tools and other gold-handle
+		 *  dispatch call these methods on reinterpreted copies
+		 *  (getObject<uiSurface>), where class members would read
+		 *  garbage. The draw path's other members (texture_, quad
+		 *  size, counters) are only valid on the instance the app
+		 *  holds — facade dispatch of draw() on copies predates this
+		 *  and stays instance-only. */
+		UI::renderer* renderer() {
+			return (UI::renderer*)getPtr("ui");
+		}
+
 		/** Create or resize the GPU texture for the current UI size. */
 		bool ensureTexture();
 		/** Push the renderer's pixels to the GPU. */
 		bool uploadTexture();
 		/** Project a world ray onto the quad, in UI pixel coordinates. */
 		bool projectRay(const var& origin, const var& direction,
-			float& outX, float& outY) const;
+			float& outX, float& outY);
 		/** Pick the renderer backend from config "renderer" (string or
 		 *  list); the built-in software rasterizer is the chain's tail,
 		 *  so this never fails. */

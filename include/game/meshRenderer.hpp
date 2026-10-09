@@ -6,9 +6,12 @@
 namespace gold {
 	using std::string;
 	struct meshRenderer : public renderable {
-	 protected:
+	 public:
+		// Public: scripts/tests need the prototype to detect the
+		// component (same rationale as engine's).
 		static object& getPrototype();
 
+	 protected:
 		void setMaterial(camera cam, object primitive, object mesh);
 		string gatherDefines(object primitive, object meshEntry);
 		object configureVertex(

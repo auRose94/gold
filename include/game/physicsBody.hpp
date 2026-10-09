@@ -5,8 +5,12 @@
 
 namespace gold {
 	struct physicsBody : public component {
-	 protected:
+	 public:
+		// Public: scripts/tests need the prototype to detect the
+		// component (same rationale as engine's).
 		static object& getPrototype();
+
+	 protected:
 		friend struct world;
 
 	 public:

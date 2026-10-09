@@ -1,6 +1,16 @@
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <unistd.h>
+
+#include <atomic>
+#include <chrono>
 #include <iostream>
 #include <filesystem>
 #include <fstream>
+#include <string>
+#include <thread>
 
 #include "game/inputSystem.hpp"
 #include "game/window.hpp"
@@ -21,6 +31,7 @@
 #include "game/engine.hpp"
 #include "image.hpp"
 #include "goldjs.hpp"
+#include "goldjson.hpp"
 #include "goldtest.hpp"
 #include "plugin.hpp"
 #include "promise.hpp"
@@ -31,6 +42,62 @@ using namespace gold;
 struct testEngine : public engine {
 	using engine::callMethod;
 };
+
+namespace {
+	/** A bounded join attempt; false when the thread never finishes. */
+	bool joinedBounded(std::thread& t, std::atomic<int>& flag,
+		int attempts) {
+		for (int i = 0; i < attempts; ++i) {
+			if (flag.load() != -1) {
+				t.join();
+				return true;
+			}
+			std::this_thread::sleep_for(std::chrono::milliseconds(50));
+		}
+		return false;
+	}
+
+	/** One bounded loopback HTTP POST; returns the raw response (or ""
+	 *  when the socket/exchange fails). */
+	string mcpPost(int port, const string& body) {
+		int fd = (int)::socket(AF_INET, SOCK_STREAM, 0);
+		if (fd < 0) return "";
+		timeval ioTimeout{0, 500000};
+		setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &ioTimeout,
+			sizeof(ioTimeout));
+		sockaddr_in addr{};
+		addr.sin_family = AF_INET;
+		addr.sin_port = htons((uint16_t)port);
+		addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+		if (::connect(fd, (sockaddr*)&addr, sizeof(addr)) != 0) {
+			::close(fd);
+			return "";
+		}
+		string request = "POST /mcp HTTP/1.1\r\nHost: t\r\n"
+			"Content-Type: application/json\r\nContent-Length: " +
+			std::to_string(body.size()) + "\r\n\r\n" + body;
+		size_t sent = 0;
+		while (sent < request.size()) {
+			auto n = ::send(fd, request.data() + sent,
+				request.size() - sent, 0);
+			if (n <= 0) break;
+			sent += (size_t)n;
+		}
+		char buf[4096];
+		string out;
+		auto deadline = std::chrono::steady_clock::now() +
+						std::chrono::seconds(5);
+		while (std::chrono::steady_clock::now() < deadline) {
+			auto n = ::recv(fd, buf, sizeof(buf), 0);
+			if (n <= 0) break;
+			out.append(buf, (size_t)n);
+			auto headerEnd = out.find("\r\n\r\n");
+			if (headerEnd != string::npos) break;
+		}
+		::close(fd);
+		return out;
+	}
+}  // namespace
 
 TEST(window_backend_fallback) {
 	// Explicit headless.
@@ -784,6 +851,115 @@ TEST(transform_trs_composes) {
 	EXPECT_NEAR(m.getFloat(5), 2.0f, 0.0001f);
 	EXPECT_NEAR(m.getFloat(15), 1.0f, 0.0001f);
 }
+
+
+	// ------------------------------------------------------- MCP seam
+
+TEST(mcp_console_flags_parse) {
+	// --mcp=on/off enables/disables; a number enables at that port.
+	auto on = engine::backendOverrides(ja("--mcp=on"));
+	auto mcp = on.getObject("mcp");
+	EXPECT_TRUE((bool)mcp);
+	EXPECT_EQ(mcp.getBool("enabled", false), true);
+
+	auto off = engine::backendOverrides(ja("--mcp=off"));
+	EXPECT_EQ(off.getObject("mcp").getBool("enabled", true), false);
+
+	auto port = engine::backendOverrides(ja("--mcp=8090"));
+	auto mcpPort = port.getObject("mcp");
+	EXPECT_EQ(mcpPort.getBool("enabled", false), true);
+	EXPECT_EQ(mcpPort.getInt64("port", 0), 8090);
+
+	auto flagged = engine::backendOverrides(
+		ja("--mcp-port=8042", "--mcpPort", "8043"));
+	EXPECT_EQ(flagged.getObject("mcp").getInt64("port", 0), 8043);
+	EXPECT_EQ(flagged.getObject("mcp").getBool("enabled", false), true);
+}
+
+#if defined(GOLD_MCP_MODULE)
+// The full seam lifecycle: config ("mcp": {"enabled"}) + console flags
+// bring the loadable mcp module up during engine construction, and a
+// tools/call state_set on the engine root ends the loop gracefully.
+TEST(mcp_engine_seam_lifecycle) {
+	char prog[] = "mcpLifecycleTest";
+	char headless[] = "--window-backend=headless";
+	char mcpOn[] = "--mcp=on";
+	// A high test port (other suites use < 53xxx and > 55xxx).
+	const int port = 59600 + (::getpid() % 300);
+	static char portFlag[32];
+	snprintf(portFlag, sizeof(portFlag), "--mcp-port=%d", port);
+	char* argv[] = {prog, headless, mcpOn, portFlag};
+
+	std::atomic<int> started{-1};
+	std::thread loop([&] {
+		engine app("GoldRoseCode", "McpLifecycle", 4, argv);
+		// The endpoint listens; drive it through the client helpers in
+		// the mcp suite's style: initialize + a state_set that ends the
+		// app. The response may be truncated when cleanUp tears the
+		// endpoint down mid-reply, so only the lifecycle is asserted.
+		app.start();
+		started = 1;
+	});
+
+	bool up = false, callOk = false;
+	auto deadline = std::chrono::steady_clock::now() +
+					std::chrono::seconds(15);
+	for (int i = 0; i < 3000 && !up; ++i) {
+		int fd = (int)::socket(AF_INET, SOCK_STREAM, 0);
+		sockaddr_in a{};
+		a.sin_family = AF_INET;
+		a.sin_port = htons((uint16_t)port);
+		a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+		up = ::connect(fd, (sockaddr*)&a, sizeof(a)) == 0;
+		::close(fd);
+		if (!up)
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+	}
+	EXPECT_TRUE(up);
+	if (up) {
+		// One frame of engine.start() suffices to see a pump; then the
+		// tools/call queues a job and the frame pump executes it.
+		auto body = jsonStringify(jo("jsonrpc", "2.0", "id", 1,
+			"method", "tools/call", "params",
+			jo("name", "state_set", "arguments",
+				jo("path", "engine.running", "value", false))));
+		for (int i = 0; i < 500 && !callOk; ++i) {
+			auto reply = mcpPost(port, body);
+			// The reply may be cut short by cleanUp; "200 OK" is enough
+			// to know the job ran on a frame.
+			if (reply.find("200 OK") != string::npos) callOk = true;
+			else if (reply.find("202") == string::npos)
+				std::this_thread::sleep_for(
+					std::chrono::milliseconds(10));
+		}
+		EXPECT_TRUE(callOk);
+
+		// The loop should have exited via running=false; a bounded join.
+		const bool joined = [&] {
+			for (int i = 0; i < 600; ++i) {
+				if (started.load() != -1) {
+					loop.join();
+					return true;
+				}
+				std::this_thread::sleep_for(
+					std::chrono::milliseconds(50));
+			}
+			return false;
+		}();
+		EXPECT_TRUE(joined);
+	} else {
+		// The endpoint never came up (an environment problem — the
+		// flags/registry tests above still cover the wiring). Stop the
+		// thread deterministically instead of leaving it detached or
+		// hanging the runner.
+		EXPECT_TRUE(joinedBounded(loop, started, 600));
+		EXPECT_EQ(started.load(), 1);
+		return;
+	}
+
+	EXPECT_EQ(started.load(), 1);
+}
+#endif
 
 int main() {
 	return goldtest::runAll();

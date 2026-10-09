@@ -55,6 +55,9 @@ namespace gold {
 			{"on", method(&uiSurface::on)},
 			{"elementRect", method(&uiSurface::elementRect)},
 			{"stats", method(&uiSurface::stats)},
+			{"markup", method(&uiSurface::markup)},
+			{"query", method(&uiSurface::query)},
+			{"setStyle", method(&uiSurface::setStyle)},
 			{"priority", priorityEnum::drawPriority},
 			{"proto", renderable::getPrototype()},
 		});
@@ -72,8 +75,8 @@ namespace gold {
 
 	uiSurface::~uiSurface() {
 		destroy(list());
-		delete ui_;
-		ui_ = nullptr;
+		delete renderer();
+		erase("ui");
 	}
 
 	void uiSurface::selectRenderer(object config) {
@@ -92,16 +95,22 @@ namespace gold {
 		const string name = chosen ? chosen->name() : "software";
 		// Reinitialization with the same backend keeps the live renderer
 		// (and its loaded document); a new backend replaces it.
-		if (ui_ && name == rendererName_ && chosen && ui_ != chosen) {
+		auto* current = renderer();
+		if (current && name == rendererName_ && chosen &&
+			current != chosen) {
 			delete chosen;
 			return;
 		}
-		if (ui_ != chosen) {
-			delete ui_;
-			ui_ = chosen;
+		if (current != chosen) {
+			delete current;
+			current = chosen;
+			setPtr("ui", (void*)current);
 		}
-		if (!ui_) ui_ = new UI::software_renderer();
-		rendererName_ = string(ui_->name());
+		if (!current) {
+			current = new UI::software_renderer();
+			setPtr("ui", (void*)current);
+		}
+		rendererName_ = string(current->name());
 		setString("renderer", rendererName_);
 	}
 
@@ -129,7 +138,7 @@ namespace gold {
 		if (config.getType("background") != typeNull)
 			rendererConfig.setString("background",
 				config.getString("background"));
-		ui_->load(list({rendererConfig}));
+		renderer()->load(list({rendererConfig}));
 
 		const var size = config.getVar("size");
 		if (size.isVec2() || size.isFloating() || size.isNumber()) {
@@ -143,7 +152,7 @@ namespace gold {
 		}
 		interactive_ = config.getBool("interactive", true);
 		ensureTexture();
-		ui_->paint();
+		renderer()->paint();
 		uploadTexture();
 
 		// Index buffer for the quad, shared shape with `sprite`.
@@ -160,8 +169,8 @@ namespace gold {
 	}
 
 	bool uiSurface::ensureTexture() {
-		const uint32_t width = ui_->target().width;
-		const uint32_t height = ui_->target().height;
+		const uint32_t width = renderer()->target().width;
+		const uint32_t height = renderer()->target().height;
 		if (width == 0 || height == 0) return false;
 		if (texture_.valid() && width == textureWidth_ &&
 			height == textureHeight_)
@@ -173,7 +182,7 @@ namespace gold {
 
 		// Premultiplied RGBA8: the UI blends its own layers, and the shader
 		// treats the result as straight alpha, so ask for the straight copy.
-		const binary pixels = ui_->target().unpremultiply();
+		const binary pixels = renderer()->target().unpremultiply();
 		texture_ = backend->createTexture2D((uint16_t)width, (uint16_t)height,
 			false, 1, texFormat::RGBA8,
 			ClampU | ClampV |
@@ -188,7 +197,7 @@ namespace gold {
 		renderBackend* backend = gfxBackend::backend();
 		if (!backend || !texture_.valid()) return false;
 		if (!ensureTexture()) return false;
-		const binary pixels = ui_->target().unpremultiply();
+		const binary pixels = renderer()->target().unpremultiply();
 		backend->updateTexture(texture_, 0, 0, pixels.data(),
 			(uint32_t)pixels.size());
 		uploads_++;
@@ -206,15 +215,15 @@ namespace gold {
 		if (lastFrameValid_) {
 			const double delta =
 				std::chrono::duration<double>(now - lastFrame_).count();
-			if (delta > 0.0) ui_->advance(list({delta}));
+			if (delta > 0.0) renderer()->advance(list({delta}));
 		}
 		lastFrame_ = now;
 		lastFrameValid_ = true;
 
 		// The renderer only does work when something changed, so a static
 		// screen costs one comparison per frame.
-		if (ui_->dirty()) {
-			ui_->paint();
+		if (renderer()->dirty()) {
+			renderer()->paint();
 			uploadTexture();
 		}
 
@@ -239,8 +248,9 @@ namespace gold {
 		if (!tex) return genericError("uiSurface has no texture");
 
 		// (Re)build the quad when the size or resolution changed.
-		if (getBool("rebuild", false) || ui_->target().width != textureWidth_ ||
-			ui_->target().height != textureHeight_) {
+		if (getBool("rebuild", false) ||
+			renderer()->target().width != textureWidth_ ||
+			renderer()->target().height != textureHeight_) {
 			quadVertex verts[4] = {
 				{0.0f, 0.0f, 0.0f, 0.0f, 1.0f},
 				{quadWidth_, 0.0f, 0.0f, 1.0f, 1.0f},
@@ -283,7 +293,7 @@ namespace gold {
 		return var(this);
 	}
 	bool uiSurface::projectRay(const var& origin, const var& direction,
-		float& outX, float& outY) const {
+		float& outX, float& outY) {
 		// Project the ray onto the quad's plane, then into 0..1 UV, then into
 		// UI pixels. Anything outside the quad is not a hit.
 		float x = 0.0f, y = 0.0f;
@@ -295,20 +305,21 @@ namespace gold {
 		const float u = x / quadWidth_;
 		const float v = y / quadHeight_;
 		if (u < 0.0f || u > 1.0f || v < 0.0f || v > 1.0f) return false;
-		outX = u * (float)ui_->target().width;
+		outX = u * (float)renderer()->target().width;
 		// The texture's V axis runs bottom-up, the renderer's top-down.
-		outY = (1.0f - v) * (float)ui_->target().height;
+		outY = (1.0f - v) * (float)renderer()->target().height;
 		return true;
 	}
 
 	var uiSurface::pointer(list args) {
 		if (!interactive_ || args.size() < 3) return var();
 		const string type = args[0].getString();
-		if (type == "leave") return ui_->dispatch(list({"leave", -1.0, -1.0}));
+		if (type == "leave")
+			return renderer()->dispatch(list({"leave", -1.0, -1.0}));
 		float x = 0.0f, y = 0.0f;
 		if (!projectRay(args[1], args[2], x, y))
-			return ui_->dispatch(list({"leave", -1.0, -1.0}));
-		return ui_->dispatch(list({type, (double)x, (double)y}));
+			return renderer()->dispatch(list({"leave", -1.0, -1.0}));
+		return renderer()->dispatch(list({type, (double)x, (double)y}));
 	}
 
 	var uiSurface::pointerAt(list args) {
@@ -318,59 +329,79 @@ namespace gold {
 		forwarded.pushVar(args[1]);
 		forwarded.pushVar(args[2]);
 		if (args.size() > 3) forwarded.pushVar(args[3]);
-		return ui_->dispatch(forwarded);
+		return renderer()->dispatch(forwarded);
 	}
 
 	var uiSurface::pick(list args) {
 		if (args.size() < 2) return var();
 		float x = 0.0f, y = 0.0f;
 		if (!projectRay(args[0], args[1], x, y)) return var();
-		return ui_->hit(list({(double)x, (double)y}));
+		return renderer()->hit(list({(double)x, (double)y}));
 	}
 
 	var uiSurface::ui(list) {
-		return var(*ui_);
+		auto* ui = renderer();
+		if (!ui) return var();
+		return var(*ui);
 	}
 
 	var uiSurface::setHTML(list args) {
-		ui_->setHTML(args);
+		renderer()->setHTML(args);
 		return var(this);
 	}
 
 	var uiSurface::setCSS(list args) {
-		ui_->setCSS(args);
+		renderer()->setCSS(args);
 		return var(this);
 	}
 
 	var uiSurface::setResolution(list args) {
-		ui_->setViewport(args);
+		renderer()->setViewport(args);
 		erase("rebuild");
 		return var(this);
 	}
 
 	var uiSurface::setText(list args) {
-		return ui_->setText(args);
+		return renderer()->setText(args);
 	}
 
 	var uiSurface::setState(list args) {
-		return ui_->setState(args);
+		return renderer()->setState(args);
 	}
 
 	var uiSurface::on(list args) {
-		ui_->on(args);
+		renderer()->on(args);
 		return var(this);
 	}
 
 	var uiSurface::elementRect(list args) {
-		return ui_->elementRect(args);
+		return renderer()->elementRect(args);
 	}
 
 	var uiSurface::stats(list) {
-		const UI::frameStats& s = ui_->stats();
+		const UI::frameStats& s = renderer()->stats();
 		return jo("uploads", (int64_t)uploads_, "paints", (int64_t)s.paints,
 			"layoutPasses", (int64_t)s.layoutPasses, "stylePasses",
 			(int64_t)s.stylePasses, "width", (int64_t)textureWidth_, "height",
 			(int64_t)textureHeight_, "nodes", (int64_t)s.nodeCount);
+	}
+
+	var uiSurface::markup(list) {
+		auto* ui = renderer();
+		if (!ui) return var();
+		return var(ui->markup());
+	}
+
+	var uiSurface::query(list args) {
+		auto* ui = renderer();
+		if (!ui) return list();
+		return ui->query(args);
+	}
+
+	var uiSurface::setStyle(list args) {
+		auto* ui = renderer();
+		if (!ui) return var(this);
+		return ui->setStyle(args);
 	}
 
 	var uiSurface::destroy(list) {

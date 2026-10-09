@@ -18,6 +18,7 @@
 #include "goldjs.hpp"
 #include "goldjson.hpp"
 #include "goldtest.hpp"
+#include "game/uiSurface.hpp"
 #include "mcp/mcpDispatcher.hpp"
 #include "mcp/mcpServer.hpp"
 
@@ -27,10 +28,11 @@ namespace {
 
 	/** Blocking one-shot HTTP exchange over a raw loopback socket
 	 *  (bounded; reads until the advertised Content-Length is met). */
-	string exchange(int port, const string& request) {
+	string exchange(int port, const string& request,
+		int recvTimeoutMs = 300) {
 		int fd = (int)::socket(AF_INET, SOCK_STREAM, 0);
 		if (fd < 0) return "";
-		timeval ioTimeout{0, 300000};
+		timeval ioTimeout{0, (long)recvTimeoutMs * 1000};
 		setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &ioTimeout,
 			sizeof(ioTimeout));
 		sockaddr_in addr{};
@@ -85,7 +87,7 @@ namespace {
 
 	/** One MCP request over the raw socket: content-type + length are
 	 *  set for the caller's JSON body. */
-	string mcpPost(int port, const string& body) {
+	string mcpPost(int port, const string& body, int recvTimeoutMs = 300) {
 		return exchange(port,
 			"POST /mcp HTTP/1.1\r\n"
 			"Host: mcp-test\r\n"
@@ -93,7 +95,7 @@ namespace {
 			"Content-Length: " +
 				std::to_string(body.size()) +
 			"\r\nConnection: close\r\n\r\n" +
-			body);
+			body, recvTimeoutMs);
 	}
 
 	bool waitUntilUp(int port) {
@@ -538,10 +540,14 @@ TEST(mcp_facade_frame_mode_times_out_without_pump) {
 	EXPECT_TRUE(waitUntilUp(port));
 	devServer.pump({});  // frame mode active, but the pump stops now
 
+	// The 503 lands at the job timeout; give the exchange a longer
+	// receive deadline than that so the test only fails on real
+	// regressions.
 	const auto response = mcpPost(port,
 		jsonStringify(jo("jsonrpc", "2.0", "id", 1,
 			"method", "tools/call", "params",
-			jo("name", "state_get", "arguments", jo("path", "app.value")))));
+			jo("name", "state_get", "arguments", jo("path", "app.value")))),
+		2000);
 	EXPECT_TRUE(response.find("503") != string::npos);
 	auto reply = jsonParse(bodyOf(response)).getObject();
 	EXPECT_EQ(
@@ -563,6 +569,84 @@ TEST(mcp_facade_destroy_is_idempotent) {
 	devServer.destroy();
 	EXPECT_TRUE(true);
 }
+
+// The UI tools against a standalone software-rendered surface (no
+// engine, no GPU): attached as a root and addressed by path.
+TEST(mcp_ui_tools_reach_a_surface) {
+	uiSurface surface(jo(
+		"html", "<div><h1 class='title'>Hello</h1>"
+				"<p id='lead'>World</p></div>",
+		"css", "h1 { color: red; }",
+		"width", 320.0,
+		"height", 120.0));
+
+	mcpServerContext ctx;
+	ctx.globals.setObject("surface", surface);
+
+	// Empty selector: the document markup (plus stats).
+	auto reply = mcpDispatch(
+		jo("jsonrpc", "2.0", "id", 1, "method", "tools/call",
+			"params",
+			jo("name", "ui_query",
+				"arguments",
+				jo("path", "surface", "selector", ""))),
+		ctx);
+	auto markup = contentText(reply);
+	EXPECT_TRUE(markup.find("<h1") != string::npos);
+
+	// A selector finds the heading (an element id comes back).
+	auto found = mcpDispatch(
+		jo("jsonrpc", "2.0", "id", 2, "method", "tools/call",
+			"params",
+			jo("name", "ui_query",
+				"arguments",
+				jo("path", "surface", "selector", "h1.title"))),
+		ctx);
+	auto hits = jsonParse(contentText(found));
+	EXPECT_EQ(hits.getList().size(), uint64_t(1));
+	const auto id =
+		hits.getList()[0].getObject().getInt64("id");
+	EXPECT_TRUE(id > 0);
+
+	// Mutate by id; the query reflects both the text and the style.
+	auto written = mcpDispatch(
+		jo("jsonrpc", "2.0", "id", 3, "method", "tools/call",
+			"params",
+			jo("name", "ui_set",
+				"arguments",
+				jo("path", "surface", "id", (double)id,
+					"text", "Changed",
+					"style", jo("font-size", "30px")))),
+		ctx);
+	EXPECT_TRUE(!written.getObject()
+						.getObject("result")
+						.getBool("isError", false));
+
+	auto after = mcpDispatch(
+		jo("jsonrpc", "2.0", "id", 4, "method", "tools/call",
+			"params",
+			jo("name", "ui_query",
+				"arguments",
+				jo("path", "surface", "selector", "h1"))),
+		ctx);
+	auto node =
+		jsonParse(contentText(after)).getList()[0].getObject();
+	EXPECT_EQ(node.getString("text"), string("Changed"));
+
+	// A synthetic event runs the same dispatch pipeline as real input.
+	auto pressed = mcpDispatch(
+		jo("jsonrpc", "2.0", "id", 5, "method", "tools/call",
+			"params",
+			jo("name", "ui_event",
+				"arguments",
+				jo("path", "surface", "type", "down", "x", 10.0,
+					"y", 10.0))),
+		ctx);
+	EXPECT_TRUE(!pressed.getObject()
+							.getObject("result")
+							.getBool("isError", false));
+}
+
 int main() {
 	return goldtest::runAll();
 }

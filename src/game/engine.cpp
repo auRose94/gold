@@ -17,6 +17,7 @@
 #include "goldjs.hpp"
 #include "graphics.hpp"
 #include "light.hpp"
+#include "mcpServerSystem.hpp"
 #include "meshRenderer.hpp"
 #include "promise.hpp"
 #include "window.hpp"
@@ -160,6 +161,28 @@ var engine::initialize(list) {
 				}),
 			}));
 
+		// The MCP development server ("mcp" config section): a config-
+		// activated debug surface over this running engine, implemented
+		// by the loadable mcp module (HTTP via the web module's
+		// transports). When config asked for it but no module is built,
+		// say so and keep running.
+		if (auto mcpConfig = config.getObject("mcp", obj({}));
+			mcpConfig && mcpConfig.getBool("enabled", false)) {
+			auto* mcp = createMcpServer(ja("mcp"));
+			if (mcp) {
+				mcp->initialize(mcpConfig);
+				object roots;
+				roots.setObject("engine", *this);
+				mcp->setRoots(roots);
+				setPtr("mcpSystem", (void*)mcp);
+			} else {
+				cout << "Config requested the MCP server, but no mcp "
+						"module is available (build with the web module "
+						"and the lws transport)."
+					<< endl;
+			}
+		}
+
 		return var();
 	}
 
@@ -299,6 +322,12 @@ var engine::initialize(list) {
 		auto phys = getObject<world>("world");
 		gfx.setObject("window", win);
 
+		// The MCP debug surface (config "mcp" -> the loaded seam): tool
+		// calls queue on the endpoint and drain HERE — a safe point
+		// (nothing mid-frame is half-mutated, the previous frame has
+		// fully rendered). Cheap when the queue is empty.
+		auto* mcpSystem = (mcpServerSystem*)getPtr("mcpSystem");
+
 		auto cameras = getList("cameras");
 		auto comps = getList("components");
 
@@ -324,6 +353,7 @@ var engine::initialize(list) {
 		uint64_t frameCount = 0;
 
 		while (getBool("running")) {
+			if (mcpSystem) mcpSystem->pump();
 			if (ws) {
 				object ev;
 				while (ws->poll(ev)) {
@@ -405,6 +435,10 @@ var engine::initialize(list) {
 			{"render-backend", {"graphics", "renderBackend"}},
 			{"renderBackend", {"graphics", "renderBackend"}},
 			{"renderer", {"graphics", "backend"}},
+			// The MCP debug endpoint: --mcp=on|off|PORT, --mcp-port=PORT.
+			{"mcp", {"mcp", "enabled"}},
+			{"mcp-port", {"mcp", "port"}},
+			{"mcpPort", {"mcp", "port"}},
 		};
 
 		object overrides;
@@ -432,10 +466,26 @@ var engine::initialize(list) {
 			if (flag == flags.end() || value.empty()) continue;
 			auto section =
 				overrides.getObject(flag->second.first, obj({}));
+			// The MCP section carries typed values: a port number both
+			// enables and binds, on/off is a boolean.
+			if (flag->second.first == "mcp") {
+				if (flag->second.second == "port") {
+					section.setBool("enabled", true);
+					section.setInt64("port", atoll(value.c_str()));
+				} else if (value == "off" || value == "false")
+					section.setBool("enabled", false);
+				else if (value == "on" || value == "true")
+					section.setBool("enabled", true);
+				else {
+					// A number: enable at that port.
+					section.setBool("enabled", true);
+					section.setInt64("port", atoll(value.c_str()));
+				}
+			}
 			// The window config takes a fallback chain: commas become
 			// the name list the window facade already accepts.
-			if (flag->second.first == "window" &&
-				value.find(',') != string::npos) {
+			else if (flag->second.first == "window" &&
+					 value.find(',') != string::npos) {
 				list names;
 				stringstream values(value);
 				string part;
@@ -450,7 +500,7 @@ var engine::initialize(list) {
 	}
 
 	set<string> engine::allowedConfigNames() {
-		return {"window", "graphics"};
+		return {"window", "graphics", "mcp"};
 	}
 
 	engine& engine::operator+=(list items) {
@@ -532,6 +582,15 @@ var engine::initialize(list) {
 	}
 
 	void engine::cleanUp() {
+		// Stop the MCP endpoint before anything it can reach is torn
+		// down: tool calls (screenshots, method calls) must not run
+		// against dying backends.
+		if (auto* mcpSystem = (mcpServerSystem*)getPtr("mcpSystem")) {
+			mcpSystem->shutdown();
+			erase("mcpSystem");
+			delete mcpSystem;
+		}
+
 		auto win = getObject<window>("window");
 		auto gfx = getObject<gfxBackend>("graphics");
 		auto phys = getObject<world>("world");
