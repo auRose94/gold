@@ -38,6 +38,10 @@ What's in the box?
   live behind pure interfaces, registered by name, selected from your
   config or **the command line** (`--render-backend=sdlgpu`), with
   fallback chains; optional backends are dynamically-loaded plugins
+* An integrated MCP (Model Context Protocol) debug server
+  (`--mcp=8090`, config key `"mcp"`): an agent over localhost HTTP can
+  read/write the running app's live gold data, call methods, eval
+  gold::lang, query/mutate the UI, and pull rendered screenshots
   (`libgoldSdl3.so`, `libgoldBgfx.so`, ...) — nothing platform-specific
   is baked in
 * Auto shader compilation, with inlining — through the backend that owns

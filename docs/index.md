@@ -8,6 +8,7 @@ Gold is a C++20/26 data-driven framework with JS/TS-style ergonomics. Core conce
 * Pluggable backends: window, input, audio, render, dataStore
 * Web module: Express-like HTTP server, HTML/CSS parsers, file-based dataStore
 * Game module: component-based engine, bgfx + SDL_GPU rendering as loadable plugins, SDL3 window/input
+* MCP module: an embeddable Model Context Protocol debug server (config-activated; tools over the running app's live gold data)
 * UI module: HTML/CSS renderer (cascade, block/flex/grid layout, CPU rasterizer) driving a texture in-world
 
 ## Quick start
@@ -40,6 +41,7 @@ ctest --test-dir build --output-on-failure
 - [Web module](web/overview.md)
 - [UI module](ui/overview.md)
 - [Game module](game/overview.md)
+- [MCP debug server](mcp/overview.md)
 - [Backends](backends/overview.md)
 - [Plugins (runtime-loaded backends)](backends/plugins.md)
 - [Build & config](build.md)

@@ -24,6 +24,10 @@ The `gold::game` module provides a component-based engine for 3D and 2D games, b
   write a PNG of the back buffer at frame 16 (CI/agents can then verify a
   render without reading the screen).
 - Config `"graphics": {"debug": true}` enables bgfx's debug overlay/stats.
+- The MCP debug server: config `"mcp": {"enabled": true}` (or
+  `--mcp=8090`) embeds an MCP endpoint over the running engine — state
+  paths, method calls, gold::lang eval, UI queries, screenshots. See the
+  [MCP module](../mcp/overview.md).
 
 ## Console arguments
 
@@ -35,6 +39,7 @@ wins over the settings file, which wins over the defaults:
 ./myApp --window-backend=wayland,sdl   # window system, with fallback chain
 ./myApp --render-backend=sdlgpu        # render backend (bgfx default)
 ./myApp --renderer=Vulkan              # the graphics "backend" renderer-API hint
+./myApp --mcp=8090                     # the MCP debug endpoint, on
 ```
 
 `engine::backendOverrides(list args)` is the parser by itself — gold

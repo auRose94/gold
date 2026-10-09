@@ -87,6 +87,8 @@ host via the `script` facade (`setGlobal`/`getGlobal`/`eval`/`call`).
 - `examples/` — runnable projects (`langExample`, `blahajExample`,
   `conwaysGameOfLife`, `myWebProject`).
 - `docs/` — module docs; `docs/index.md` is the entry point.
+- `mcp/` — the embeddable MCP debug server (loadable module; config
+  key `"mcp"`; endpoint + dispatcher + tools; docs/mcp/overview.md).
 - `3rdParty/` — only `generated/` build input and the gitignored
   ultralight SDK; bx/bimg/bgfx come from the system bgfx package, and
   SDL3/bullet/libwebsockets are system packages behind loadable plugins
@@ -110,6 +112,7 @@ executable is a separate CTest target:
 | `goldWebTests` | `tests/webTest.cpp` | web |
 | `goldWebPersistenceTests` | `tests/webPersistenceTest.cpp` | web |
 | `goldUITests` | `tests/uiTest.cpp` | ui |
+| `goldMcpTests` | `tests/mcpTest.cpp` | mcp |
 
 To add a test: put a `TEST(...)` block in the matching file (or add a new
 `.cpp` and register it in `cmake/tests.cmake`). Run the whole suite with
