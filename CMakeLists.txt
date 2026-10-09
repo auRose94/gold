@@ -91,6 +91,11 @@ unset(_MSC_VER CACHE)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD 26)
+# Cross-module PRIVATE dependencies resolve in the build tree with
+# $ORIGIN-relative rpaths (an example links only gold::game, so
+# libgoldGame -> libgoldUI must not depend on the example's own
+# runpath); install rewrites these to the same-dir $ORIGIN form.
+set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
 
 # Export a full compile_commands.json (all C++ targets) so clangd/LSP
 # resolves the correct standard and include paths.
@@ -172,7 +177,7 @@ endif()
 # RPATH_CHANGE check ("no valid ELF RPATH entry").
 foreach(goldLib goldShared goldWeb goldUI goldLang goldGame)
 	if(TARGET ${goldLib})
-		set_target_properties(${goldLib} PROPERTIES SKIP_BUILD_RPATH ON)
+		set_target_properties(${goldLib} PROPERTIES INSTALL_RPATH "$ORIGIN")
 	endif()
 endforeach()
 install(
@@ -185,6 +190,7 @@ install(
 # Optional plugins land beside the modules (loader search path).
 foreach(goldPlugin goldLws goldSDL3 goldSDL2 goldBullet goldBgfx goldUIUltralight)
 	if(TARGET ${goldPlugin})
+		set_target_properties(${goldPlugin} PROPERTIES INSTALL_RPATH "$ORIGIN")
 		install(TARGETS ${goldPlugin}
 			LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 			RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
